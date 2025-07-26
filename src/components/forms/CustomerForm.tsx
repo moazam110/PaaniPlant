@@ -14,6 +14,7 @@ import { Loader2 } from 'lucide-react';
 import type { Customer } from '@/types'; 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 
 // Schema without profilePicture
 const customerFormSchema = z.object({
@@ -79,7 +80,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
           console.log('Customer ID type:', typeof customerId);
           console.log('Full customer object:', editingCustomer);
           
-          const statsUrl = `http://localhost:4000/api/customers/${customerId}/stats`;
+          const statsUrl = buildApiUrl(`api/customers/${customerId}/stats`);
           console.log('Stats URL:', statsUrl);
           
           const response = await fetch(statsUrl);
@@ -187,7 +188,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
       if (isEditMode && (editingCustomer?._id || editingCustomer?.customerId)) {
         // Update existing customer
         const customerId = editingCustomer._id || editingCustomer.customerId;
-        const response = await fetch(`http://localhost:4000/api/customers/${customerId}`, {
+        const response = await fetch(buildApiUrl(`api/customers/${customerId}`), {
           method: 'PUT',
           headers: { 
             'Content-Type': 'application/json',
@@ -209,7 +210,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
         });
       } else {
         // Add new customer
-        const response = await fetch('http://localhost:4000/api/customers', {
+        const response = await fetch(buildApiUrl(API_ENDPOINTS.CUSTOMERS), {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',

@@ -18,6 +18,7 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { UserCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -104,7 +105,7 @@ export default function CreateDeliveryRequestForm({
         setIsLoadingCustomers(true);
         try {
           console.log('Fetching customers for delivery request...');
-          const customersResponse = await fetch('http://localhost:4000/api/customers');
+          const customersResponse = await fetch(buildApiUrl(API_ENDPOINTS.CUSTOMERS));
           
           if (!customersResponse.ok) {
             throw new Error(`HTTP error! status: ${customersResponse.status}`);
@@ -115,7 +116,7 @@ export default function CreateDeliveryRequestForm({
           setAllCustomers(customersData);
 
           // Fetch active requests to prevent duplicates
-          const requestsResponse = await fetch('http://localhost:4000/api/delivery-requests');
+          const requestsResponse = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS));
           if (requestsResponse.ok) {
             const requestsData: DeliveryRequest[] = await requestsResponse.json();
             const activeCustomerIds = new Set<string>();
@@ -209,7 +210,7 @@ export default function CreateDeliveryRequestForm({
 
     try {
       if (isEditMode && editingRequest) {
-        const response = await fetch(`http://localhost:4000/api/delivery-requests/${editingRequest._id || editingRequest.requestId}`, {
+        const response = await fetch(buildApiUrl(`api/delivery-requests/${editingRequest._id || editingRequest.requestId}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -229,7 +230,7 @@ export default function CreateDeliveryRequestForm({
           throw new Error('Failed to update request');
         }
       } else if (selectedCustomer) {
-        const response = await fetch('http://localhost:4000/api/delivery-requests', {
+        const response = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

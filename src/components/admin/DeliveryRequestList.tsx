@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, AlertTriangle, PlusCircle, Pencil, CheckCircle, XCircle, Ban } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useToast } from "@/hooks/use-toast";
@@ -51,7 +52,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
 
   useEffect(() => {
     setIsLoadingCustomers(true);
-    fetch('http://localhost:4000/api/customers')
+    fetch(buildApiUrl(API_ENDPOINTS.CUSTOMERS))
       .then(res => res.json())
       .then((data) => {
         setAllCustomers(data);

@@ -18,6 +18,7 @@ import CustomerList, { CustomerListRef } from '@/components/admin/CustomerList';
 import DeliveryRequestList from '@/components/admin/DeliveryRequestList';
 import NotificationItem from '@/components/notifications/NotificationItem';
 import { startOfDay, endOfDay, isWithinInterval } from 'date-fns';
+import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 
 export default function AdminDashboardPage() {
   const router = useRouter();
@@ -56,7 +57,7 @@ export default function AdminDashboardPage() {
       // Function to fetch dashboard metrics
       const fetchDashboardMetrics = async () => {
         try {
-          const res = await fetch('http://localhost:4000/api/dashboard/metrics');
+          const res = await fetch(buildApiUrl(API_ENDPOINTS.DASHBOARD_METRICS));
           if (!res.ok) {
             throw new Error(`HTTP error! status: ${res.status}`);
           }
@@ -77,7 +78,7 @@ export default function AdminDashboardPage() {
       // Function to fetch delivery requests
       const fetchDeliveryRequests = async () => {
         try {
-          const res = await fetch('http://localhost:4000/api/delivery-requests');
+          const res = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS));
           if (!res.ok) {
             throw new Error(`HTTP error! status: ${res.status}`);
           }
@@ -120,7 +121,7 @@ export default function AdminDashboardPage() {
     // Check backend connection
     const checkBackendConnection = async () => {
       try {
-        const response = await fetch('http://localhost:4000/api/health', {
+        const response = await fetch(buildApiUrl(API_ENDPOINTS.HEALTH), {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
           // Add a timeout to prevent hanging
@@ -274,7 +275,7 @@ export default function AdminDashboardPage() {
                 <p className="text-sm font-medium">⚠️ Backend server is not connected</p>
                 <p className="text-xs mt-1">
                   Make sure the backend is running on port 4000. 
-                  <a href="http://localhost:4000/api/health" target="_blank" rel="noopener noreferrer" className="underline ml-1">
+                  <a href={buildApiUrl(API_ENDPOINTS.HEALTH)} target="_blank" rel="noopener noreferrer" className="underline ml-1">
                     Test backend health
                   </a>
                 </p>
