@@ -4,10 +4,11 @@ const nextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:4000/api/:path*',
+        destination: 'https://paani-b.onrender.com/api/:path*', // ⬅ your backend URL
       },
     ];
   },
 };
 
 module.exports = nextConfig;
+
