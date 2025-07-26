@@ -42,7 +42,7 @@ const customerSchema = new mongoose.Schema({
   phone: { type: String, default: '' },
   address: { type: String, required: true },
   defaultCans: { type: Number, default: 1 },
-  pricePerCan: { type: Number, required: true, min: 1, max: 999 },
+  pricePerCan: { type: Number, required: true, min: 0, max: 999 },
   notes: { type: String, default: '' },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
@@ -493,7 +493,8 @@ app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'OK', 
     timestamp: new Date().toISOString(),
-    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    databaseName: mongoose.connection.db ? mongoose.connection.db.databaseName : 'unknown'
   });
 });
 

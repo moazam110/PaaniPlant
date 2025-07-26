@@ -19,7 +19,7 @@ const addCustomerSchema = z.object({
   phone: z.string().optional(),
   address: z.string().min(1, { message: "Address is required." }),
   defaultCans: z.coerce.number().min(0, { message: "Default cans cannot be negative." }).default(1),
-  pricePerCan: z.coerce.number().min(1, { message: "Price per can is required and must be greater than 0." }).max(999, { message: "Price cannot exceed 999." }),
+  pricePerCan: z.coerce.number().min(0, { message: "Price per can cannot be negative." }).max(999, { message: "Price cannot exceed 999." }),
   notes: z.string().optional(),
 });
 
@@ -41,7 +41,7 @@ export default function AddCustomerForm({ onSuccess }: AddCustomerFormProps) {
       phone: "",
       address: "",
       defaultCans: 1,
-      pricePerCan: 1, // Set to minimum allowed value
+      pricePerCan: 0, // Set to minimum allowed value
       notes: "",
     },
   });
@@ -102,7 +102,7 @@ export default function AddCustomerForm({ onSuccess }: AddCustomerFormProps) {
           phone: "",
           address: "",
           defaultCans: 1,
-          pricePerCan: 1, // Set to minimum allowed value
+          pricePerCan: 0, // Set to minimum allowed value
           notes: "",
         });
 
