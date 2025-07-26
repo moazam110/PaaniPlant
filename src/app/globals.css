@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+@layer base {
+  :root {
+    /* Light Theme based on WaterWise Delivery PRD */
+    --background: 231 48% 95%; /* #E8EAF6 - Light blue, very desaturated */
+    --foreground: 230 35% 25%; /* Dark grayish blue for text */
+
+    --card: 0 0% 100%; /* White, for cards that will have glass effect */
+    --card-foreground: 230 35% 25%; /* Dark text on cards */
+
+    --popover: 0 0% 100%; /* White for popovers */
+    --popover-foreground: 230 35% 25%; /* Dark text on popovers */
+
+    --primary: 231 48% 48%; /* #3F51B5 - Deep blue */
+    --primary-foreground: 0 0% 100%; /* White text on primary */
+
+    --secondary: 231 40% 88%; /* Lighter, muted blue for secondary elements */
+    --secondary-foreground: 231 48% 48%; /* Primary color for text on secondary */
+
+    --muted: 230 40% 92%; /* Very light gray-blue for muted backgrounds */
+    --muted-foreground: 230 30% 50%; /* Medium gray-blue for muted text */
+
+    --accent: 231 53% 40%; /* #303F9F - Vibrant blue accent */
+    --accent-foreground: 0 0% 100%; /* White text on accent */
+
+    --destructive: 0 70% 60%; /* Bright red */
+    --destructive-foreground: 0 0% 100%; /* White text on destructive */
+
+    --border: 230 30% 80%; /* Light gray-blue border */
+    --input: 0 0% 100%; /* White background for inputs, border will define it */
+    --ring: 231 48% 48%; /* Primary blue for focus rings */
+    
+    --chart-1: 231 48% 48%; /* Primary */
+    --chart-2: 231 53% 40%; /* Accent */
+    --chart-3: 200 80% 55%; /* A distinct Teal/Cyan */
+    --chart-4: 30 80% 55%;  /* A distinct Orange */
+    --chart-5: 120 60% 50%; /* A distinct Green */
+    --radius: 0.75rem;
+
+    /* Sidebar colors for light theme */
+    --sidebar-background: 230 50% 97%; /* Slightly off-white/very light blue for sidebar */
+    --sidebar-foreground: 230 35% 25%; /* Dark text */
+    --sidebar-primary: 231 48% 48%; /* Deep blue */
+    --sidebar-primary-foreground: 0 0% 100%; /* White */
+    --sidebar-accent: 231 53% 40%; /* Vibrant blue */
+    --sidebar-accent-foreground: 0 0% 100%; /* White */
+    --sidebar-border: 230 30% 85%; /* Light border for sidebar */
+    --sidebar-ring: 231 48% 48%; /* Primary blue for rings */
+  }
+
+  /* Removed .dark class overrides to enforce light theme only */
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Glassmorphism for cards, adapted for light theme */
+.glass-card {
+  @apply bg-white/60 backdrop-blur-xl border border-[hsl(var(--border))]/50 shadow-xl rounded-xl;
+}
+
+/* Ensure inputs have a visible border in light theme */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="tel"],
+input[type="search"],
+input[type="number"],
+textarea {
+  @apply border border-input focus:border-ring;
+}
