@@ -18,7 +18,7 @@ import CustomerList, { CustomerListRef } from '@/components/admin/CustomerList';
 import DeliveryRequestList from '@/components/admin/DeliveryRequestList';
 import NotificationItem from '@/components/notifications/NotificationItem';
 import { startOfDay, endOfDay, isWithinInterval } from 'date-fns';
-import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
+import { buildApiUrl, API_ENDPOINTS, API_BASE_URL } from '@/lib/api';
 
 export default function AdminDashboardPage() {
   const router = useRouter();
@@ -121,19 +121,33 @@ export default function AdminDashboardPage() {
     // Check backend connection
     const checkBackendConnection = async () => {
       try {
-        const response = await fetch(buildApiUrl(API_ENDPOINTS.HEALTH), {
+        const healthUrl = buildApiUrl(API_ENDPOINTS.HEALTH);
+        console.log('🔍 Health check URL:', healthUrl);
+        console.log('🌐 API_BASE_URL:', API_BASE_URL);
+        console.log('🔧 Environment NEXT_PUBLIC_API_BASE_URL:', process.env.NEXT_PUBLIC_API_BASE_URL);
+        
+        const response = await fetch(healthUrl, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
           // Add a timeout to prevent hanging
           signal: AbortSignal.timeout(5000)
         });
+        
+        console.log('✅ Health check response status:', response.status);
+        console.log('📦 Health check response ok:', response.ok);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('📋 Health check data:', data);
+        }
+        
         setIsBackendConnected(response.ok);
         
         if (!response.ok) {
-          console.warn('Backend health check failed:', response.status);
+          console.warn('⚠️ Backend health check failed:', response.status);
         }
       } catch (err) {
-        console.error('Backend connection error:', err);
+        console.error('❌ Backend connection error:', err);
         setIsBackendConnected(false);
       }
     };
