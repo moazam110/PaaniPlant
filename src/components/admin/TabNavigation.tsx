@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { Truck, BarChart3, Users, UserCheck } from 'lucide-react';
 
@@ -18,145 +18,68 @@ const tabs = [
 ];
 
 export default function TabNavigation({ activeTab, onTabChange, children }: TabNavigationProps) {
-  const [isMounted, setIsMounted] = useState(false);
-  
-  // Convert children to array for easier access
+  // Convert children to array
   const childrenArray = React.Children.toArray(children);
   
-  // Find active index with proper fallback
+  // Find which tab is active
   const activeIndex = tabs.findIndex(tab => tab.id === activeTab);
-  const validActiveIndex = activeIndex >= 0 ? activeIndex : 0;
-
-  // Ensure component is mounted
+  
+  // Debug logging
   useEffect(() => {
-    setIsMounted(true);
-    console.log('TabNavigation mounted with activeTab:', activeTab);
-  }, []);
-
-  // Debug logging for tab switching
-  useEffect(() => {
-    console.log('TabNavigation State:', {
+    console.log('Simple TabNavigation:', {
       activeTab,
       activeIndex,
-      validActiveIndex,
-      tabsLength: tabs.length,
-      childrenCount: childrenArray.length,
-      isMounted
+      childrenCount: childrenArray.length
     });
-    
-    if (activeTab === 'customers') {
-      console.log('🎯 Customer tab should now be visible!');
-    }
-  }, [activeTab, validActiveIndex, childrenArray.length, isMounted]);
-
-  // Hide keyboard when switching tabs
-  useEffect(() => {
-    const activeElement = document.activeElement as HTMLElement;
-    if (activeElement && activeElement.blur) {
-      activeElement.blur();
-    }
-  }, [activeTab]);
-
-  if (!isMounted) {
-    return (
-      <div className="flex flex-col h-full">
-        <div className="p-8 text-center">
-          <p className="text-muted-foreground">Loading navigation...</p>
-        </div>
-      </div>
-    );
-  }
+  }, [activeTab, activeIndex, childrenArray.length]);
 
   return (
-    <div className="flex flex-col h-full bg-background">
-      {/* Tab Navigation Bar */}
-      <div className="sticky top-0 z-10 bg-background border-b border-border shadow-sm">
-        <nav className="flex w-full">
-          {tabs.map((tab, index) => {
+    <div className="flex flex-col h-full">
+      {/* Tab Navigation */}
+      <div className="border-b bg-background">
+        <nav className="flex">
+          {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = tab.id === activeTab;
             
             return (
               <button
                 key={tab.id}
-                onClick={() => {
-                  console.log(`Switching to tab: ${tab.id}`);
-                  onTabChange(tab.id);
-                }}
+                onClick={() => onTabChange(tab.id)}
                 className={cn(
-                  "flex-1 flex flex-col items-center justify-center py-3 px-2 transition-all duration-200 ease-in-out",
-                  "min-h-[60px] touch-manipulation relative",
+                  "flex-1 flex flex-col items-center justify-center py-3 px-2",
+                  "min-h-[60px]",
                   isActive
                     ? "text-primary border-b-2 border-primary bg-primary/5"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    : "text-muted-foreground hover:text-foreground"
                 )}
-                aria-label={`Switch to ${tab.label} tab`}
-                role="tab"
-                aria-selected={isActive}
-                type="button"
               >
-                <Icon className={cn(
-                  "h-5 w-5 mb-1 transition-transform duration-200",
-                  isActive && "scale-110"
-                )} />
+                <Icon className="h-5 w-5 mb-1" />
                 <span className="text-xs font-medium">{tab.label}</span>
-                {isActive && (
-                  <div className="absolute inset-0 bg-primary/10 rounded-md opacity-50" />
-                )}
               </button>
             );
           })}
         </nav>
       </div>
 
-      {/* Tab Content - Simple Conditional Rendering */}
-      <div className="flex-1 overflow-hidden relative bg-background">
-        {/* Debug Panel */}
-        <div className="absolute top-2 right-2 z-50 bg-yellow-100 border border-yellow-400 rounded px-2 py-1 text-xs">
-          Active: {activeTab} ({validActiveIndex})
+      {/* Tab Content */}
+      <div className="flex-1 overflow-y-auto">
+        {/* Show delivery content */}
+        {activeTab === 'delivery' && childrenArray[0]}
+        
+        {/* Show stats content */}
+        {activeTab === 'stats' && childrenArray[1]}
+        
+        {/* Show customers content */}
+        {activeTab === 'customers' && childrenArray[2]}
+        
+        {/* Show staff content */}
+        {activeTab === 'staff' && childrenArray[3]}
+        
+        {/* Debug info */}
+        <div className="fixed bottom-4 right-4 bg-black text-white px-2 py-1 rounded text-xs z-50">
+          {activeTab} (index: {activeIndex})
         </div>
-
-        {/* Render only the active tab content */}
-        {childrenArray.map((child, index) => {
-          const isActiveChild = index === validActiveIndex;
-          
-          return (
-            <div
-              key={index}
-              className={cn(
-                "absolute inset-0 w-full h-full overflow-y-auto",
-                isActiveChild ? "block" : "hidden"
-              )}
-              style={{
-                display: isActiveChild ? 'block' : 'none'
-              }}
-            >
-              {/* Additional debug info for customer tab */}
-              {activeTab === 'customers' && index === validActiveIndex && (
-                <div className="absolute top-0 left-0 w-full bg-green-100 border-b-2 border-green-500 p-2 z-40">
-                  <p className="text-green-800 text-sm font-medium">
-                    ✅ Customer Tab Content is Rendering (Index: {index}, Active Index: {validActiveIndex})
-                  </p>
-                </div>
-              )}
-              
-              {/* Render the actual child content */}
-              <div className={activeTab === 'customers' ? 'pt-12' : ''}>
-                {child}
-              </div>
-            </div>
-          );
-        })}
-
-        {/* Fallback content if no children */}
-        {childrenArray.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center">
-              <p className="text-lg font-medium text-muted-foreground">No content available</p>
-              <p className="text-sm text-muted-foreground">No child components found</p>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
