@@ -168,7 +168,7 @@ export default function StatsTab({
 
           <Card className="glass-card">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Cans Received</CardTitle>
+              <CardTitle className="text-sm font-medium">Total Delivered Cans</CardTitle>
               <PackageSearch className="h-5 w-5 text-muted-foreground" />
             </CardHeader>
             <CardContent>

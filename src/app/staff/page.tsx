@@ -77,35 +77,57 @@ export default function StaffPage() {
       setIsPlayingAlarm(true);
       console.log('🔊 Starting 5-second alarm for new delivery request');
       
-      // Create a continuous alarm sound for 5 seconds
+      // Create a single oscillator for the entire 5-second duration
       const oscillator = context.createOscillator();
       const gainNode = context.createGain();
       
       oscillator.type = 'sine';
       oscillator.frequency.setValueAtTime(800, context.currentTime);
       
-      // Create a pulsing effect: beep pattern for 5 seconds
+      // Start with no volume
       gainNode.gain.setValueAtTime(0, context.currentTime);
       
-      // Create beeping pattern for 5 seconds
-      for (let i = 0; i < 25; i++) { // 25 beeps over 5 seconds
-        const startTime = context.currentTime + (i * 0.2);
-        gainNode.gain.setValueAtTime(0, startTime);
-        gainNode.gain.linearRampToValueAtTime(0.6, startTime + 0.05);
-        gainNode.gain.linearRampToValueAtTime(0, startTime + 0.1);
+      // Create beeping pattern: 0.2s on, 0.3s off, repeat for 5 seconds
+      const currentTime = context.currentTime;
+      const endTime = currentTime + 5.0;
+      
+      let time = currentTime;
+      while (time < endTime) {
+        // Beep on for 0.2 seconds
+        gainNode.gain.setValueAtTime(0, time);
+        gainNode.gain.linearRampToValueAtTime(0.5, time + 0.01);
+        gainNode.gain.setValueAtTime(0.5, time + 0.2);
+        gainNode.gain.linearRampToValueAtTime(0, time + 0.21);
+        
+        // Silent for 0.3 seconds
+        gainNode.gain.setValueAtTime(0, time + 0.21);
+        
+        time += 0.5; // Move to next beep (0.2s sound + 0.3s silence)
       }
+      
+      // Ensure it ends at 0 volume
+      gainNode.gain.setValueAtTime(0, endTime);
       
       oscillator.connect(gainNode);
       gainNode.connect(context.destination);
       
-      oscillator.start(context.currentTime);
-      oscillator.stop(context.currentTime + 5.0); // Stop after exactly 5 seconds
+      // Start and stop the oscillator
+      oscillator.start(currentTime);
+      oscillator.stop(endTime);
       
-      // Reset playing state after 5 seconds
-      setTimeout(() => {
+      // Clean up when finished
+      oscillator.onended = () => {
         setIsPlayingAlarm(false);
-        console.log('🔇 5-second alarm completed');
-      }, 5100);
+        console.log('🔇 5-second alarm completed automatically');
+      };
+      
+      // Fallback timeout in case onended doesn't fire
+      setTimeout(() => {
+        if (isPlayingAlarm) {
+          setIsPlayingAlarm(false);
+          console.log('🔇 5-second alarm timeout reached');
+        }
+      }, 5200);
       
     } catch (error) {
       console.warn('Audio alarm failed:', error);
