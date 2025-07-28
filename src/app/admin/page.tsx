@@ -17,7 +17,6 @@ import TabNavigation from '@/components/admin/TabNavigation';
 import DeliveryTab from '@/components/admin/tabs/DeliveryTab';
 import StatsTab from '@/components/admin/tabs/StatsTab';
 import CustomersTab from '@/components/admin/tabs/CustomersTab';
-import StaffTab from '@/components/admin/tabs/StaffTab';
 
 export default function AdminDashboardPage() {
   const router = useRouter();
@@ -54,7 +53,7 @@ export default function AdminDashboardPage() {
 
   // Ensure activeTab is always valid
   useEffect(() => {
-    const validTabs = ['delivery', 'stats', 'customers', 'staff'];
+    const validTabs = ['delivery', 'stats', 'customers'];
     if (!validTabs.includes(activeTab)) {
       setActiveTab('delivery');
     }
@@ -291,8 +290,6 @@ export default function AdminDashboardPage() {
             onEditCustomer={handleEditCustomer}
             onAddNewCustomer={handleAddNewCustomer}
           />
-          
-          <StaffTab />
         </TabNavigation>
 
             {/* Dialog for Adding/Editing Customer */}
@@ -318,14 +315,6 @@ export default function AdminDashboardPage() {
                 if (!isOpen) closeRequestDialog(); else setIsRequestDialogOpen(true);
             }}>
                 <DialogContent className="sm:max-w-[525px] flex flex-col max-h-[calc(100vh-4rem)] glass-card">
-                    <DialogHeader className="flex-shrink-0">
-                    <DialogTitle>
-                        {editingRequestData ? `Edit Request for ${editingRequestData.customerName}` : (customerToPreselectForRequest ? `Create Request for ${customerToPreselectForRequest.name}` : "Create New Delivery Request")}
-                    </DialogTitle>
-                    <DialogDescription>
-                        {editingRequestData ? "Modify the details below, or cancel the request." : "Fill in the details below to create a new delivery request."}
-                    </DialogDescription>
-                    </DialogHeader>
                     <div className="flex-grow overflow-y-auto pr-2 py-2">
                         <CreateDeliveryRequestForm 
                             onSuccess={closeRequestDialog}

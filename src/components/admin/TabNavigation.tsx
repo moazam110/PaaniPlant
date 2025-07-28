@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { cn } from '@/lib/utils';
 import { Truck, BarChart3, Users, UserCheck } from 'lucide-react';
 
@@ -20,18 +20,15 @@ const tabs = [
 export default function TabNavigation({ activeTab, onTabChange, children }: TabNavigationProps) {
   // Convert children to array
   const childrenArray = React.Children.toArray(children);
-  
-  // Find which tab is active
-  const activeIndex = tabs.findIndex(tab => tab.id === activeTab);
-  
-  // Debug logging
-  useEffect(() => {
-    console.log('Simple TabNavigation:', {
-      activeTab,
-      activeIndex,
-      childrenCount: childrenArray.length
-    });
-  }, [activeTab, activeIndex, childrenArray.length]);
+
+  const handleTabClick = (tabId: string) => {
+    if (tabId === 'staff') {
+      // Redirect to staff dashboard
+      window.open('https://paani-ff.onrender.com/staff', '_blank');
+      return;
+    }
+    onTabChange(tabId);
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -45,7 +42,7 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
             return (
               <button
                 key={tab.id}
-                onClick={() => onTabChange(tab.id)}
+                onClick={() => handleTabClick(tab.id)}
                 className={cn(
                   "flex-1 flex flex-col items-center justify-center py-3 px-2",
                   "min-h-[60px]",
@@ -73,13 +70,7 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
         {/* Show customers content */}
         {activeTab === 'customers' && childrenArray[2]}
         
-        {/* Show staff content */}
-        {activeTab === 'staff' && childrenArray[3]}
-        
-        {/* Debug info */}
-        <div className="fixed bottom-4 right-4 bg-black text-white px-2 py-1 rounded text-xs z-50">
-          {activeTab} (index: {activeIndex})
-        </div>
+        {/* Staff tab redirects externally, no content */}
       </div>
     </div>
   );

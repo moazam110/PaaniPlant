@@ -37,17 +37,14 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
 
   const fetchCustomers = async () => {
     setIsLoading(true);
-    console.log('Fetching customers...');
     try {
       const response = await fetch(buildApiUrl(API_ENDPOINTS.CUSTOMERS));
-      console.log('Customer fetch response status:', response.status);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
       const data = await response.json();
-      console.log('Fetched customers:', data);
       setAllCustomers(data);
       setError(null);
     } catch (err) {

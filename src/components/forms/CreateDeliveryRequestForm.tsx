@@ -104,7 +104,6 @@ export default function CreateDeliveryRequestForm({
       const fetchCustomersAndActiveRequests = async () => {
         setIsLoadingCustomers(true);
         try {
-          console.log('Fetching customers for delivery request...');
           const customersResponse = await fetch(buildApiUrl(API_ENDPOINTS.CUSTOMERS));
           
           if (!customersResponse.ok) {
@@ -112,7 +111,6 @@ export default function CreateDeliveryRequestForm({
           }
           
           const customersData = await customersResponse.json();
-          console.log('Fetched customers for delivery request:', customersData);
           setAllCustomers(customersData);
 
           // Fetch active requests to prevent duplicates
@@ -130,7 +128,6 @@ export default function CreateDeliveryRequestForm({
               });
               
             setCustomersWithActiveRequests(activeCustomerIds);
-            console.log('Customers with active requests:', Array.from(activeCustomerIds));
           }
         } catch (error) {
           console.error("Error fetching customers:", error);
@@ -278,7 +275,6 @@ export default function CreateDeliveryRequestForm({
     setIsSubmitting(true);
     try {
       // TODO: Implement API call to cancel delivery request
-      console.log("Cancelling delivery request:", editingRequest.requestId);
       // Simulate cancellation
       // await cancelDeliveryRequest(editingRequest.requestId);
       setIsCancelConfirmationOpen(false);
