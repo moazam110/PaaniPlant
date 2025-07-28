@@ -276,10 +276,22 @@ app.put('/api/delivery-requests/:id/status', async (req, res) => {
     const { status } = req.body;
     console.log(`Updating request ${req.params.id} status to:`, status);
     
+    // Validate status value
+    const validStatuses = ['pending', 'pending_confirmation', 'processing', 'delivered', 'cancelled'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ 
+        error: 'Invalid status', 
+        details: `Status must be one of: ${validStatuses.join(', ')}` 
+      });
+    }
+    
     const updateData = { status, updatedAt: new Date() };
     
     if (status === 'delivered') {
       updateData.deliveredAt = new Date();
+      updateData.completedAt = new Date();
+    } else if (status === 'cancelled') {
+      updateData.cancelledAt = new Date();
       updateData.completedAt = new Date();
     }
     
@@ -316,6 +328,47 @@ app.put('/api/delivery-requests/:id', async (req, res) => {
   } catch (err) {
     console.error('Error updating delivery request:', err);
     res.status(400).json({ error: 'Failed to update delivery request', details: err.message });
+  }
+});
+
+// Cancel delivery request endpoint
+app.put('/api/delivery-requests/:id/cancel', async (req, res) => {
+  try {
+    console.log(`Cancelling delivery request ${req.params.id}`);
+    
+    // Find the request first to check if it can be cancelled
+    const existingRequest = await DeliveryRequest.findById(req.params.id);
+    if (!existingRequest) {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+    
+    // Check if request can be cancelled (only pending and processing requests)
+    const cancellableStatuses = ['pending', 'pending_confirmation', 'processing'];
+    if (!cancellableStatuses.includes(existingRequest.status)) {
+      return res.status(400).json({ 
+        error: 'Cannot cancel request', 
+        details: `Only requests with status ${cancellableStatuses.join(', ')} can be cancelled. Current status: ${existingRequest.status}` 
+      });
+    }
+    
+    const updateData = {
+      status: 'cancelled',
+      cancelledAt: new Date(),
+      completedAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    const request = await DeliveryRequest.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true }
+    );
+    
+    console.log('Delivery request cancelled:', request);
+    res.json(request);
+  } catch (err) {
+    console.error('Error cancelling delivery request:', err);
+    res.status(400).json({ error: 'Failed to cancel delivery request', details: err.message });
   }
 });
 

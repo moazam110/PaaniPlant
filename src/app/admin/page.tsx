@@ -290,18 +290,6 @@ export default function AdminDashboardPage() {
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-[hsl(var(--background))] to-[hsl(var(--accent))]/5">
       
-      {/* Header with logout */}
-      <div className="flex justify-between items-center p-4 border-b bg-background/80 backdrop-blur-sm">
-        <div>
-          <h1 className="text-2xl font-bold text-primary">Admin Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Welcome back, {authUser?.email}</p>
-        </div>
-        <Button variant="outline" onClick={handleSignOut} className="flex items-center gap-2">
-          <LogOut className="h-4 w-4" />
-          Sign Out
-        </Button>
-      </div>
-      
       <main className="flex-grow flex flex-col">
         {!isBackendConnected && (
           <div className="mx-4 mt-4 p-4 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded-md">
@@ -381,11 +369,11 @@ export default function AdminDashboardPage() {
               </main>
         
         {/* Bottom Sign Out Button */}
-        <div className="p-4 border-t border-[hsl(var(--border))]/20 bg-background/30">
+        <div className="p-4 border-t border-[hsl(var(--border))]/20 bg-background/30 flex justify-center">
           <Button 
             variant="outline" 
             onClick={handleSignOut} 
-            className="w-full border-primary text-primary hover:bg-primary hover:text-primary-foreground rounded-lg"
+            className="border-primary text-primary hover:bg-primary hover:text-primary-foreground rounded-lg"
           >
             <LogOut className="mr-2 h-4 w-4" /> Sign Out
           </Button>

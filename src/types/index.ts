@@ -34,6 +34,7 @@ export interface DeliveryRequest {
   scheduledFor?: any; // Firestore Timestamp - Optional: When the delivery is specifically scheduled by admin
   deliveredAt?: any; // Firestore Timestamp - Optional: When the delivery was completed
   completedAt?: any; // Firestore Timestamp for staff app or general completion tracking
+  cancelledAt?: any; // Firestore Timestamp - When the request was cancelled
   createdBy?: string; // UID of admin/staff who created or 'customer_portal' etc.
   internalNotes?: string; // Optional: Internal notes for admin/staff about this request - kept for schema flexibility
 }

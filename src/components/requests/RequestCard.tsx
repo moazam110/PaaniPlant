@@ -4,28 +4,31 @@ import type { DeliveryRequest } from '@/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Truck, CheckCircle2, CalendarDays, Check, AlertTriangle } from 'lucide-react';
+import { Truck, CheckCircle2, CalendarDays, Check, AlertTriangle, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 
 interface RequestCardProps {
   request: DeliveryRequest;
   onMarkAsDone: (requestId: string) => void;
+  onCancel?: (requestId: string) => void;
 }
 
-const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone }) => {
+const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCancel }) => {
   const isUrgent = request.priority === 'urgent';
   const isSindhiName = /[ء-ي]/.test(request.customerName); 
 
-  // Check for 'pending' or 'pending_confirmation' status
+  // Check for request statuses
   const isPending = request.status === 'pending' || request.status === 'pending_confirmation';
   const isProcessing = request.status === 'processing';
   const isDelivered = request.status === 'delivered';
+  const isCancelled = request.status === 'cancelled';
 
   const cardClasses = cn(
     'shadow-lg transition-all duration-300 ease-in-out',
     isDelivered ? 'opacity-70 border-green-500 bg-green-50' : '',
     isProcessing ? 'border-yellow-400 bg-yellow-50' : '',
+    isCancelled ? 'opacity-70 border-red-500 bg-red-50' : '',
     request.status === 'pending' || request.status === 'pending_confirmation' ? 'border-primary' : '',
     isUrgent && isPending ? 'border-destructive border-2' : ''
   );
@@ -44,6 +47,8 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone }) => {
           </CardTitle>
           {isDelivered ? (
             <CheckCircle2 className="h-6 w-6 text-green-600" />
+          ) : isCancelled ? (
+            <X className="h-6 w-6 text-red-600" />
           ) : isProcessing ? (
             <span className="inline-block w-3 h-3 rounded-full bg-yellow-400 mr-2" title="Processing" />
           ) : (
@@ -56,6 +61,9 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone }) => {
         )}
         {isDelivered && (
           <Badge className="mt-1 w-fit bg-green-500 text-white">Delivered</Badge>
+        )}
+        {isCancelled && (
+          <Badge className="mt-1 w-fit bg-red-500 text-white">Cancelled</Badge>
         )}
       </CardHeader>
       <CardContent>
@@ -83,33 +91,70 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone }) => {
           Requested: {request.requestedAt ? format(new Date(request.requestedAt), 'MMM d, yyyy HH:mm') : '-'}
         </div>
         {request.completedAt && (
-          <div className="flex items-center text-xs text-green-600">
-            <Check className="h-4 w-4 mr-2" />
-            Completed: {format(new Date(request.completedAt), 'MMM d, yyyy HH:mm')}
+          <div className={cn("flex items-center text-xs", isCancelled ? "text-red-600" : "text-green-600")}>
+            {isCancelled ? (
+              <X className="h-4 w-4 mr-2" />
+            ) : (
+              <Check className="h-4 w-4 mr-2" />
+            )}
+            {isCancelled ? 'Cancelled' : 'Completed'}: {format(new Date(request.completedAt), 'MMM d, yyyy HH:mm')}
+          </div>
+        )}
+        {request.cancelledAt && (
+          <div className="flex items-center text-xs text-red-600">
+            <X className="h-4 w-4 mr-2" />
+            Cancelled: {format(new Date(request.cancelledAt), 'MMM d, yyyy HH:mm')}
           </div>
         )}
       </CardContent>
       <CardFooter>
         {isPending && (
-          <Button 
-            onClick={() => onMarkAsDone(request._id || request.requestId || '')}
-            className="w-full bg-yellow-400 hover:bg-yellow-300 text-yellow-900"
-            aria-label={`Mark order for ${request.customerName} as processing`}
-          >
-            <CheckCircle2 className="mr-2 h-4 w-4" /> Mark as Processing
-          </Button>
+          <>
+            <Button 
+              onClick={() => onMarkAsDone(request._id || request.requestId || '')}
+              className="w-full bg-yellow-400 hover:bg-yellow-300 text-yellow-900"
+              aria-label={`Mark order for ${request.customerName} as processing`}
+            >
+              <CheckCircle2 className="mr-2 h-4 w-4" /> Mark as Processing
+            </Button>
+            {onCancel && (
+              <Button 
+                onClick={() => onCancel(request._id || request.requestId || '')}
+                variant="outline"
+                className="w-full border-red-500 text-red-500 hover:bg-red-50 mt-2"
+                aria-label={`Cancel order for ${request.customerName}`}
+              >
+                <X className="mr-2 h-4 w-4" /> Cancel Request
+              </Button>
+            )}
+          </>
         )}
         {isProcessing && (
-          <Button 
-            onClick={() => onMarkAsDone(request._id || request.requestId || '')}
-            className="w-full bg-green-500 hover:bg-green-400 text-white"
-            aria-label={`Mark order for ${request.customerName} as delivered`}
-          >
-            <CheckCircle2 className="mr-2 h-4 w-4" /> Mark as Delivered
-          </Button>
+          <>
+            <Button 
+              onClick={() => onMarkAsDone(request._id || request.requestId || '')}
+              className="w-full bg-green-500 hover:bg-green-400 text-white"
+              aria-label={`Mark order for ${request.customerName} as delivered`}
+            >
+              <CheckCircle2 className="mr-2 h-4 w-4" /> Mark as Delivered
+            </Button>
+            {onCancel && (
+              <Button 
+                onClick={() => onCancel(request._id || request.requestId || '')}
+                variant="outline"
+                className="w-full border-red-500 text-red-500 hover:bg-red-50 mt-2"
+                aria-label={`Cancel order for ${request.customerName}`}
+              >
+                <X className="mr-2 h-4 w-4" /> Cancel Request
+              </Button>
+            )}
+          </>
         )}
         {isDelivered && (
           <p className="text-sm text-green-600 font-medium w-full text-center">Delivery Fulfilled</p>
+        )}
+        {isCancelled && (
+          <p className="text-sm text-red-600 font-medium w-full text-center">Request Cancelled</p>
         )}
       </CardFooter>
     </Card>

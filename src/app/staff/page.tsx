@@ -25,78 +25,105 @@ export default function StaffPage() {
   const router = useRouter();
 
   // Function to play notification sound for 5 seconds
-  const playNotificationSound = () => {
+  const playNotificationSound = async () => {
     try {
       // Create audio context for high volume notification
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      let audioContext: AudioContext;
+      
+      try {
+        audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      } catch (err) {
+        console.warn('AudioContext not supported:', err);
+        return;
+      }
       
       // Resume audio context if suspended (browser policy)
       if (audioContext.state === 'suspended') {
-        audioContext.resume();
+        await audioContext.resume();
       }
       
-      // Create oscillator for notification tone
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
+      // Function to create a beep
+      const createBeep = (frequency: number, duration: number, delay: number) => {
+        setTimeout(() => {
+          const oscillator = audioContext.createOscillator();
+          const gainNode = audioContext.createGain();
+          
+          oscillator.type = 'sine';
+          oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+          
+          // Set volume envelope for smooth sound
+          gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+          gainNode.gain.linearRampToValueAtTime(0.7, audioContext.currentTime + 0.01);
+          gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+          
+          oscillator.connect(gainNode);
+          gainNode.connect(audioContext.destination);
+          
+          oscillator.start(audioContext.currentTime);
+          oscillator.stop(audioContext.currentTime + duration);
+        }, delay);
+      };
       
-      // Configure sound properties
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(800, audioContext.currentTime); // 800Hz tone
+      // Play notification pattern over 5 seconds
+      for (let i = 0; i < 10; i++) {
+        const frequency = i % 2 === 0 ? 800 : 600; // Alternate between two tones
+        createBeep(frequency, 0.2, i * 500); // Beep every 500ms for 200ms
+      }
       
-      // Set high volume
-      gainNode.gain.setValueAtTime(0.8, audioContext.currentTime);
-      
-      // Connect nodes
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-      
-      // Play sound for 5 seconds with pattern
-      oscillator.start(audioContext.currentTime);
-      
-      // Create notification pattern (beep-beep-beep)
-      gainNode.gain.setValueAtTime(0.8, audioContext.currentTime);
-      gainNode.gain.setValueAtTime(0, audioContext.currentTime + 0.3);
-      gainNode.gain.setValueAtTime(0.8, audioContext.currentTime + 0.5);
-      gainNode.gain.setValueAtTime(0, audioContext.currentTime + 0.8);
-      gainNode.gain.setValueAtTime(0.8, audioContext.currentTime + 1.0);
-      gainNode.gain.setValueAtTime(0, audioContext.currentTime + 1.3);
-      gainNode.gain.setValueAtTime(0.8, audioContext.currentTime + 2.0);
-      gainNode.gain.setValueAtTime(0, audioContext.currentTime + 2.3);
-      gainNode.gain.setValueAtTime(0.8, audioContext.currentTime + 2.5);
-      gainNode.gain.setValueAtTime(0, audioContext.currentTime + 2.8);
-      gainNode.gain.setValueAtTime(0.8, audioContext.currentTime + 3.5);
-      gainNode.gain.setValueAtTime(0, audioContext.currentTime + 3.8);
-      gainNode.gain.setValueAtTime(0.8, audioContext.currentTime + 4.0);
-      gainNode.gain.setValueAtTime(0, audioContext.currentTime + 4.3);
-      gainNode.gain.setValueAtTime(0.8, audioContext.currentTime + 4.5);
-      
-      oscillator.stop(audioContext.currentTime + 5.0);
-      
-      console.log('🔊 Staff notification sound played for new delivery request');
+      console.log('🔊 Staff notification sound sequence started for new delivery request');
     } catch (error) {
       console.warn('Could not play notification sound:', error);
+      
+      // Fallback: try to play system notification sound
+      try {
+        const audio = new Audio('data:audio/wav;base64,UklGRhwCAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQgBAAC4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4');
+        audio.volume = 0.8;
+        audio.play().catch(() => console.warn('Fallback audio also failed'));
+      } catch {
+        console.warn('Fallback audio not available');
+      }
     }
   };
 
   // Enable audio context on first user interaction
   useEffect(() => {
-    const enableAudio = () => {
+    const enableAudio = async () => {
       try {
         const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
         if (audioContext.state === 'suspended') {
-          audioContext.resume();
+          await audioContext.resume();
         }
+        
+        // Test audio capability with a brief silent tone
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(440, audioContext.currentTime);
+        gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.001);
+        
+        console.log('✅ Audio context enabled for staff notifications');
       } catch (error) {
         console.warn('Could not enable audio context:', error);
       }
     };
 
-    document.addEventListener('click', enableAudio, { once: true });
-    document.addEventListener('touchstart', enableAudio, { once: true });
+    // Enable audio on various user interactions
+    const events = ['click', 'touchstart', 'keydown', 'mousedown'];
+    events.forEach(eventType => {
+      document.addEventListener(eventType, enableAudio, { once: true });
+    });
 
     return () => {
-      document.removeEventListener('click', enableAudio);
-      document.removeEventListener('touchstart', enableAudio);
+      events.forEach(eventType => {
+        document.removeEventListener(eventType, enableAudio);
+      });
     };
   }, []);
 
@@ -227,7 +254,11 @@ export default function StaffPage() {
         // Play sound if there are new pending requests (not on initial load)
         if (previousRequestCount > 0 && currentPendingCount > previousRequestCount) {
           console.log(`🔔 New delivery request detected! Previous: ${previousRequestCount}, Current: ${currentPendingCount}`);
-          playNotificationSound();
+          
+          // Play notification sound
+          playNotificationSound().catch(error => {
+            console.warn('Failed to play notification sound:', error);
+          });
           
           // Show visual notification as well
           toast({
@@ -257,11 +288,12 @@ export default function StaffPage() {
 
     // Initialize previous count after first load
     setTimeout(() => {
-      const initialPendingRequests = deliveryRequests.filter(req => 
+      const currentRequests = deliveryRequests.filter(req => 
         req.status === 'pending' || req.status === 'pending_confirmation'
       );
-      setPreviousRequestCount(initialPendingRequests.length);
-    }, 1000);
+      setPreviousRequestCount(currentRequests.length);
+      console.log('📊 Initial pending request count set to:', currentRequests.length);
+    }, 3000);
 
     // Set up real-time updates every 3 seconds
     const interval = setInterval(() => {
@@ -309,6 +341,8 @@ export default function StaffPage() {
     }
   };
 
+
+
   if (isLoading || !authUser) {
     return (
         <div className="min-h-screen flex flex-col bg-background">
@@ -324,35 +358,16 @@ export default function StaffPage() {
                     ))}
                 </div>
             </main>
-            <footer className="text-center p-4 text-sm text-muted-foreground border-t border-[hsl(var(--border))]/30">
-                Paani Delivery System Staff App &copy; {new Date().getFullYear()}
-            </footer>
+            <div className="p-4 border-t border-[hsl(var(--border))]/20 bg-background/30">
+              <Skeleton className="h-10 w-32 mx-auto bg-muted/50" />
+            </div>
         </div>
     );
   }
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      {/* Header with logout */}
-      <div className="flex justify-between items-center p-4 border-b bg-background/80 backdrop-blur-sm">
-        <div>
-          <h1 className="text-2xl font-bold text-primary">Staff Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Welcome back, {authUser?.email}</p>
-          {authUser?.userType === 'admin_staff' && (
-            <p className="text-xs text-blue-600 font-medium">🔑 Admin with Staff Access</p>
-          )}
-        </div>
-        <Button variant="outline" onClick={handleSignOut} className="flex items-center gap-2">
-          <LogOut className="h-4 w-4" />
-          {authUser?.userType === 'admin_staff' ? 'Close Staff Access' : 'Sign Out'}
-        </Button>
-      </div>
-      
       <main className="flex-grow">
-        {/* Sound Notification Info */}
-        <div className="mx-4 mt-2 p-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-md text-center">
-          <p className="text-xs font-medium">🔊 Sound notifications enabled for new delivery requests</p>
-        </div>
         {!isBackendConnected && (
           <div className="mx-4 mt-4 p-4 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded-md">
             <div className="flex items-center justify-between">
@@ -379,9 +394,18 @@ export default function StaffPage() {
         <StaffDashboardMetrics requests={deliveryRequests} /> 
         <RequestQueue requests={deliveryRequests} onMarkAsDone={handleMarkAsDone} />
       </main>
-      <footer className="text-center p-4 text-sm text-muted-foreground border-t border-[hsl(var(--border))]/30">
-         Paani Delivery System Staff App &copy; {new Date().getFullYear()}
-      </footer>
+      
+      {/* Bottom Sign Out Button */}
+      <div className="p-4 border-t border-[hsl(var(--border))]/20 bg-background/30 flex justify-center">
+        <Button 
+          variant="outline" 
+          onClick={handleSignOut} 
+          className="border-primary text-primary hover:bg-primary hover:text-primary-foreground rounded-lg"
+        >
+          <LogOut className="mr-2 h-4 w-4" />
+          {authUser?.userType === 'admin_staff' ? 'Close Staff Access' : 'Sign Out'}
+        </Button>
+      </div>
     </div>
   );
 }

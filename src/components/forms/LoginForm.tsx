@@ -117,7 +117,7 @@ export default function LoginForm({ userType = 'admin' }: LoginFormProps) {
                     <FormControl>
                       <Input 
                         type="email" 
-                        placeholder={userType === 'admin' ? 'admin@paani.com' : 'staff@paani.com'} 
+                        placeholder="" 
                         {...field} 
                         className="bg-input/80 backdrop-blur-sm"
                       />
@@ -135,7 +135,7 @@ export default function LoginForm({ userType = 'admin' }: LoginFormProps) {
                     <FormControl>
                       <Input 
                         type="password" 
-                        placeholder={userType === 'admin' ? 'adminpaani@123' : 'staffpaani@123'} 
+                        placeholder="" 
                         {...field} 
                         className="bg-input/80 backdrop-blur-sm"
                       />

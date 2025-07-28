@@ -8,9 +8,10 @@ import { ListFilter, ListChecks, Clock } from 'lucide-react';
 interface RequestQueueProps {
   requests: DeliveryRequest[];
   onMarkAsDone: (requestId: string) => void;
+  onCancel?: (requestId: string) => void;
 }
 
-const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone }) => {
+const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onCancel }) => {
   const pendingRequests = requests
     .filter(req => req.status === 'pending' || req.status === 'pending_confirmation')
     .sort((a, b) => {
@@ -35,16 +36,24 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone }) =
 
   const deliveredRequests = requests
     .filter(req => {
-      if (req.status !== 'delivered') return false;
+      // Include both delivered and cancelled requests
+      if (req.status !== 'delivered' && req.status !== 'cancelled') return false;
       
-      // Show delivered requests from current date only
+      // Show delivered/cancelled requests from current date only (24 hours)
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
       
-      const deliveredDate = req.deliveredAt ? new Date(req.deliveredAt) : new Date(req.completedAt || req.requestedAt);
-      return deliveredDate >= today && deliveredDate < tomorrow;
+      // Use appropriate date field based on status
+      let completionDate;
+      if (req.status === 'delivered') {
+        completionDate = req.deliveredAt ? new Date(req.deliveredAt) : new Date(req.completedAt || req.requestedAt);
+      } else if (req.status === 'cancelled') {
+        completionDate = req.cancelledAt ? new Date(req.cancelledAt) : new Date(req.completedAt || req.requestedAt);
+      }
+      
+      return completionDate && completionDate >= today && completionDate < tomorrow;
     })
     // Ensure dates are properly compared for sorting completedAt
     .sort((a, b) => {
@@ -67,7 +76,12 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone }) =
             {pendingRequests.length > 0 ? (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 py-4">
                 {pendingRequests.map(request => (
-                  <RequestCard key={request._id || request.requestId || Math.random()} request={request} onMarkAsDone={onMarkAsDone} />
+                  <RequestCard 
+                    key={request._id || request.requestId || Math.random()} 
+                    request={request} 
+                    onMarkAsDone={onMarkAsDone} 
+                    {...(onCancel && { onCancel })}
+                  />
                 ))}
               </div>
             ) : (
@@ -87,7 +101,12 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone }) =
             {processingRequests.length > 0 ? (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 py-4">
                 {processingRequests.map(request => (
-                  <RequestCard key={request._id || request.requestId || Math.random()} request={request} onMarkAsDone={onMarkAsDone} />
+                  <RequestCard 
+                    key={request._id || request.requestId || Math.random()} 
+                    request={request} 
+                    onMarkAsDone={onMarkAsDone} 
+                    {...(onCancel && { onCancel })}
+                  />
                 ))}
               </div>
             ) : (
@@ -100,18 +119,23 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone }) =
           <AccordionTrigger className="text-xl font-headline hover:no-underline">
             <div className="flex items-center">
               <ListChecks className="h-6 w-6 mr-3 text-green-600" />
-              Delivered Requests ({deliveredRequests.length})
+              Completed Requests ({deliveredRequests.length})
             </div>
           </AccordionTrigger>
           <AccordionContent>
             {deliveredRequests.length > 0 ? (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 py-4">
                 {deliveredRequests.map(request => (
-                  <RequestCard key={request._id || request.requestId || Math.random()} request={request} onMarkAsDone={onMarkAsDone} />
+                  <RequestCard 
+                    key={request._id || request.requestId || Math.random()} 
+                    request={request} 
+                    onMarkAsDone={onMarkAsDone} 
+                    {...(onCancel && { onCancel })}
+                  />
                 ))}
               </div>
             ) : (
-              <p className="text-center text-muted-foreground py-4">No delivered delivery requests yet.</p>
+              <p className="text-center text-muted-foreground py-4">No completed delivery requests yet.</p>
             )}
           </AccordionContent>
         </AccordionItem>

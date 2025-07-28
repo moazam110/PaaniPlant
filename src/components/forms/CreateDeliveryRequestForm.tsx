@@ -62,8 +62,8 @@ export default function CreateDeliveryRequestForm({
   const [customersWithActiveRequests, setCustomersWithActiveRequests] = useState<Set<string>>(new Set());
 
   const isEditMode = !!editingRequest;
-  // A request can be cancelled if it's in 'edit mode' AND its status is 'pending' or 'pending_confirmation'
-  const canCancelRequest = isEditMode && editingRequest && (editingRequest.status === 'pending' || editingRequest.status === 'pending_confirmation');
+  // A request can be cancelled if it's in 'edit mode' AND its status is 'pending', 'pending_confirmation', or 'processing'
+  const canCancelRequest = isEditMode && editingRequest && (editingRequest.status === 'pending' || editingRequest.status === 'pending_confirmation' || editingRequest.status === 'processing');
 
   const form = useForm<CreateDeliveryRequestFormValues>({
     resolver: zodResolver(createDeliveryRequestSchema),
@@ -274,20 +274,34 @@ export default function CreateDeliveryRequestForm({
     if (!editingRequest) return; // Should not happen if button is shown correctly
     setIsSubmitting(true);
     try {
-      // TODO: Implement API call to cancel delivery request
-      // Simulate cancellation
-      // await cancelDeliveryRequest(editingRequest.requestId);
-      setIsCancelConfirmationOpen(false);
-      // Do not show success toast for cancellation
-      if (onSuccess) { 
-        onSuccess();
+      const actualRequestId = editingRequest._id || editingRequest.requestId;
+      const response = await fetch(buildApiUrl(`api/delivery-requests/${actualRequestId}/cancel`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (response.ok) {
+        setIsCancelConfirmationOpen(false);
+        
+        toast({
+          title: "Request Cancelled",
+          description: `Delivery request for ${editingRequest.customerName} has been cancelled.`,
+        });
+        
+        // Refresh the request list
+        if (onSuccess) {
+          onSuccess();
+        }
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.details || 'Failed to cancel request');
       }
     } catch (err) {
       console.error("Error cancelling request:", err);
       toast({
         variant: "destructive",
-        title: "Operation Failed",
-        description: "Could not cancel the request.",
+        title: "Cancellation Failed",
+        description: err instanceof Error ? err.message : "Could not cancel the request. Please try again.",
       });
     } finally {
       setIsSubmitting(false);

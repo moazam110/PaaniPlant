@@ -132,7 +132,7 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
                 type="email"
                 value={staffEmail}
                 onChange={(e) => setStaffEmail(e.target.value)}
-                placeholder="staff@paani.com"
+                placeholder=""
                 disabled={isAuthenticating}
               />
             </div>
@@ -143,7 +143,7 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
                 type="password"
                 value={staffPassword}
                 onChange={(e) => setStaffPassword(e.target.value)}
-                placeholder="staffpaani@123"
+                placeholder=""
                 disabled={isAuthenticating}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !isAuthenticating) {
