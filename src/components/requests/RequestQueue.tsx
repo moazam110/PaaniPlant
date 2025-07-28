@@ -37,13 +37,14 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone }) =
     .filter(req => {
       if (req.status !== 'delivered') return false;
       
-      // Show delivered requests from the last 7 days
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      sevenDaysAgo.setHours(0, 0, 0, 0);
+      // Show delivered requests from current date only
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
       
       const deliveredDate = req.deliveredAt ? new Date(req.deliveredAt) : new Date(req.completedAt || req.requestedAt);
-      return deliveredDate >= sevenDaysAgo;
+      return deliveredDate >= today && deliveredDate < tomorrow;
     })
     // Ensure dates are properly compared for sorting completedAt
     .sort((a, b) => {

@@ -71,8 +71,8 @@ export default function AdminDashboardPage() {
           const data = await res.json();
           setTotalCustomers(data.totalCustomers || 0);
           setPendingDeliveries(data.pendingRequests || 0);
-          setDeliveriesTodayCount(data.deliveriesToday || 0);
-          setTotalCansToday(data.totalCansToday || 0);
+          setDeliveriesTodayCount(data.deliveries || 0);
+          setTotalCansToday(data.totalCans || 0);
         } catch (err) {
           console.error('Error fetching dashboard metrics:', err);
           setTotalCustomers(0);

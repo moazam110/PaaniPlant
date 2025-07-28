@@ -323,31 +323,72 @@ app.put('/api/delivery-requests/:id', async (req, res) => {
 app.get('/api/dashboard/metrics', async (req, res) => {
   try {
     console.log('Fetching dashboard metrics...');
+    const { month, year } = req.query;
+    
     const totalCustomers = await Customer.countDocuments();
     const pendingRequests = await DeliveryRequest.countDocuments({ 
       status: { $in: ['pending', 'pending_confirmation'] } 
     });
     
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    let dateQuery = {};
+    let timeLabel = 'Today';
     
-    const todayDeliveries = await DeliveryRequest.find({
+    if (month && year) {
+      // Monthly filtering
+      const monthNum = parseInt(month);
+      const yearNum = parseInt(year);
+      
+      if (monthNum >= 1 && monthNum <= 12 && yearNum > 1900) {
+        const startDate = new Date(yearNum, monthNum - 1, 1);
+        const endDate = new Date(yearNum, monthNum, 1);
+        
+        dateQuery = {
+          deliveredAt: { $gte: startDate, $lt: endDate }
+        };
+        
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        timeLabel = `${monthNames[monthNum - 1]} ${yearNum}`;
+        
+        console.log(`Filtering for ${timeLabel}: ${startDate} to ${endDate}`);
+      }
+    } else {
+      // Default: 24 hours (today)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      dateQuery = {
+        deliveredAt: { $gte: today, $lt: tomorrow }
+      };
+    }
+    
+    const deliveries = await DeliveryRequest.find({
       status: 'delivered',
-      deliveredAt: { $gte: today, $lt: tomorrow }
-    });
+      ...dateQuery
+    }).populate('customerId', 'pricePerCan');
     
-    const totalCansToday = todayDeliveries.reduce((sum, req) => sum + req.cans, 0);
+    const totalCans = deliveries.reduce((sum, req) => sum + req.cans, 0);
+    
+    // Calculate total amount generated (cans * price per can for each customer)
+    let totalAmountGenerated = 0;
+    for (const delivery of deliveries) {
+      if (delivery.customerId && delivery.customerId.pricePerCan) {
+        totalAmountGenerated += delivery.cans * delivery.customerId.pricePerCan;
+      }
+    }
     
     const metrics = {
       totalCustomers,
       pendingRequests,
-      deliveriesToday: todayDeliveries.length,
-      totalCansToday
+      deliveries: deliveries.length,
+      totalCans,
+      totalAmountGenerated,
+      timeLabel,
+      isMonthlyView: !!(month && year)
     };
     
-    console.log('Dashboard metrics:', metrics);
+    console.log(`Dashboard metrics for ${timeLabel}:`, metrics);
     res.json(metrics);
   } catch (err) {
     console.error('Error fetching dashboard metrics:', err);
