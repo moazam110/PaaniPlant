@@ -27,6 +27,21 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
   const activeIndex = tabs.findIndex(tab => tab.id === activeTab);
   const validActiveIndex = activeIndex >= 0 ? activeIndex : 0;
 
+  // Debug logging for customer tab issues
+  useEffect(() => {
+    console.log('TabNavigation Debug:', {
+      activeTab,
+      activeIndex,
+      validActiveIndex,
+      tabsLength: tabs.length,
+      childrenCount: React.Children.count(children)
+    });
+    
+    if (activeTab === 'customers') {
+      console.log('Customer tab is now active - should be visible');
+    }
+  }, [activeTab, validActiveIndex, children]);
+
   // Handle touch start
   const handleTouchStart = (e: React.TouchEvent) => {
     setStartX(e.touches[0].clientX);
