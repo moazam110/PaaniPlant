@@ -13,9 +13,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"; // Removed AvatarImage
+// Removed Avatar imports to save space
 import { Skeleton } from "@/components/ui/skeleton";
-import { UserCircle2, Search, Pencil } from 'lucide-react'; // Added Pencil
+import { Search, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
@@ -58,8 +58,8 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
   useEffect(() => {
     fetchCustomers();
     
-    // Set up real-time updates every 10 seconds for customer list
-    const interval = setInterval(fetchCustomers, 10000);
+    // Set up real-time updates every 60 seconds for customer list
+    const interval = setInterval(fetchCustomers, 60000);
     
     // Cleanup interval on unmount
     return () => clearInterval(interval);
@@ -69,16 +69,39 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
     refreshCustomers: fetchCustomers,
   }));
 
+  // Simple fuzzy search implementation
+  const fuzzyMatch = (text: string, pattern: string): boolean => {
+    if (!pattern) return true;
+    if (!text) return false;
+    
+    const normalizedText = text.toLowerCase().replace(/\s+/g, '');
+    const normalizedPattern = pattern.toLowerCase().replace(/\s+/g, '');
+    
+    // Exact match gets highest priority
+    if (normalizedText.includes(normalizedPattern)) return true;
+    
+    // Character sequence match (allows missing characters between)
+    let patternIndex = 0;
+    for (let i = 0; i < normalizedText.length && patternIndex < normalizedPattern.length; i++) {
+      if (normalizedText[i] === normalizedPattern[patternIndex]) {
+        patternIndex++;
+      }
+    }
+    
+    // If we matched at least 70% of the pattern characters, it's a fuzzy match
+    return patternIndex >= Math.ceil(normalizedPattern.length * 0.7);
+  };
+
   const filteredCustomers = useMemo(() => {
     if (!searchTerm) {
       return allCustomers;
     }
+    
     return allCustomers.filter(customer => {
-      const term = searchTerm.toLowerCase();
       return (
-        customer.name.toLowerCase().includes(term) ||
-        (customer.phone && customer.phone.toLowerCase().includes(term)) ||
-        customer.address.toLowerCase().includes(term)
+        fuzzyMatch(customer.name, searchTerm) ||
+        (customer.phone && fuzzyMatch(customer.phone, searchTerm)) ||
+        fuzzyMatch(customer.address, searchTerm)
       );
     });
   }, [allCustomers, searchTerm]);
@@ -137,30 +160,25 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[40px]">#</TableHead>
-                <TableHead></TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Phone</TableHead>
                 <TableHead>Address</TableHead>
                 <TableHead className="text-center">Default Cans</TableHead>
                 <TableHead className="text-center">Price/Can</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead className="text-right">Edit</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredCustomers.map((customer, idx) => {
                 const isSindhiName = /[\u0621-\u064a]/.test(customer.name);
                 const nameClasses = cn(isSindhiName ? 'font-sindhi rtl' : 'ltr');
-                const initials = customer.name.split(' ').map(n => n[0]).join('').toUpperCase() || '?';
                 return (
-                  <TableRow key={customer._id || customer.customerId || idx}>
+                  <TableRow 
+                    key={customer._id || customer.customerId || idx}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => onEditCustomer && onEditCustomer(customer)}
+                  >
                     <TableCell>{idx + 1}</TableCell>
-                    <TableCell>
-                      <Avatar className="h-10 w-10">
-                        <AvatarFallback>
-                          {initials.substring(0,2)}
-                        </AvatarFallback>
-                      </Avatar>
-                    </TableCell>
                     <TableCell className={nameClasses}>{customer.name}</TableCell>
                     <TableCell>{customer.phone || '-'}</TableCell>
                     <TableCell className="whitespace-normal break-words max-w-xs">{customer.address}</TableCell>
@@ -168,7 +186,15 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
                     <TableCell className="text-center">{customer.pricePerCan ? `Rs. ${customer.pricePerCan}` : '-'}</TableCell>
                     <TableCell className="text-right">
                       {onEditCustomer && (
-                        <Button variant="ghost" size="icon" onClick={() => onEditCustomer(customer)} title="Edit Customer">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEditCustomer(customer);
+                          }} 
+                          title="Edit Customer"
+                        >
                           <Pencil className="h-4 w-4 text-blue-600" />
                         </Button>
                       )}

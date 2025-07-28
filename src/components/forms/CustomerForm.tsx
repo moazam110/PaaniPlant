@@ -486,14 +486,14 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
               <FormControl>
                 <Input 
                   type="number" 
-                  placeholder="Enter price (1-999)" 
-                  min="1"
+                  placeholder="Enter price (0-999)" 
+                  min="0"
                   max="999"
                   step="1"
                   {...field}
                   onChange={(e) => {
                     const value = e.target.value;
-                    if (value === '' || (Number(value) > 0 && Number(value) <= 999 && value.length <= 3)) {
+                    if (value === '' || (Number(value) >= 0 && Number(value) <= 999 && value.length <= 3)) {
                       field.onChange(value);
                     }
                   }}
