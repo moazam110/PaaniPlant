@@ -158,11 +158,11 @@ app.post('/api/customers', async (req, res) => {
 
     // Validate pricePerCan
     const pricePerCan = Number(req.body.pricePerCan);
-    if (!req.body.pricePerCan || isNaN(pricePerCan) || pricePerCan < 1 || pricePerCan > 999) {
+    if (req.body.pricePerCan === undefined || req.body.pricePerCan === null || isNaN(pricePerCan) || pricePerCan < 0 || pricePerCan > 999) {
       console.log('Validation failed: Invalid price per can');
       return res.status(400).json({ 
         error: 'Invalid price per can', 
-        details: 'Price per can is required and must be between 1 and 999' 
+        details: 'Price per can is required and must be between 0 and 999' 
       });
     }
 
@@ -220,10 +220,10 @@ app.put('/api/customers/:id', async (req, res) => {
     // Validate pricePerCan if provided
     if (req.body.pricePerCan !== undefined) {
       const pricePerCan = Number(req.body.pricePerCan);
-      if (isNaN(pricePerCan) || pricePerCan < 1 || pricePerCan > 999) {
+      if (isNaN(pricePerCan) || pricePerCan < 0 || pricePerCan > 999) {
         return res.status(400).json({ 
           error: 'Invalid price per can', 
-          details: 'Price per can must be between 1 and 999' 
+          details: 'Price per can must be between 0 and 999' 
         });
       }
       req.body.pricePerCan = pricePerCan;

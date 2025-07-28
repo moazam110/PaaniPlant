@@ -263,7 +263,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
         phone: data.phone?.trim() || "",
         address: data.address.trim(),
         defaultCans: Number(data.defaultCans) || 1,
-        pricePerCan: Number(data.pricePerCan), // Remove the || 0 fallback
+        pricePerCan: Number(data.pricePerCan) || 0, // Ensure 0 is properly handled
         notes: data.notes?.trim() || "",
       };
 
@@ -490,11 +490,17 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
                   min="0"
                   max="999"
                   step="1"
-                  {...field}
+                  value={field.value || ''}
                   onChange={(e) => {
                     const value = e.target.value;
                     if (value === '' || (Number(value) >= 0 && Number(value) <= 999 && value.length <= 3)) {
                       field.onChange(value);
+                    }
+                  }}
+                  onBlur={(e) => {
+                    // Ensure empty string is converted to 0
+                    if (e.target.value === '') {
+                      field.onChange('0');
                     }
                   }}
                 />

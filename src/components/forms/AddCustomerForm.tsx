@@ -41,7 +41,7 @@ export default function AddCustomerForm({ onSuccess }: AddCustomerFormProps) {
       phone: "",
       address: "",
       defaultCans: 1,
-      pricePerCan: 0, // Set to minimum allowed value
+      pricePerCan: 0,
       notes: "",
     },
   });
@@ -73,7 +73,7 @@ export default function AddCustomerForm({ onSuccess }: AddCustomerFormProps) {
         phone: data.phone?.trim() || "",
         address: data.address.trim(),
         defaultCans: Number(data.defaultCans) || 1,
-        pricePerCan: Number(data.pricePerCan), // Remove the || 0 fallback
+        pricePerCan: Number(data.pricePerCan) || 0, // Ensure 0 is properly handled
         notes: data.notes?.trim() || "",
       };
 
@@ -96,13 +96,13 @@ export default function AddCustomerForm({ onSuccess }: AddCustomerFormProps) {
         throw new Error(result.error || result.details || `HTTP error! status: ${response.status}`);
       }
 
-      // Reset form and trigger success callback
-              form.reset({
+              // Reset form and trigger success callback
+        form.reset({
           name: "",
           phone: "",
           address: "",
           defaultCans: 1,
-          pricePerCan: 0, // Set to minimum allowed value
+          pricePerCan: 0,
           notes: "",
         });
 
@@ -212,11 +212,17 @@ export default function AddCustomerForm({ onSuccess }: AddCustomerFormProps) {
                   min="0"
                   max="999"
                   step="1"
-                  {...field}
+                  value={field.value || ''}
                   onChange={(e) => {
                     const value = e.target.value;
                     if (value === '' || (Number(value) >= 0 && Number(value) <= 999 && value.length <= 3)) {
                       field.onChange(value);
+                    }
+                  }}
+                  onBlur={(e) => {
+                    // Ensure empty string is converted to 0
+                    if (e.target.value === '') {
+                      field.onChange('0');
                     }
                   }}
                 />

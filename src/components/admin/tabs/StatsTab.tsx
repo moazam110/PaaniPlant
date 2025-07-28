@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Users, ListChecks, PackageCheck, PackageSearch, DollarSign } from 'lucide-react';
+import { Users, ListChecks, PackageCheck, PackageSearch, IndianRupee } from 'lucide-react';
 import { Skeleton } from "@/components/ui/skeleton";
 import { buildApiUrl } from '@/lib/api';
 
@@ -103,13 +103,7 @@ export default function StatsTab({
     }
   };
 
-  // Reset to 24-hour view
-  const resetTo24Hours = () => {
-    setSelectedMonth('');
-    setSelectedYear('');
-    setIsMonthlyView(false);
-    fetchFilteredMetrics();
-  };
+
 
   // Initialize with 24-hour data
   useEffect(() => {
@@ -151,18 +145,7 @@ export default function StatsTab({
           </div>
         </div>
         
-        {isMonthlyView && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Showing:</span>
-            <span className="text-sm font-medium">{filteredMetrics.timeLabel}</span>
-            <button 
-              onClick={resetTo24Hours}
-              className="text-xs text-blue-600 hover:text-blue-800 underline"
-            >
-              Back to 24h
-            </button>
-          </div>
-        )}
+
       </div>
 
       {/* Main Stats Grid */}
@@ -199,8 +182,8 @@ export default function StatsTab({
 
           <Card className="glass-card">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Amount Generated</CardTitle>
-              <DollarSign className="h-5 w-5 text-muted-foreground" />
+                          <CardTitle className="text-sm font-medium">Total Amount Generated</CardTitle>
+            <IndianRupee className="h-5 w-5 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               {filteredMetrics.isLoading ? (
@@ -274,8 +257,8 @@ export default function StatsTab({
 
           <Card className="glass-card md:col-span-2">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Amount Generated Today</CardTitle>
-              <DollarSign className="h-5 w-5 text-muted-foreground" />
+                          <CardTitle className="text-sm font-medium">Total Amount Generated Today</CardTitle>
+            <IndianRupee className="h-5 w-5 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               {filteredMetrics.isLoading ? (
