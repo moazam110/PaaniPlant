@@ -18,81 +18,36 @@ const tabs = [
 ];
 
 export default function TabNavigation({ activeTab, onTabChange, children }: TabNavigationProps) {
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [startX, setStartX] = useState(0);
-  const [startY, setStartY] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-
+  const [isMounted, setIsMounted] = useState(false);
+  
+  // Convert children to array for easier access
+  const childrenArray = React.Children.toArray(children);
+  
   // Find active index with proper fallback
   const activeIndex = tabs.findIndex(tab => tab.id === activeTab);
   const validActiveIndex = activeIndex >= 0 ? activeIndex : 0;
 
-  // Debug logging for customer tab issues
+  // Ensure component is mounted
   useEffect(() => {
-    console.log('TabNavigation Debug:', {
+    setIsMounted(true);
+    console.log('TabNavigation mounted with activeTab:', activeTab);
+  }, []);
+
+  // Debug logging for tab switching
+  useEffect(() => {
+    console.log('TabNavigation State:', {
       activeTab,
       activeIndex,
       validActiveIndex,
       tabsLength: tabs.length,
-      childrenCount: React.Children.count(children)
+      childrenCount: childrenArray.length,
+      isMounted
     });
     
     if (activeTab === 'customers') {
-      console.log('Customer tab is now active - should be visible');
+      console.log('🎯 Customer tab should now be visible!');
     }
-  }, [activeTab, validActiveIndex, children]);
-
-  // Handle touch start
-  const handleTouchStart = (e: React.TouchEvent) => {
-    setStartX(e.touches[0].clientX);
-    setStartY(e.touches[0].clientY);
-    setIsDragging(false);
-  };
-
-  // Handle touch move  
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!startX || !startY) return;
-
-    const currentX = e.touches[0].clientX;
-    const currentY = e.touches[0].clientY;
-    
-    const diffX = Math.abs(currentX - startX);
-    const diffY = Math.abs(currentY - startY);
-
-    // Only handle horizontal swipes (ignore vertical scrolling)
-    if (diffX > diffY && diffX > 20) {
-      const target = e.target as HTMLElement;
-      const isScrollableElement = target.closest('.overflow-y-auto, .overflow-auto, table, .table-container');
-      
-      if (!isScrollableElement) {
-        setIsDragging(true);
-        e.preventDefault();
-      }
-    }
-  };
-
-  // Handle touch end
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (!startX || !isDragging) return;
-
-    const endX = e.changedTouches[0].clientX;
-    const diffX = startX - endX;
-    const threshold = 50;
-
-    if (Math.abs(diffX) > threshold) {
-      const currentIndex = tabs.findIndex(tab => tab.id === activeTab);
-      
-      if (diffX > 0 && currentIndex < tabs.length - 1) {
-        onTabChange(tabs[currentIndex + 1].id);
-      } else if (diffX < 0 && currentIndex > 0) {
-        onTabChange(tabs[currentIndex - 1].id);
-      }
-    }
-
-    setStartX(0);
-    setStartY(0);
-    setIsDragging(false);
-  };
+  }, [activeTab, validActiveIndex, childrenArray.length, isMounted]);
 
   // Hide keyboard when switching tabs
   useEffect(() => {
@@ -102,10 +57,20 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
     }
   }, [activeTab]);
 
+  if (!isMounted) {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="p-8 text-center">
+          <p className="text-muted-foreground">Loading navigation...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col h-full">
-      {/* Tab Navigation */}
-      <div className="sticky top-0 z-10 bg-background border-b border-border">
+    <div className="flex flex-col h-full bg-background">
+      {/* Tab Navigation Bar */}
+      <div className="sticky top-0 z-10 bg-background border-b border-border shadow-sm">
         <nav className="flex w-full">
           {tabs.map((tab, index) => {
             const Icon = tab.icon;
@@ -114,10 +79,13 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
             return (
               <button
                 key={tab.id}
-                onClick={() => onTabChange(tab.id)}
+                onClick={() => {
+                  console.log(`Switching to tab: ${tab.id}`);
+                  onTabChange(tab.id);
+                }}
                 className={cn(
                   "flex-1 flex flex-col items-center justify-center py-3 px-2 transition-all duration-200 ease-in-out",
-                  "min-h-[60px] touch-manipulation",
+                  "min-h-[60px] touch-manipulation relative",
                   isActive
                     ? "text-primary border-b-2 border-primary bg-primary/5"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
@@ -132,37 +100,63 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
                   isActive && "scale-110"
                 )} />
                 <span className="text-xs font-medium">{tab.label}</span>
+                {isActive && (
+                  <div className="absolute inset-0 bg-primary/10 rounded-md opacity-50" />
+                )}
               </button>
             );
           })}
         </nav>
       </div>
 
-      {/* Tab Content with Sliding */}
-      <div
-        ref={contentRef}
-        className="flex-1 overflow-hidden"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-      >
-        <div 
-          className="flex h-full transition-transform duration-300 ease-out"
-          style={{
-            transform: `translateX(-${validActiveIndex * 100}%)`,
-            width: `${tabs.length * 100}%`
-          }}
-        >
-          {React.Children.map(children, (child, index) => (
+      {/* Tab Content - Simple Conditional Rendering */}
+      <div className="flex-1 overflow-hidden relative bg-background">
+        {/* Debug Panel */}
+        <div className="absolute top-2 right-2 z-50 bg-yellow-100 border border-yellow-400 rounded px-2 py-1 text-xs">
+          Active: {activeTab} ({validActiveIndex})
+        </div>
+
+        {/* Render only the active tab content */}
+        {childrenArray.map((child, index) => {
+          const isActiveChild = index === validActiveIndex;
+          
+          return (
             <div
               key={index}
-              className="w-full flex-shrink-0 overflow-y-auto"
-              style={{ width: `${100 / tabs.length}%` }}
+              className={cn(
+                "absolute inset-0 w-full h-full overflow-y-auto",
+                isActiveChild ? "block" : "hidden"
+              )}
+              style={{
+                display: isActiveChild ? 'block' : 'none'
+              }}
             >
-              {child}
+              {/* Additional debug info for customer tab */}
+              {activeTab === 'customers' && index === validActiveIndex && (
+                <div className="absolute top-0 left-0 w-full bg-green-100 border-b-2 border-green-500 p-2 z-40">
+                  <p className="text-green-800 text-sm font-medium">
+                    ✅ Customer Tab Content is Rendering (Index: {index}, Active Index: {validActiveIndex})
+                  </p>
+                </div>
+              )}
+              
+              {/* Render the actual child content */}
+              <div className={activeTab === 'customers' ? 'pt-12' : ''}>
+                {child}
+              </div>
             </div>
-          ))}
-        </div>
+          );
+        })}
+
+        {/* Fallback content if no children */}
+        {childrenArray.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-center">
+              <p className="text-lg font-medium text-muted-foreground">No content available</p>
+              <p className="text-sm text-muted-foreground">No child components found</p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
