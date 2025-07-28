@@ -42,6 +42,23 @@ interface DeliveryRequestListProps {
   setDeliveryRequests: React.Dispatch<React.SetStateAction<DeliveryRequest[]>>;
 }
 
+// Fuzzy search function
+const fuzzySearch = (text: string, query: string): boolean => {
+  const textLower = text.toLowerCase();
+  const queryLower = query.toLowerCase();
+  
+  if (queryLower.length === 0) return true;
+  
+  let queryIndex = 0;
+  for (let i = 0; i < textLower.length && queryIndex < queryLower.length; i++) {
+    if (textLower[i] === queryLower[queryIndex]) {
+      queryIndex++;
+    }
+  }
+  
+  return queryIndex === queryLower.length;
+};
+
 const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNewRequest, onEditRequest, deliveryRequests, setDeliveryRequests }) => {
   const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -49,6 +66,12 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
+  // Clear search when delivery requests change (indicating a new request was created)
+  useEffect(() => {
+    if (searchTerm.trim()) {
+      setSearchTerm('');
+    }
+  }, [deliveryRequests.length]);
 
   useEffect(() => {
     setIsLoadingCustomers(true);
@@ -104,21 +127,23 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
       return processedRequests;
     }
     
-    // Standard search method - focus on customer name with character-by-character matching
+    // Fuzzy search implementation
     return processedRequests.filter(request => {
       const searchLower = searchTerm.toLowerCase().trim();
-      const customerNameLower = request.customerName.toLowerCase();
       
-      // Primary search: customer name (same standard as other components)
-      const matchesCustomerName = customerNameLower.includes(searchLower);
+      // Fuzzy search on customer name
+      const matchesCustomerName = fuzzySearch(request.customerName, searchLower);
       
-      // Secondary searches: address, status, priority (for admin convenience)
-      const matchesAddress = request.address.toLowerCase().includes(searchLower);
+      // Fuzzy search on address
+      const matchesAddress = fuzzySearch(request.address, searchLower);
+      
+      // Exact match on status
       const statusDisplay = request.status === 'pending' ? 'pending' : request.status;
       const matchesStatus = statusDisplay.toLowerCase().includes(searchLower);
+      
+      // Exact match on priority
       const matchesPriority = request.priority.toLowerCase().includes(searchLower);
       
-      // Standard search prioritizes customer name, but includes other fields for admin use
       return matchesCustomerName || matchesAddress || matchesStatus || matchesPriority;
     });
   }, [processedRequests, searchTerm]);
@@ -136,20 +161,24 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
 
     return allCustomers
       .filter(customer => {
-        // Standard search: exact same method as CreateDeliveryRequestForm
-        const nameLower = customer.name.toLowerCase();
-        const matchesSearch = nameLower.includes(searchLower) ||
-                             (customer.phone && customer.phone.includes(searchTerm)) ||
-                             customer.address.toLowerCase().includes(searchLower);
+        // Fuzzy search on customer name, phone, and address
+        const matchesName = fuzzySearch(customer.name, searchLower);
+        const matchesPhone = customer.phone ? fuzzySearch(customer.phone, searchLower) : false;
+        const matchesAddress = fuzzySearch(customer.address, searchLower);
         
         // Only show customers without active requests
         const hasNoActiveRequest = !customersWithActiveRequests.has(customer._id || customer.customerId || '');
         
-        return matchesSearch && hasNoActiveRequest;
+        return (matchesName || matchesPhone || matchesAddress) && hasNoActiveRequest;
       })
       .slice(0, 8); // Show more results for better UX
   }, [allCustomers, deliveryRequests, searchTerm]);
 
+  const handleCreateRequest = (customer: Customer) => {
+    onInitiateNewRequest(customer);
+    // Clear search immediately when creating a request
+    setSearchTerm('');
+  };
 
   const getStatusBadgeVariant = (status: DeliveryRequest['status']) => {
     switch (status) {
@@ -229,7 +258,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                               <p className={cn("font-medium", /[ء-ي]/.test(customer.name) ? 'font-sindhi rtl' : 'ltr')}>{customer.name}</p>
                               <p className="text-xs text-muted-foreground">{customer.address}</p>
                           </div>
-                          <Button size="sm" onClick={() => onInitiateNewRequest(customer)}>
+                          <Button size="sm" onClick={() => handleCreateRequest(customer)}>
                               <PlusCircle className="mr-2 h-4 w-4" /> Create Request
                           </Button>
                       </CardContent>

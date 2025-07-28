@@ -320,6 +320,10 @@ export default function CreateDeliveryRequestForm({
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
                 disabled={isLoadingCustomers || isSubmitting}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck="false"
               />
             </div>
             {isLoadingCustomers && <p className="text-sm text-muted-foreground">Loading customers...</p>}
@@ -415,7 +419,13 @@ export default function CreateDeliveryRequestForm({
               <FormItem>
                 <FormLabel>Number of Cans</FormLabel>
                 <FormControl>
-                  <Input type="number" min="1" {...field} />
+                  <Input 
+                    type="number" 
+                    min="1" 
+                    {...field} 
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>

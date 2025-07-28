@@ -24,6 +24,19 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
   const [isDragging, setIsDragging] = useState(false);
 
   const activeIndex = tabs.findIndex(tab => tab.id === activeTab);
+  
+  // Debug logging
+  useEffect(() => {
+    console.log('TabNavigation Debug:', {
+      activeTab,
+      activeIndex,
+      tabsLength: tabs.length,
+      childrenCount: React.Children.count(children)
+    });
+  }, [activeTab, children]);
+
+  // Ensure we have a valid activeIndex
+  const validActiveIndex = activeIndex >= 0 ? activeIndex : 0;
 
   // Handle touch start
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -136,7 +149,7 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
         <div 
           className="flex h-full transition-transform duration-300 ease-out"
           style={{
-            transform: `translateX(-${activeIndex * 100}%)`,
+            transform: `translateX(-${validActiveIndex * 100}%)`,
             width: `${tabs.length * 100}%`
           }}
         >
