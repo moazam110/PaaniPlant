@@ -19,7 +19,23 @@ const loginSchema = z.object({
 
 type LoginFormValues = z.infer<typeof loginSchema>;
 
-export default function LoginForm() {
+interface LoginFormProps {
+  userType?: 'admin' | 'staff';
+}
+
+// Hardcoded authentication credentials
+const HARDCODED_CREDENTIALS = {
+  admin: {
+    email: 'admin@paani.com',
+    password: 'adminpaani@123'
+  },
+  staff: {
+    email: 'staff@paani.com', 
+    password: 'staffpaani@123'
+  }
+};
+
+export default function LoginForm({ userType = 'admin' }: LoginFormProps) {
   const { toast } = useToast();
   const router = useRouter();
   const form = useForm<LoginFormValues>({
@@ -32,29 +48,49 @@ export default function LoginForm() {
 
   const onSubmit = async (data: LoginFormValues) => {
     try {
-      // TODO: Implement actual login logic with an API endpoint
-      // For now, we'll just simulate a successful login
-      console.log("Simulating login with:", data);
-      toast({
-        title: "Login Successful",
-        description: "Simulated login successful. Redirecting to admin page.",
-      });
-      router.push('/admin'); 
-    } catch (error: any) {
-      // Removed console.error to prevent Next.js dev overlay for handled errors
+      const credentials = HARDCODED_CREDENTIALS[userType];
       
-      let userFriendlyMessage = "An unexpected error occurred during login.";
-      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-        userFriendlyMessage = "Login failed: Invalid email or password. Please check your credentials and try again.";
-      } else if (error.code === 'auth/too-many-requests') {
-        userFriendlyMessage = "Access temporarily disabled due to too many failed login attempts. Please try again later or reset your password.";
+      // Check hardcoded credentials
+      if (data.email === credentials.email && data.password === credentials.password) {
+        // Create persistent session
+        const authSession = {
+          email: data.email,
+          userType: userType,
+          loginTime: new Date().toISOString(),
+          sessionId: `${userType}_${Date.now()}`
+        };
+        
+        // Store session in localStorage (persists until logout)
+        localStorage.setItem('paani_auth_session', JSON.stringify(authSession));
+        
+        console.log(`✅ ${userType} authentication successful`);
+        
+        toast({
+          title: "Login Successful",
+          description: `Welcome ${userType}! Redirecting to dashboard.`,
+        });
+        
+        // Redirect based on user type
+        if (userType === 'admin') {
+          router.push('/admin');
+        } else {
+          router.push('/staff');
+        }
+      } else {
+        // Invalid credentials
+        toast({
+          variant: "destructive",
+          title: "Login Failed",
+          description: "Invalid email or password. Please check your credentials and try again.",
+        });
       }
-      // Add more specific Firebase error codes here if needed
-
+    } catch (error: any) {
+      console.error('Login error:', error);
+      
       toast({
         variant: "destructive",
-        title: "Login Attempt Failed",
-        description: userFriendlyMessage,
+        title: "Login Error",
+        description: "An unexpected error occurred during login. Please try again.",
       });
     }
   };
@@ -62,38 +98,52 @@ export default function LoginForm() {
   return (
     <Card className="w-full max-w-md glass-card">
       <CardHeader>
-        <CardTitle className="text-3xl font-headline text-center text-primary">Admin Login</CardTitle>
-        <CardDescription className="text-center">Enter your credentials to access the dashboard.</CardDescription>
+        <CardTitle className="text-3xl font-headline text-center text-primary">
+          {userType === 'admin' ? 'Admin' : 'Staff'} Login
+        </CardTitle>
+        <CardDescription className="text-center">
+          Enter your credentials to access the {userType} dashboard.
+        </CardDescription>
       </CardHeader>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>
           <CardContent className="space-y-6">
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input type="email" placeholder="admin@example.com" {...field} className="bg-input/80 backdrop-blur-sm"/>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="password"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Password</FormLabel>
-                  <FormControl>
-                    <Input type="password" placeholder="••••••••" {...field} className="bg-input/80 backdrop-blur-sm"/>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                          <FormField
+                control={form.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="email" 
+                        placeholder={userType === 'admin' ? 'admin@paani.com' : 'staff@paani.com'} 
+                        {...field} 
+                        className="bg-input/80 backdrop-blur-sm"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Password</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="password" 
+                        placeholder={userType === 'admin' ? 'adminpaani@123' : 'staffpaani@123'} 
+                        {...field} 
+                        className="bg-input/80 backdrop-blur-sm"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
           </CardContent>
           <CardFooter className="flex flex-col items-center pt-2">
             <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>

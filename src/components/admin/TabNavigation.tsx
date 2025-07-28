@@ -1,8 +1,12 @@
 "use client";
 
-import React from 'react';
+import React, { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Truck, BarChart3, Users, UserCheck } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 interface TabNavigationProps {
   activeTab: string;
@@ -20,11 +24,52 @@ const tabs = [
 export default function TabNavigation({ activeTab, onTabChange, children }: TabNavigationProps) {
   // Convert children to array
   const childrenArray = React.Children.toArray(children);
+  
+  // Staff access dialog state
+  const [showStaffDialog, setShowStaffDialog] = useState(false);
+  const [staffEmail, setStaffEmail] = useState('staff@paani.com');
+  const [staffPassword, setStaffPassword] = useState('');
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+
+  const handleStaffAuthentication = () => {
+    setIsAuthenticating(true);
+    
+    // Simulate authentication delay
+    setTimeout(() => {
+      if (staffEmail === 'staff@paani.com' && staffPassword === 'staffpaani@123') {
+        // Store staff access for admin
+        localStorage.setItem('admin_staff_access', JSON.stringify({
+          grantedAt: new Date().toISOString(),
+          sessionId: `admin_staff_${Date.now()}`
+        }));
+        
+        // Close dialog and open staff dashboard
+        setShowStaffDialog(false);
+        setStaffPassword('');
+        setIsAuthenticating(false);
+        
+        // Open staff dashboard
+        window.open('/staff', '_blank');
+      } else {
+        // Invalid credentials
+        alert('Invalid staff credentials. Please try again.');
+        setIsAuthenticating(false);
+        setStaffPassword('');
+      }
+    }, 500);
+  };
 
   const handleTabClick = (tabId: string) => {
     if (tabId === 'staff') {
-      // Redirect to staff dashboard
-      window.open('https://paani-ff.onrender.com/staff', '_blank');
+      // Check if admin has staff access, if not show dialog for credentials
+      const staffAccess = localStorage.getItem('admin_staff_access');
+      if (staffAccess) {
+        // Admin already has staff access, open staff dashboard
+        window.open('/staff', '_blank');
+      } else {
+        // Show staff credentials dialog
+        setShowStaffDialog(true);
+      }
       return;
     }
     onTabChange(tabId);
@@ -70,8 +115,64 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
         {/* Show customers content */}
         {activeTab === 'customers' && childrenArray[2]}
         
-        {/* Staff tab redirects externally, no content */}
+        {/* Staff tab opens separately, no content */}
       </div>
+
+      {/* Staff Access Dialog */}
+      <Dialog open={showStaffDialog} onOpenChange={setShowStaffDialog}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Staff Dashboard Access</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="staff-email">Staff Email</Label>
+              <Input
+                id="staff-email"
+                type="email"
+                value={staffEmail}
+                onChange={(e) => setStaffEmail(e.target.value)}
+                placeholder="staff@paani.com"
+                disabled={isAuthenticating}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="staff-password">Staff Password</Label>
+              <Input
+                id="staff-password"
+                type="password"
+                value={staffPassword}
+                onChange={(e) => setStaffPassword(e.target.value)}
+                placeholder="staffpaani@123"
+                disabled={isAuthenticating}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !isAuthenticating) {
+                    handleStaffAuthentication();
+                  }
+                }}
+              />
+            </div>
+            <div className="flex justify-end space-x-2 pt-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowStaffDialog(false);
+                  setStaffPassword('');
+                }}
+                disabled={isAuthenticating}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleStaffAuthentication}
+                disabled={isAuthenticating || !staffPassword}
+              >
+                {isAuthenticating ? 'Authenticating...' : 'Access Staff Dashboard'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -373,29 +373,41 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
 
               {/* Statistics Grid */}
               {isLoadingStats ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-4 w-1/2" />
-                  <Skeleton className="h-4 w-2/3" />
-                  <Skeleton className="h-4 w-1/3" />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-8 w-3/4" />
+                  </div>
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-8 w-3/4" />
+                  </div>
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-8 w-3/4" />
+                  </div>
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-8 w-3/4" />
+                  </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total Deliveries</p>
-                    <p className="text-2xl font-bold text-primary">{totalOrders ?? 0}</p>
+                <div className="grid grid-cols-2 gap-4 sm:gap-6">
+                  <div className="text-center p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <p className="text-xs sm:text-sm text-muted-foreground font-medium mb-1">Total Deliveries</p>
+                    <p className="text-2xl sm:text-3xl font-bold text-primary">{totalOrders ?? 0}</p>
                   </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total Cans Received</p>
-                    <p className="text-2xl font-bold text-blue-600">{totalCansReceived ?? 0}</p>
+                  <div className="text-center p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <p className="text-xs sm:text-sm text-muted-foreground font-medium mb-1">Total Cans Received</p>
+                    <p className="text-2xl sm:text-3xl font-bold text-blue-600">{totalCansReceived ?? 0}</p>
                   </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Price per Can</p>
-                    <p className="text-lg font-semibold text-green-600">Rs. {editingCustomer?.pricePerCan || 0}</p>
+                  <div className="text-center p-3 bg-green-50 rounded-lg border border-green-200">
+                    <p className="text-xs sm:text-sm text-muted-foreground font-medium mb-1">Price per Can</p>
+                    <p className="text-2xl sm:text-3xl font-bold text-green-600">Rs. {editingCustomer?.pricePerCan || 0}</p>
                   </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total Bill</p>
-                    <p className="text-2xl font-bold text-green-700">
+                  <div className="text-center p-3 bg-green-50 rounded-lg border border-green-200">
+                    <p className="text-xs sm:text-sm text-muted-foreground font-medium mb-1">Total Bill</p>
+                    <p className="text-2xl sm:text-3xl font-bold text-green-700">
                       Rs. {((totalCansReceived || 0) * (editingCustomer?.pricePerCan || 0)).toLocaleString()}
                     </p>
                   </div>

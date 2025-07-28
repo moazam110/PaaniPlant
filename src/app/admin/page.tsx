@@ -46,9 +46,41 @@ export default function AdminDashboardPage() {
   const customerListRef = useRef<CustomerListRef>(null);
 
   useEffect(() => {
-    // Placeholder for auth state change listener
-    setAuthUser({ uid: 'admin-placeholder', email: 'admin@example.com' });
-    setIsLoading(false);
+    // Check for valid admin authentication session
+    const checkAuth = () => {
+      try {
+        const authSession = localStorage.getItem('paani_auth_session');
+        if (authSession) {
+          const session = JSON.parse(authSession);
+          
+          // Verify it's an admin session
+          if (session.userType === 'admin' && session.email === 'admin@paani.com') {
+            setAuthUser({
+              uid: session.sessionId,
+              email: session.email,
+              userType: session.userType,
+              loginTime: session.loginTime
+            });
+            console.log('✅ Admin authentication verified');
+          } else {
+            // Invalid session, redirect to login
+            console.log('❌ Invalid admin session, redirecting to login');
+            router.push('/admin/login');
+          }
+        } else {
+          // No session, redirect to login
+          console.log('❌ No admin session found, redirecting to login');
+          router.push('/admin/login');
+        }
+      } catch (error) {
+        console.error('Auth check error:', error);
+        router.push('/admin/login');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    checkAuth();
   }, [router]);
 
   // Ensure activeTab is always valid
@@ -162,8 +194,21 @@ export default function AdminDashboardPage() {
 
 
   const handleSignOut = async () => {
-    // Placeholder for sign out
-    alert('Sign out functionality not yet implemented.');
+    try {
+      // Clear the authentication session
+      localStorage.removeItem('paani_auth_session');
+      
+      // Also clear admin staff access when admin logs out completely
+      localStorage.removeItem('admin_staff_access');
+      
+      console.log('✅ Admin signed out successfully');
+      
+      // Redirect to login page
+      router.push('/admin/login');
+    } catch (error) {
+      console.error('Sign out error:', error);
+      alert('Error signing out. Please try again.');
+    }
   };
 
   const openRequestDialog = (requestToEdit?: DeliveryRequest, customerToPreselect?: Customer) => {
@@ -244,6 +289,18 @@ export default function AdminDashboardPage() {
   
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-[hsl(var(--background))] to-[hsl(var(--accent))]/5">
+      
+      {/* Header with logout */}
+      <div className="flex justify-between items-center p-4 border-b bg-background/80 backdrop-blur-sm">
+        <div>
+          <h1 className="text-2xl font-bold text-primary">Admin Dashboard</h1>
+          <p className="text-sm text-muted-foreground">Welcome back, {authUser?.email}</p>
+        </div>
+        <Button variant="outline" onClick={handleSignOut} className="flex items-center gap-2">
+          <LogOut className="h-4 w-4" />
+          Sign Out
+        </Button>
+      </div>
       
       <main className="flex-grow flex flex-col">
         {!isBackendConnected && (
