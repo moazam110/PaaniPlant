@@ -2,13 +2,14 @@
 import type React from 'react';
 import type { DeliveryRequest } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Hourglass, ListTodo, Clock } from 'lucide-react';
+import { Hourglass, ListTodo, Clock, Volume2, VolumeX } from 'lucide-react';
 
 interface StaffDashboardMetricsProps {
   requests: DeliveryRequest[];
+  audioEnabled?: boolean;
 }
 
-const StaffDashboardMetrics: React.FC<StaffDashboardMetricsProps> = ({ requests }) => {
+const StaffDashboardMetrics: React.FC<StaffDashboardMetricsProps> = ({ requests, audioEnabled = false }) => {
   // Count active tasks (pending + processing)
   const pendingCount = requests.filter(req => req.status === 'pending' || req.status === 'pending_confirmation').length;
   const processingCount = requests.filter(req => req.status === 'processing').length;
@@ -18,7 +19,23 @@ const StaffDashboardMetrics: React.FC<StaffDashboardMetricsProps> = ({ requests 
   ).length;
 
   return (
-    <div className="grid gap-4 md:grid-cols-3 p-4 md:p-8">
+    <div className="space-y-4">
+      {/* Audio Status Banner */}
+      <div className="mx-4 md:mx-8 p-2 rounded-lg border flex items-center justify-center gap-2 text-sm">
+        {audioEnabled ? (
+          <>
+            <Volume2 className="h-4 w-4 text-green-600" />
+            <span className="text-green-600 font-medium">🔊 Sound notifications enabled</span>
+          </>
+        ) : (
+          <>
+            <VolumeX className="h-4 w-4 text-amber-600" />
+            <span className="text-amber-600 font-medium">🔇 Click anywhere to enable sound notifications</span>
+          </>
+        )}
+      </div>
+      
+      <div className="grid gap-4 md:grid-cols-3 p-4 md:p-8">
       <Card className="shadow-lg">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium font-headline">Pending Tasks</CardTitle>
@@ -57,6 +74,7 @@ const StaffDashboardMetrics: React.FC<StaffDashboardMetricsProps> = ({ requests 
           </p>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 };

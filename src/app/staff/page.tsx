@@ -21,66 +21,138 @@ export default function StaffPage() {
   const [isBackendConnected, setIsBackendConnected] = useState(false);
   const [previousRequestCount, setPreviousRequestCount] = useState(0);
   const [authUser, setAuthUser] = useState<any | null>(null);
+  const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
+  const [audioEnabled, setAudioEnabled] = useState(false);
   const { toast } = useToast();
   const router = useRouter();
+
+  // Function to create and initialize audio context
+  const initializeAudio = async () => {
+    try {
+      const context = new (window.AudioContext || (window as any).webkitAudioContext)();
+      
+      // Resume context if suspended
+      if (context.state === 'suspended') {
+        await context.resume();
+      }
+      
+      setAudioContext(context);
+      setAudioEnabled(true);
+      console.log('✅ Audio context initialized successfully');
+      return context;
+    } catch (error) {
+      console.warn('Failed to initialize audio context:', error);
+      return null;
+    }
+  };
 
   // Function to play notification sound for 5 seconds
   const playNotificationSound = async () => {
     try {
-      // Create audio context for high volume notification
-      let audioContext: AudioContext;
+      let context = audioContext;
       
-      try {
-        audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      } catch (err) {
-        console.warn('AudioContext not supported:', err);
-        return;
+      // Initialize audio if not already done
+      if (!context || context.state === 'closed') {
+        context = await initializeAudio();
+        if (!context) {
+          throw new Error('Could not initialize audio context');
+        }
       }
       
-      // Resume audio context if suspended (browser policy)
-      if (audioContext.state === 'suspended') {
-        await audioContext.resume();
+      // Ensure context is running
+      if (context.state === 'suspended') {
+        await context.resume();
       }
       
-      // Function to create a beep
-      const createBeep = (frequency: number, duration: number, delay: number) => {
+      if (context.state !== 'running') {
+        throw new Error('Audio context not running');
+      }
+      
+      // Play immediate test beep to verify audio works
+      const testOsc = context.createOscillator();
+      const testGain = context.createGain();
+      testOsc.type = 'sine';
+      testOsc.frequency.setValueAtTime(800, context.currentTime);
+      testGain.gain.setValueAtTime(0.3, context.currentTime);
+      testOsc.connect(testGain);
+      testGain.connect(context.destination);
+      testOsc.start(context.currentTime);
+      testOsc.stop(context.currentTime + 0.1);
+      
+      // Play notification pattern
+      for (let i = 0; i < 8; i++) {
         setTimeout(() => {
-          const oscillator = audioContext.createOscillator();
-          const gainNode = audioContext.createGain();
-          
-          oscillator.type = 'sine';
-          oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
-          
-          // Set volume envelope for smooth sound
-          gainNode.gain.setValueAtTime(0, audioContext.currentTime);
-          gainNode.gain.linearRampToValueAtTime(0.7, audioContext.currentTime + 0.01);
-          gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
-          
-          oscillator.connect(gainNode);
-          gainNode.connect(audioContext.destination);
-          
-          oscillator.start(audioContext.currentTime);
-          oscillator.stop(audioContext.currentTime + duration);
-        }, delay);
-      };
-      
-      // Play notification pattern over 5 seconds
-      for (let i = 0; i < 10; i++) {
-        const frequency = i % 2 === 0 ? 800 : 600; // Alternate between two tones
-        createBeep(frequency, 0.2, i * 500); // Beep every 500ms for 200ms
+          if (context && context.state === 'running') {
+            const oscillator = context.createOscillator();
+            const gainNode = context.createGain();
+            
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(i % 2 === 0 ? 880 : 660, context.currentTime);
+            
+            // Set volume envelope
+            gainNode.gain.setValueAtTime(0, context.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0.5, context.currentTime + 0.01);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, context.currentTime + 0.15);
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(context.destination);
+            
+            oscillator.start(context.currentTime);
+            oscillator.stop(context.currentTime + 0.15);
+          }
+        }, i * 300); // Beep every 300ms
       }
       
-      console.log('🔊 Staff notification sound sequence started for new delivery request');
+      console.log('🔊 Staff notification sound played for new delivery request');
     } catch (error) {
-      console.warn('Could not play notification sound:', error);
+      console.warn('Web Audio API failed, trying fallback:', error);
       
-      // Fallback: try to play system notification sound
+      // Enhanced fallback with multiple audio formats
       try {
-        const audio = new Audio('data:audio/wav;base64,UklGRhwCAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQgBAAC4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4');
+        // Create a more audible beep sound
+        const audio = new Audio();
         audio.volume = 0.8;
-        audio.play().catch(() => console.warn('Fallback audio also failed'));
+        
+        // Try to create a simple beep using data URI
+        const sampleRate = 44100;
+        const duration = 0.2;
+        const frequency = 800;
+        const samples = sampleRate * duration;
+        const wave = new Array(samples);
+        
+        for (let i = 0; i < samples; i++) {
+          wave[i] = Math.sin(frequency * 2 * Math.PI * i / sampleRate) * 0.3;
+        }
+        
+        // Convert to base64 audio
+        const audioData = 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhCSuByO/efy8TLHrP8dZeLhJFme7hd0wKFVew6eimUSQMUrPn5al4KhxGme/nhnASJ3nA7+OVQw4NV6nn6a5VHBFHmenm'; 
+        
+        audio.src = audioData;
+        audio.play().then(() => {
+          console.log('🔊 Fallback audio notification played');
+          
+          // Play multiple short beeps
+          for (let i = 1; i < 4; i++) {
+            setTimeout(() => {
+              const audioClone = audio.cloneNode() as HTMLAudioElement;
+              audioClone.volume = 0.6;
+              audioClone.play().catch(() => {});
+            }, i * 400);
+          }
+        }).catch(() => {
+          console.warn('All audio methods failed');
+          
+          // Last resort: try to use system notification API
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('🔔 New Delivery Request!', {
+              body: 'A new delivery request has been received.',
+              icon: '/favicon.ico',
+              tag: 'delivery-request'
+            });
+          }
+        });
       } catch {
-        console.warn('Fallback audio not available');
+        console.warn('All notification methods failed');
       }
     }
   };
@@ -88,44 +160,61 @@ export default function StaffPage() {
   // Enable audio context on first user interaction
   useEffect(() => {
     const enableAudio = async () => {
+      if (audioEnabled) return; // Already enabled
+      
       try {
-        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-        if (audioContext.state === 'suspended') {
-          await audioContext.resume();
+        await initializeAudio();
+        
+        // Request notification permission
+        if ('Notification' in window && Notification.permission === 'default') {
+          Notification.requestPermission().then(permission => {
+            console.log('Notification permission:', permission);
+          });
         }
         
-        // Test audio capability with a brief silent tone
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
+                 // Test audio capability with a brief quiet tone (no full notification)
+         setTimeout(() => {
+           console.log('🔊 Testing audio capability...');
+           if (audioContext && audioContext.state === 'running') {
+             const testOsc = audioContext.createOscillator();
+             const testGain = audioContext.createGain();
+             testOsc.type = 'sine';
+             testOsc.frequency.setValueAtTime(440, audioContext.currentTime);
+             testGain.gain.setValueAtTime(0.1, audioContext.currentTime); // Very quiet test
+             testOsc.connect(testGain);
+             testGain.connect(audioContext.destination);
+             testOsc.start(audioContext.currentTime);
+             testOsc.stop(audioContext.currentTime + 0.1);
+             console.log('✅ Audio test completed');
+           }
+         }, 100);
         
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(440, audioContext.currentTime);
-        gainNode.gain.setValueAtTime(0, audioContext.currentTime);
-        
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-        
-        oscillator.start(audioContext.currentTime);
-        oscillator.stop(audioContext.currentTime + 0.001);
-        
-        console.log('✅ Audio context enabled for staff notifications');
       } catch (error) {
-        console.warn('Could not enable audio context:', error);
+        console.warn('Could not enable audio:', error);
       }
     };
 
     // Enable audio on various user interactions
-    const events = ['click', 'touchstart', 'keydown', 'mousedown'];
+    const events = ['click', 'touchstart', 'keydown', 'mousedown', 'pointerdown'];
     events.forEach(eventType => {
       document.addEventListener(eventType, enableAudio, { once: true });
     });
+
+    // Also try to initialize on page load after a delay
+    const timeoutId = setTimeout(() => {
+      if (!audioEnabled) {
+        console.log('🔊 Auto-initializing audio...');
+        initializeAudio().catch(console.warn);
+      }
+    }, 2000);
 
     return () => {
       events.forEach(eventType => {
         document.removeEventListener(eventType, enableAudio);
       });
+      clearTimeout(timeoutId);
     };
-  }, []);
+  }, [audioEnabled]);
 
   // Check staff authentication
   useEffect(() => {
@@ -251,23 +340,51 @@ export default function StaffPage() {
         );
         const currentPendingCount = currentPendingRequests.length;
         
+        console.log(`📊 Request count check - Previous: ${previousRequestCount}, Current: ${currentPendingCount}, Total requests: ${data.length}`);
+        
         // Play sound if there are new pending requests (not on initial load)
-        if (previousRequestCount > 0 && currentPendingCount > previousRequestCount) {
-          console.log(`🔔 New delivery request detected! Previous: ${previousRequestCount}, Current: ${currentPendingCount}`);
+        if (previousRequestCount >= 0 && currentPendingCount > previousRequestCount) {
+          console.log(`🔔 NEW DELIVERY REQUEST DETECTED! Previous: ${previousRequestCount}, Current: ${currentPendingCount}`);
+          console.log('🔊 Attempting to play notification sound...');
           
-          // Play notification sound
-          playNotificationSound().catch(error => {
-            console.warn('Failed to play notification sound:', error);
-          });
+          // Play notification sound with retries
+          const playWithRetry = async (attempts: number = 3) => {
+            for (let i = 0; i < attempts; i++) {
+              try {
+                await playNotificationSound();
+                console.log('✅ Notification sound played successfully');
+                break;
+              } catch (error) {
+                console.warn(`🔇 Sound attempt ${i + 1} failed:`, error);
+                if (i === attempts - 1) {
+                  console.error('🔇 All sound attempts failed');
+                  
+                  // Show browser notification as fallback
+                  if ('Notification' in window && Notification.permission === 'granted') {
+                    new Notification('🔔 New Delivery Request!', {
+                      body: `${currentPendingCount - previousRequestCount} new request(s) received`,
+                      icon: '/favicon.ico',
+                      tag: 'new-delivery-request',
+                      requireInteraction: true
+                    });
+                  }
+                }
+                await new Promise(resolve => setTimeout(resolve, 500)); // Wait before retry
+              }
+            }
+          };
+          
+          playWithRetry();
           
           // Show visual notification as well
           toast({
             title: "🔔 New Delivery Request!",
             description: `${currentPendingCount - previousRequestCount} new request(s) received`,
-            duration: 3000,
+            duration: 5000,
           });
         }
         
+        // Update previous count after processing
         setPreviousRequestCount(currentPendingCount);
         setDeliveryRequests(data);
         setIsLoading(false);
@@ -286,14 +403,22 @@ export default function StaffPage() {
     setIsLoading(true);
     fetchDeliveryRequests();
 
-    // Initialize previous count after first load
-    setTimeout(() => {
-      const currentRequests = deliveryRequests.filter(req => 
-        req.status === 'pending' || req.status === 'pending_confirmation'
-      );
-      setPreviousRequestCount(currentRequests.length);
-      console.log('📊 Initial pending request count set to:', currentRequests.length);
-    }, 3000);
+    // Initialize previous count after first successful fetch
+    let initializationAttempts = 0;
+    const initializePreviousCount = () => {
+      if (deliveryRequests.length > 0 || initializationAttempts >= 3) {
+        const currentRequests = deliveryRequests.filter(req => 
+          req.status === 'pending' || req.status === 'pending_confirmation'
+        );
+        setPreviousRequestCount(currentRequests.length);
+        console.log('📊 Initial pending request count set to:', currentRequests.length);
+      } else {
+        initializationAttempts++;
+        setTimeout(initializePreviousCount, 2000);
+      }
+    };
+    
+    setTimeout(initializePreviousCount, 3000);
 
     // Set up real-time updates every 3 seconds
     const interval = setInterval(() => {
@@ -391,12 +516,30 @@ export default function StaffPage() {
             </div>
           </div>
         )}
-        <StaffDashboardMetrics requests={deliveryRequests} /> 
+        <StaffDashboardMetrics requests={deliveryRequests} audioEnabled={audioEnabled} /> 
         <RequestQueue requests={deliveryRequests} onMarkAsDone={handleMarkAsDone} />
       </main>
       
-      {/* Bottom Sign Out Button */}
-      <div className="p-4 border-t border-[hsl(var(--border))]/20 bg-background/30 flex justify-center">
+      {/* Bottom Controls */}
+      <div className="p-4 border-t border-[hsl(var(--border))]/20 bg-background/30 flex justify-center gap-3">
+        <Button 
+          variant="outline" 
+          onClick={() => {
+            console.log('🔊 Manual sound test triggered');
+            playNotificationSound().catch(error => {
+              console.warn('Manual sound test failed:', error);
+              toast({
+                variant: "destructive",
+                title: "Sound Test Failed",
+                description: "Please click anywhere on the page first to enable audio.",
+              });
+            });
+          }}
+          className="border-green-500 text-green-600 hover:bg-green-50 rounded-lg"
+          title="Test notification sound"
+        >
+          🔊 Test Sound
+        </Button>
         <Button 
           variant="outline" 
           onClick={handleSignOut} 
