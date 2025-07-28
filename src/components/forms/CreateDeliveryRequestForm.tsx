@@ -254,6 +254,13 @@ export default function CreateDeliveryRequestForm({
       form.reset();
       setSelectedCustomer(null);
       setSearchTerm(''); // Clear search after successful creation
+      
+      // Hide keyboard by blurring any active input
+      const activeElement = document.activeElement as HTMLElement;
+      if (activeElement && activeElement.blur) {
+        activeElement.blur();
+      }
+      
       if (onSuccess) {
         onSuccess();
       }

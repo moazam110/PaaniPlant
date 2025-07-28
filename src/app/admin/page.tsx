@@ -19,6 +19,10 @@ import DeliveryRequestList from '@/components/admin/DeliveryRequestList';
 import NotificationItem from '@/components/notifications/NotificationItem';
 import { startOfDay, endOfDay, isWithinInterval } from 'date-fns';
 import { buildApiUrl, API_ENDPOINTS, API_BASE_URL } from '@/lib/api';
+import TabNavigation from '@/components/admin/TabNavigation';
+import DeliveryTab from '@/components/admin/tabs/DeliveryTab';
+import StatsTab from '@/components/admin/tabs/StatsTab';
+import CustomersTab from '@/components/admin/tabs/CustomersTab';
 
 export default function AdminDashboardPage() {
   const router = useRouter();
@@ -43,6 +47,9 @@ export default function AdminDashboardPage() {
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [isNotificationPopoverOpen, setIsNotificationPopoverOpen] = useState(false);
+
+  // Tab navigation state
+  const [activeTab, setActiveTab] = useState('delivery');
 
   const customerListRef = useRef<CustomerListRef>(null);
 
@@ -198,7 +205,7 @@ export default function AdminDashboardPage() {
     setIsCustomerFormDialogOpen(true);
   }
 
-  const handleInitiateNewRequest = (customer: Customer) => {
+  const handleInitiateNewRequest = (customer?: Customer) => {
     openRequestDialog(undefined, customer);
   };
 
@@ -281,9 +288,9 @@ export default function AdminDashboardPage() {
         </div>
       </div>
       
-      <main className="flex-grow container mx-auto p-4 md:p-8">
+      <main className="flex-grow flex flex-col">
         {!isBackendConnected && (
-          <div className="mb-4 p-4 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded-md">
+          <div className="mx-4 mt-4 p-4 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded-md">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium">⚠️ Backend server is not connected</p>
@@ -305,67 +312,28 @@ export default function AdminDashboardPage() {
             </div>
           </div>
         )}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-          <Card className="glass-card">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Total Customers</CardTitle><Users className="h-5 w-5 text-muted-foreground" /></CardHeader>
-            <CardContent>{totalCustomers >= 0 ? <div className="text-2xl font-bold">{totalCustomers}</div> : <Skeleton className="h-7 w-12 bg-muted/50" />}</CardContent>
-          </Card>
-
-          <Card className="glass-card">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Pending Deliveries</CardTitle><ListChecks className="h-5 w-5 text-muted-foreground" /></CardHeader>
-            <CardContent>{pendingDeliveries >= 0 ? <div className="text-2xl font-bold">{pendingDeliveries}</div> : <Skeleton className="h-7 w-12 bg-muted/50" />}</CardContent>
-          </Card>
-          <Card className="glass-card">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Deliveries Today</CardTitle><PackageCheck className="h-5 w-5 text-muted-foreground" /></CardHeader>
-            <CardContent>{deliveriesTodayCount >= 0 ? <div className="text-2xl font-bold">{deliveriesTodayCount}</div> : <Skeleton className="h-7 w-12 bg-muted/50" />}</CardContent>
-          </Card>
-          <Card className="glass-card">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Cans Delivered Today</CardTitle><PackageSearch className="h-5 w-5 text-muted-foreground" /></CardHeader>
-            <CardContent>{totalCansToday >= 0 ? <div className="text-2xl font-bold">{totalCansToday}</div> : <Skeleton className="h-7 w-12 bg-muted/50" />}</CardContent>
-          </Card>
-        </div>
-
-        <div className="space-y-8">
-          <section>
-            <Card className="glass-card">
-              <CardHeader>
-                 <div className="flex justify-between items-center"><CardTitle>Delivery Request Dashboard</CardTitle></div>
-                <CardDescription>Search for requests or find customers to create new requests.</CardDescription>
-              </CardHeader>
-              <CardContent className="p-6">
-                 <DeliveryRequestList 
-                    onInitiateNewRequest={handleInitiateNewRequest}
-                    onEditRequest={handleEditRequest}
-                    deliveryRequests={deliveryRequests}
-                    setDeliveryRequests={setDeliveryRequests}
-                 />
-              </CardContent>
-            </Card>
-          </section>
+        
+        <TabNavigation activeTab={activeTab} onTabChange={setActiveTab}>
+          <DeliveryTab 
+            deliveryRequests={deliveryRequests}
+            setDeliveryRequests={setDeliveryRequests}
+            onInitiateNewRequest={handleInitiateNewRequest}
+            onEditRequest={handleEditRequest}
+          />
           
-          <Accordion type="single" collapsible className="w-full" defaultValue="">
-            <AccordionItem value="customer-management" className="border-none">
-              <AccordionTrigger className="text-2xl font-semibold font-headline py-4 hover:no-underline text-foreground/90 [&[data-state=open]]:text-primary">
-                Customer Management
-              </AccordionTrigger>
-              <AccordionContent>
-                <Card className="glass-card">
-                  <CardHeader>
-                    <div className="flex justify-between items-center">
-                        <CardTitle>Customer Records</CardTitle>
-                        <Button variant="default" onClick={handleAddNewCustomer}>
-                            <UserPlus className="mr-2 h-4 w-4" /> Add New Customer
-                        </Button>
-                    </div>
-                    <CardDescription>View, search, and manage customer profiles.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="p-6">
-                    <CustomerList ref={customerListRef} onEditCustomer={handleEditCustomer} />
-                  </CardContent>
-                </Card>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
+          <StatsTab 
+            totalCustomers={totalCustomers}
+            pendingDeliveries={pendingDeliveries}
+            deliveriesTodayCount={deliveriesTodayCount}
+            totalCansToday={totalCansToday}
+          />
+          
+          <CustomersTab 
+            customerListRef={customerListRef}
+            onEditCustomer={handleEditCustomer}
+            onAddNewCustomer={handleAddNewCustomer}
+          />
+        </TabNavigation>
 
             {/* Dialog for Adding/Editing Customer */}
             <Dialog open={isCustomerFormDialogOpen} onOpenChange={setIsCustomerFormDialogOpen}>
@@ -409,20 +377,7 @@ export default function AdminDashboardPage() {
                 </DialogContent>
             </Dialog>
 
-          <section>
-            <h3 className="text-2xl font-semibold mb-4 font-headline text-foreground/90">System Settings</h3>
-            <Card className="glass-card">
-              <CardHeader><CardTitle>System Configuration</CardTitle><CardDescription>Manage admin accounts and system-wide settings.</CardDescription></CardHeader>
-              <CardContent className="p-6">
-                 <p className="text-muted-foreground mb-4">Admin user management functionality removed. Users are managed via Firebase Console.</p>
-                <Button variant="outline" className="mt-4" disabled><Settings className="mr-2 h-4 w-4" />Configure (Soon)</Button>
-              </CardContent>
-            </Card>
-          </section>
-        </div>
-        <div className="mt-12 text-center">
-            <Link href="/staff" passHref><Button variant="ghost" className="text-sm hover:text-accent">Go to Staff App</Button></Link>
-        </div>
+
       </main>
       <footer className="text-center p-4 text-sm text-muted-foreground bg-background/30 border-t border-[hsl(var(--border))]/20 mt-auto">
         Paani Delivery System &copy; {new Date().getFullYear()}

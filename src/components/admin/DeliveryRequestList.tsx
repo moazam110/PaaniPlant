@@ -36,7 +36,7 @@ import {
 
 
 interface DeliveryRequestListProps {
-  onInitiateNewRequest: (customer: Customer) => void;
+  onInitiateNewRequest: (customer?: Customer) => void;
   onEditRequest: (request: DeliveryRequest) => void;
   deliveryRequests: DeliveryRequest[];
   setDeliveryRequests: React.Dispatch<React.SetStateAction<DeliveryRequest[]>>;
