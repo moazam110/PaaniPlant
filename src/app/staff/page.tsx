@@ -21,156 +21,84 @@ export default function StaffPage() {
   const [isBackendConnected, setIsBackendConnected] = useState(false);
   const [previousRequestCount, setPreviousRequestCount] = useState(0);
   const [authUser, setAuthUser] = useState<any | null>(null);
-  const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const [isPlayingAlarm, setIsPlayingAlarm] = useState(false);
   const { toast } = useToast();
   const router = useRouter();
 
-  // Function to create and initialize audio context
-  const initializeAudio = async () => {
-    try {
-      const context = new (window.AudioContext || (window as any).webkitAudioContext)();
-      
-      // Resume context if suspended
-      if (context.state === 'suspended') {
-        await context.resume();
-      }
-      
-      setAudioContext(context);
-      console.log('✅ Audio context initialized successfully');
-      return context;
-    } catch (error) {
-      console.warn('Failed to initialize audio context:', error);
-      return null;
-    }
-  };
 
-  // Function to play notification sound for exactly 5 seconds
-  const playNotificationSound = async () => {
+
+  // Function to play notification sound for exactly 5 seconds using HTML5 Audio
+  const playNotificationSound = () => {
     if (isPlayingAlarm) {
       console.log('🔇 Alarm already playing, skipping');
       return;
     }
 
+    setIsPlayingAlarm(true);
+    console.log('🔊 Starting 5-second alarm for new delivery request');
+
+    // Create beep sound using data URI (more reliable than Web Audio API)
+    const beepFrequency = 800;
+    const sampleRate = 44100;
+    const beepDuration = 0.2;
+    const silenceDuration = 0.3;
+    const totalDuration = 5.0;
+    
+    // Calculate samples needed
+    const beepSamples = Math.floor(sampleRate * beepDuration);
+    const silenceSamples = Math.floor(sampleRate * silenceDuration);
+    const cycleSamples = beepSamples + silenceSamples;
+    const totalSamples = Math.floor(sampleRate * totalDuration);
+    
+    // Generate audio data
+    const audioData = new Array(totalSamples);
+    for (let i = 0; i < totalSamples; i++) {
+      const cyclePosition = i % cycleSamples;
+      if (cyclePosition < beepSamples) {
+        // Generate sine wave for beep
+        audioData[i] = Math.sin(beepFrequency * 2 * Math.PI * i / sampleRate) * 0.3;
+      } else {
+        // Silence
+        audioData[i] = 0;
+      }
+    }
+    
+    // Convert to WAV format and play
     try {
-      let context = audioContext;
+      const audio = new Audio();
+      audio.volume = 0.8;
       
-      // Initialize audio if not already done
-      if (!context || context.state === 'closed') {
-        context = await initializeAudio();
-        if (!context) {
-          console.warn('Could not initialize audio context');
-          return;
+      // Use a simpler approach - just play multiple short beeps
+      let beepCount = 0;
+      const maxBeeps = 10; // 10 beeps over 5 seconds
+      
+      const playBeep = () => {
+        if (beepCount >= maxBeeps || !isPlayingAlarm) return;
+        
+        const beepAudio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhCSuByO/efy8TLHrP8dZeLhJFme7hd0wKFVew6eimUSQMUrPn5al4KhxGme/nhnASJ3nA7+OVQw4NV6nn6a5VHBFHmenm');
+        beepAudio.volume = 0.6;
+        beepAudio.play().catch(() => {});
+        
+        beepCount++;
+        if (beepCount < maxBeeps && isPlayingAlarm) {
+          setTimeout(playBeep, 500); // Next beep in 500ms
         }
-      }
-      
-      // Ensure context is running
-      if (context.state === 'suspended') {
-        await context.resume();
-      }
-      
-      if (context.state !== 'running') {
-        console.warn('Audio context not running');
-        return;
-      }
-      
-      setIsPlayingAlarm(true);
-      console.log('🔊 Starting 5-second alarm for new delivery request');
-      
-      // Create a single oscillator for the entire 5-second duration
-      const oscillator = context.createOscillator();
-      const gainNode = context.createGain();
-      
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(800, context.currentTime);
-      
-      // Start with no volume
-      gainNode.gain.setValueAtTime(0, context.currentTime);
-      
-      // Create beeping pattern: 0.2s on, 0.3s off, repeat for 5 seconds
-      const currentTime = context.currentTime;
-      const endTime = currentTime + 5.0;
-      
-      let time = currentTime;
-      while (time < endTime) {
-        // Beep on for 0.2 seconds
-        gainNode.gain.setValueAtTime(0, time);
-        gainNode.gain.linearRampToValueAtTime(0.5, time + 0.01);
-        gainNode.gain.setValueAtTime(0.5, time + 0.2);
-        gainNode.gain.linearRampToValueAtTime(0, time + 0.21);
-        
-        // Silent for 0.3 seconds
-        gainNode.gain.setValueAtTime(0, time + 0.21);
-        
-        time += 0.5; // Move to next beep (0.2s sound + 0.3s silence)
-      }
-      
-      // Ensure it ends at 0 volume
-      gainNode.gain.setValueAtTime(0, endTime);
-      
-      oscillator.connect(gainNode);
-      gainNode.connect(context.destination);
-      
-      // Start and stop the oscillator
-      oscillator.start(currentTime);
-      oscillator.stop(endTime);
-      
-      // Clean up when finished
-      oscillator.onended = () => {
-        setIsPlayingAlarm(false);
-        console.log('🔇 5-second alarm completed automatically');
       };
       
-      // Fallback timeout in case onended doesn't fire
-      setTimeout(() => {
-        if (isPlayingAlarm) {
-          setIsPlayingAlarm(false);
-          console.log('🔇 5-second alarm timeout reached');
-        }
-      }, 5200);
+      playBeep();
       
     } catch (error) {
-      console.warn('Audio alarm failed:', error);
-      setIsPlayingAlarm(false);
+      console.warn('Failed to create audio:', error);
     }
+    
+    // Force stop after exactly 5 seconds
+    setTimeout(() => {
+      setIsPlayingAlarm(false);
+      console.log('🔇 5-second alarm completed - force stopped');
+    }, 5000);
   };
 
-  // Enable audio context on first user interaction
-  useEffect(() => {
-    const enableAudio = async () => {
-      if (audioContext) return; // Already initialized
-      
-      try {
-        await initializeAudio();
-        
-                console.log('✅ Audio initialized for delivery notifications');
-        
-      } catch (error) {
-        console.warn('Could not enable audio:', error);
-      }
-    };
-
-    // Enable audio on various user interactions
-    const events = ['click', 'touchstart', 'keydown', 'mousedown', 'pointerdown'];
-    events.forEach(eventType => {
-      document.addEventListener(eventType, enableAudio, { once: true });
-    });
-
-    // Also try to initialize on page load after a delay
-    const timeoutId = setTimeout(() => {
-      if (!audioContext) {
-        console.log('🔊 Auto-initializing audio...');
-        initializeAudio().catch(console.warn);
-      }
-    }, 2000);
-
-    return () => {
-      events.forEach(eventType => {
-        document.removeEventListener(eventType, enableAudio);
-      });
-      clearTimeout(timeoutId);
-    };
-  }, [audioContext]);
+  
 
   // Check staff authentication
   useEffect(() => {
@@ -298,8 +226,8 @@ export default function StaffPage() {
         
         console.log(`📊 Request count check - Previous: ${previousRequestCount}, Current: ${currentPendingCount}, Total requests: ${data.length}`);
         
-        // Play sound if there are new pending requests (not on initial load)
-        if (previousRequestCount >= 0 && currentPendingCount > previousRequestCount) {
+        // Play sound if there are new pending requests (not on initial load and not already playing)
+        if (previousRequestCount >= 0 && currentPendingCount > previousRequestCount && !isPlayingAlarm) {
           console.log(`🔔 NEW DELIVERY REQUEST DETECTED! Previous: ${previousRequestCount}, Current: ${currentPendingCount}`);
           
           // Play notification sound only once

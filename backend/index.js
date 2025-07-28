@@ -380,7 +380,7 @@ app.get('/api/dashboard/metrics', async (req, res) => {
     
     const totalCustomers = await Customer.countDocuments();
     const pendingRequests = await DeliveryRequest.countDocuments({ 
-      status: { $in: ['pending', 'pending_confirmation'] } 
+      status: { $in: ['pending', 'pending_confirmation', 'processing'] } 
     });
     
     let dateQuery = {};
