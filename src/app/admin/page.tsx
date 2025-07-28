@@ -8,7 +8,7 @@ import { LogOut } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { Customer, DeliveryRequest } from '@/types';
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import CustomerForm from '@/components/forms/CustomerForm';
 import CreateDeliveryRequestForm from '@/components/forms/CreateDeliveryRequestForm';
 import CustomerList, { CustomerListRef } from '@/components/admin/CustomerList';
@@ -295,13 +295,7 @@ export default function AdminDashboardPage() {
             {/* Dialog for Adding/Editing Customer */}
             <Dialog open={isCustomerFormDialogOpen} onOpenChange={setIsCustomerFormDialogOpen}>
                 <DialogContent className="sm:max-w-[525px] flex flex-col max-h-[calc(100vh-4rem)] glass-card">
-                    <DialogHeader className="flex-shrink-0">
-                        <DialogTitle>{customerToEdit ? `Edit Customer: ${customerToEdit.name}` : 'Add New Customer'}</DialogTitle>
-                        <DialogDescription>
-                            {customerToEdit ? 'Update the customer details below.' : 'Fill in the details below to add a new customer.'}
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="flex-grow overflow-y-auto pr-2 py-2">
+                    <div className="flex-grow overflow-y-auto pr-2 py-4">
                         <CustomerForm 
                             editingCustomer={customerToEdit}
                             onSuccess={handleCustomerFormSuccess} 

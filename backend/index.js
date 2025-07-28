@@ -367,21 +367,45 @@ app.get('/api/customers/:id/stats', async (req, res) => {
     
     console.log(`Customer found: ${customer.name}`);
     
-    // Get all delivered requests for this customer - handle both ObjectId and string formats
-    const deliveredRequests = await DeliveryRequest.find({
+    // Build query filter based on optional month and year parameters
+    const query = {
       $or: [
         { customerId: req.params.id },
         { customerId: mongoose.Types.ObjectId.createFromHexString(req.params.id) }
       ],
       status: 'delivered'
-    });
+    };
+
+    // Add date filtering if month and year are provided
+    const { month, year } = req.query;
+    if (month && year) {
+      const monthNum = parseInt(month);
+      const yearNum = parseInt(year);
+      
+      if (monthNum >= 1 && monthNum <= 12 && yearNum > 1900) {
+        // Create start and end dates for the specified month
+        const startDate = new Date(yearNum, monthNum - 1, 1); // month is 0-indexed
+        const endDate = new Date(yearNum, monthNum, 1); // first day of next month
+        
+        query.deliveredAt = {
+          $gte: startDate,
+          $lt: endDate
+        };
+        
+        console.log(`Filtering for month ${monthNum}/${yearNum}: ${startDate} to ${endDate}`);
+      }
+    }
+    
+    // Get all delivered requests for this customer with optional date filtering
+    const deliveredRequests = await DeliveryRequest.find(query);
     
     console.log(`Found ${deliveredRequests.length} delivered requests for customer ${customer.name}`);
     console.log('Delivered requests:', deliveredRequests.map(r => ({ 
       id: r._id, 
       cans: r.cans, 
       customerId: r.customerId,
-      status: r.status 
+      status: r.status,
+      deliveredAt: r.deliveredAt
     })));
     
     const totalDeliveries = deliveredRequests.length;
@@ -392,7 +416,9 @@ app.get('/api/customers/:id/stats', async (req, res) => {
       totalDeliveries,
       totalCansReceived,
       totalPrice,
-      pricePerCan: customer.pricePerCan
+      pricePerCan: customer.pricePerCan,
+      month: month || null,
+      year: year || null
     };
     
     console.log(`Customer ${customer.name} stats:`, stats);

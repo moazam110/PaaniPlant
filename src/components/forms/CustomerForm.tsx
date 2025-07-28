@@ -14,6 +14,7 @@ import { Loader2 } from 'lucide-react';
 import type { Customer } from '@/types'; 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 
 // Schema without profilePicture
@@ -43,6 +44,33 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
   const [totalOrders, setTotalOrders] = useState<number | null>(null);
   const [totalCansReceived, setTotalCansReceived] = useState<number | null>(null);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
+  
+  // Month and year state for filtering
+  const currentDate = new Date();
+  const [selectedMonth, setSelectedMonth] = useState<string>(String(currentDate.getMonth() + 1));
+  const [selectedYear, setSelectedYear] = useState<string>(String(currentDate.getFullYear()));
+  
+  // Months array for dropdown
+  const months = [
+    { value: '1', label: 'Jan' },
+    { value: '2', label: 'Feb' },
+    { value: '3', label: 'Mar' },
+    { value: '4', label: 'Apr' },
+    { value: '5', label: 'May' },
+    { value: '6', label: 'Jun' },
+    { value: '7', label: 'Jul' },
+    { value: '8', label: 'Aug' },
+    { value: '9', label: 'Sep' },
+    { value: '10', label: 'Oct' },
+    { value: '11', label: 'Nov' },
+    { value: '12', label: 'Dec' }
+  ];
+  
+  // Years array for dropdown (current year + 5 previous years)
+  const years = Array.from({ length: 6 }, (_, i) => {
+    const year = currentDate.getFullYear() - i;
+    return { value: String(year), label: String(year) };
+  });
 
   const form = useForm<CustomerFormValues>({
     resolver: zodResolver(customerFormSchema),
@@ -67,7 +95,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
         notes: editingCustomer.notes || "",
       });
 
-      const fetchCustomerStats = async () => {
+      const fetchCustomerStats = async (month?: string, year?: string) => {
         if (!editingCustomer._id && !editingCustomer.customerId) {
           console.log('No customer ID available for stats');
           return;
@@ -79,8 +107,13 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
           console.log('Fetching stats for customer ID:', customerId);
           console.log('Customer ID type:', typeof customerId);
           console.log('Full customer object:', editingCustomer);
+          console.log('Month:', month, 'Year:', year);
           
-          const statsUrl = buildApiUrl(`api/customers/${customerId}/stats`);
+          // Build URL with optional month and year parameters
+          let statsUrl = buildApiUrl(`api/customers/${customerId}/stats`);
+          if (month && year) {
+            statsUrl += `?month=${month}&year=${year}`;
+          }
           console.log('Stats URL:', statsUrl);
           
           const response = await fetch(statsUrl);
@@ -96,12 +129,16 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
             setTotalOrders(stats.totalDeliveries || 0);
             setTotalCansReceived(stats.totalCansReceived || 0);
             
-            // Set up real-time updates for customer stats every 5 seconds
+            // Set up real-time updates for customer stats every 60 seconds
             if (!statsIntervalRef.current) {
               console.log('Setting up stats refresh interval');
               statsIntervalRef.current = setInterval(async () => {
                 try {
-                  const refreshResponse = await fetch(statsUrl);
+                  let refreshStatsUrl = buildApiUrl(`api/customers/${customerId}/stats`);
+                  if (selectedMonth && selectedYear) {
+                    refreshStatsUrl += `?month=${selectedMonth}&year=${selectedYear}`;
+                  }
+                  const refreshResponse = await fetch(refreshStatsUrl);
                   if (refreshResponse.ok) {
                     const refreshStats = await refreshResponse.json();
                     console.log('Stats refresh:', refreshStats);
@@ -111,7 +148,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
                 } catch (error) {
                   console.log('Stats refresh error (silent):', error);
                 }
-              }, 5000);
+              }, 60000);
             }
           } else {
             const errorText = await response.text();
@@ -128,7 +165,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
           setIsLoadingStats(false);
         }
       };
-      fetchCustomerStats();
+      fetchCustomerStats(selectedMonth, selectedYear);
 
       // Cleanup interval when component unmounts or customer changes
       return () => {
@@ -151,6 +188,53 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
       setTotalCansReceived(null);
     }
   }, [editingCustomer, form, isEditMode, toast]);
+
+  // Fetch stats when month or year changes
+  useEffect(() => {
+    if (isEditMode && editingCustomer && (editingCustomer._id || editingCustomer.customerId)) {
+      const fetchCustomerStats = async () => {
+        if (!editingCustomer._id && !editingCustomer.customerId) {
+          console.log('No customer ID available for stats');
+          return;
+        }
+        setIsLoadingStats(true);
+        try {
+          const customerId = editingCustomer._id || editingCustomer.customerId;
+          console.log('=== CUSTOMER STATS MONTH/YEAR CHANGE ===');
+          console.log('Fetching stats for month:', selectedMonth, 'year:', selectedYear);
+          
+          // Build URL with month and year parameters
+          let statsUrl = buildApiUrl(`api/customers/${customerId}/stats`);
+          if (selectedMonth && selectedYear) {
+            statsUrl += `?month=${selectedMonth}&year=${selectedYear}`;
+          }
+          console.log('Stats URL:', statsUrl);
+          
+          const response = await fetch(statsUrl);
+          
+          if (response.ok) {
+            const stats = await response.json();
+            console.log('Customer stats received:', stats);
+            setTotalOrders(stats.totalDeliveries || 0);
+            setTotalCansReceived(stats.totalCansReceived || 0);
+          } else {
+            const errorText = await response.text();
+            console.error('Failed to fetch customer stats:', response.status, errorText);
+            setTotalOrders(0);
+            setTotalCansReceived(0);
+          }
+        } catch (error) {
+          console.error("Error fetching customer stats:", error);
+          setTotalOrders(0);
+          setTotalCansReceived(0);
+        } finally {
+          setIsLoadingStats(false);
+        }
+      };
+      
+      fetchCustomerStats();
+    }
+  }, [selectedMonth, selectedYear, editingCustomer, isEditMode]);
 
   const handleNameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value;
@@ -254,10 +338,40 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
         
         {isEditMode && (
           <Card className="mb-6 glass-card">
-            <CardHeader>
-              <CardTitle>Customer Statistics</CardTitle>
-            </CardHeader>
-            <CardContent>
+            <CardContent className="pt-6">
+              {/* Month and Year Selectors */}
+              <div className="flex gap-3 mb-4">
+                <div className="flex-1">
+                  <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Month" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {months.map((month) => (
+                        <SelectItem key={month.value} value={month.value}>
+                          {month.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex-1">
+                  <Select value={selectedYear} onValueChange={setSelectedYear}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Year" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {years.map((year) => (
+                        <SelectItem key={year.value} value={year.value}>
+                          {year.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Statistics Grid */}
               {isLoadingStats ? (
                 <div className="space-y-2">
                   <Skeleton className="h-4 w-3/4" />
