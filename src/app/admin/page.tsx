@@ -52,6 +52,14 @@ export default function AdminDashboardPage() {
     setIsLoading(false);
   }, [router]);
 
+  // Ensure activeTab is always valid
+  useEffect(() => {
+    const validTabs = ['delivery', 'stats', 'customers', 'staff'];
+    if (!validTabs.includes(activeTab)) {
+      setActiveTab('delivery');
+    }
+  }, [activeTab]);
+
   useEffect(() => {
     if (authUser) {
       // Function to fetch dashboard metrics

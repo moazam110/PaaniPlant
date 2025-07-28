@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, CheckCircle, Ban } from 'lucide-react';
+import { Loader2, Search, CheckCircle, Ban, Plus, Minus } from 'lucide-react';
 import type { Customer, DeliveryRequest } from '@/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardHeader, CardTitle } from '@/components/ui/card';
@@ -222,10 +222,7 @@ export default function CreateDeliveryRequestForm({
         });
         
         if (response.ok) {
-          toast({
-            title: "Request Updated",
-            description: "Delivery request updated successfully.",
-          });
+          // Success notification removed
         } else {
           throw new Error('Failed to update request');
         }
@@ -242,10 +239,7 @@ export default function CreateDeliveryRequestForm({
         });
         
         if (response.ok) {
-          toast({
-            title: "Request Created",
-            description: "Delivery request created successfully.",
-          });
+          // Success notification removed
         } else {
           throw new Error('Failed to create request');
         }
@@ -382,10 +376,12 @@ export default function CreateDeliveryRequestForm({
             <CardHeader className="p-4">
               <div className="flex justify-between items-start">
                 <div>
-                  <CardTitle className="text-lg flex items-center">
+                  <div className="flex items-center">
                     <CheckCircle className="h-5 w-5 mr-2 text-green-600" />
-                    {isEditMode ? "Editing Request for" : "Creating Request for"}
-                  </CardTitle>
+                    <span className="text-lg font-medium">
+                      {isEditMode ? "Editing Request for" : "Creating Request for"}
+                    </span>
+                  </div>
                   <p className={cn("font-semibold mt-1", /[ء-ي]/.test(selectedCustomer.name) ? 'font-sindhi rtl' : 'ltr')}>
                     {selectedCustomer.name}
                   </p>
@@ -419,13 +415,41 @@ export default function CreateDeliveryRequestForm({
               <FormItem>
                 <FormLabel>Number of Cans</FormLabel>
                 <FormControl>
-                  <Input 
-                    type="number" 
-                    min="1" 
-                    {...field} 
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                  />
+                  <div className="flex items-center space-x-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => {
+                        const currentValue = Number(field.value) || 1;
+                        if (currentValue > 1) {
+                          field.onChange(currentValue - 1);
+                        }
+                      }}
+                      disabled={isSubmitting || (Number(field.value) || 1) <= 1}
+                      className="h-10 w-10"
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                    <div className="flex-1 text-center">
+                      <span className="text-lg font-semibold px-4 py-2 bg-muted rounded-md min-w-[60px] inline-block">
+                        {field.value || 1}
+                      </span>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => {
+                        const currentValue = Number(field.value) || 1;
+                        field.onChange(currentValue + 1);
+                      }}
+                      disabled={isSubmitting}
+                      className="h-10 w-10"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </FormControl>
                 <FormMessage />
               </FormItem>

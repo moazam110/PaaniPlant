@@ -23,20 +23,14 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
   const [startY, setStartY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
 
-  const activeIndex = tabs.findIndex(tab => tab.id === activeTab);
-  
-  // Debug logging
-  useEffect(() => {
-    console.log('TabNavigation Debug:', {
-      activeTab,
-      activeIndex,
-      tabsLength: tabs.length,
-      childrenCount: React.Children.count(children)
-    });
-  }, [activeTab, children]);
+  // Simplified activeIndex calculation with proper fallback
+  let activeIndex = tabs.findIndex(tab => tab.id === activeTab);
+  if (activeIndex === -1) {
+    activeIndex = 0; // Default to first tab if not found
+  }
 
-  // Ensure we have a valid activeIndex
-  const validActiveIndex = activeIndex >= 0 ? activeIndex : 0;
+  // Convert children to array for easier handling
+  const childrenArray = React.Children.toArray(children);
 
   // Handle touch start
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -56,16 +50,13 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
     const diffY = Math.abs(currentY - startY);
 
     // Only handle horizontal swipes (ignore vertical scrolling)
-    // Increased threshold and added target element checking
     if (diffX > diffY && diffX > 20) {
-      // Check if the touch started on a scrollable element (table, list, etc.)
       const target = e.target as HTMLElement;
       const isScrollableElement = target.closest('.overflow-y-auto, .overflow-auto, table, .table-container');
       
-      // Only prevent scrolling and enable dragging if not in a scrollable element
       if (!isScrollableElement) {
         setIsDragging(true);
-        e.preventDefault(); // Prevent scrolling when swiping
+        e.preventDefault();
       }
     }
   };
@@ -76,16 +67,14 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
 
     const endX = e.changedTouches[0].clientX;
     const diffX = startX - endX;
-    const threshold = 50; // Minimum swipe distance
+    const threshold = 50;
 
     if (Math.abs(diffX) > threshold) {
       const currentIndex = tabs.findIndex(tab => tab.id === activeTab);
       
       if (diffX > 0 && currentIndex < tabs.length - 1) {
-        // Swipe left - next tab
         onTabChange(tabs[currentIndex + 1].id);
       } else if (diffX < 0 && currentIndex > 0) {
-        // Swipe right - previous tab
         onTabChange(tabs[currentIndex - 1].id);
       }
     }
@@ -118,7 +107,7 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
                 onClick={() => onTabChange(tab.id)}
                 className={cn(
                   "flex-1 flex flex-col items-center justify-center py-3 px-2 transition-all duration-200 ease-in-out",
-                  "min-h-[60px] touch-manipulation", // Large touch target
+                  "min-h-[60px] touch-manipulation",
                   isActive
                     ? "text-primary border-b-2 border-primary bg-primary/5"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
@@ -126,6 +115,7 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
                 aria-label={`Switch to ${tab.label} tab`}
                 role="tab"
                 aria-selected={isActive}
+                type="button"
               >
                 <Icon className={cn(
                   "h-5 w-5 mb-1 transition-transform duration-200",
@@ -138,31 +128,20 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
         </nav>
       </div>
 
-      {/* Tab Content with Swipe Support */}
-      <div
-        ref={contentRef}
-        className="flex-1 overflow-hidden"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-      >
-        <div 
-          className="flex h-full transition-transform duration-300 ease-out"
-          style={{
-            transform: `translateX(-${validActiveIndex * 100}%)`,
-            width: `${tabs.length * 100}%`
-          }}
-        >
-          {React.Children.map(children, (child, index) => (
-            <div
-              key={index}
-              className="w-full flex-shrink-0 overflow-y-auto"
-              style={{ width: `${100 / tabs.length}%` }}
-            >
-              {child}
-            </div>
-          ))}
-        </div>
+      {/* Tab Content */}
+      <div className="flex-1 overflow-hidden relative">
+        {/* Individual tab content - only show active tab */}
+        {childrenArray.map((child, index) => (
+          <div
+            key={index}
+            className={cn(
+              "absolute inset-0 w-full h-full overflow-y-auto transition-opacity duration-300",
+              index === activeIndex ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+            )}
+          >
+            {child}
+          </div>
+        ))}
       </div>
     </div>
   );
