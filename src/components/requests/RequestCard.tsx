@@ -55,7 +55,6 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
             <Truck className={cn("h-6 w-6", isUrgent ? "text-destructive" : "text-primary")} />
           )}
         </div>
-        <CardDescription>{request.customerName}</CardDescription>
         {isProcessing && (
           <Badge className="mt-1 w-fit bg-yellow-400 text-yellow-900">Processing</Badge>
         )}
