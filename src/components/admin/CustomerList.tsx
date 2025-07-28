@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { UserCircle2, Search, Pencil } from 'lucide-react'; // Added Pencil
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
+import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 import { Button } from '@/components/ui/button'; // Added Button
 
 interface CustomerListProps {
@@ -38,7 +39,7 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
     setIsLoading(true);
     console.log('Fetching customers...');
     try {
-      const response = await fetch('http://localhost:4000/api/customers');
+      const response = await fetch(buildApiUrl(API_ENDPOINTS.CUSTOMERS));
       console.log('Customer fetch response status:', response.status);
       
       if (!response.ok) {

@@ -11,14 +11,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from 'lucide-react';
-import type { Customer } from '@/types'; 
+import type { Customer } from '@/types';
+import { buildApiUrl, API_ENDPOINTS } from '@/lib/api'; 
 
 const addCustomerSchema = z.object({
   name: z.string().min(1, { message: "Customer name is required." }),
   phone: z.string().optional(),
   address: z.string().min(1, { message: "Address is required." }),
   defaultCans: z.coerce.number().min(0, { message: "Default cans cannot be negative." }).default(1),
-  pricePerCan: z.coerce.number().min(1, { message: "Price per can is required and must be greater than 0." }).max(999, { message: "Price cannot exceed 999." }),
+  pricePerCan: z.coerce.number().min(0, { message: "Price per can cannot be negative." }).max(999, { message: "Price cannot exceed 999." }),
   notes: z.string().optional(),
 });
 
@@ -40,7 +41,7 @@ export default function AddCustomerForm({ onSuccess }: AddCustomerFormProps) {
       phone: "",
       address: "",
       defaultCans: 1,
-      pricePerCan: 1, // Set to minimum allowed value
+      pricePerCan: 0, // Set to minimum allowed value
       notes: "",
     },
   });
@@ -78,7 +79,7 @@ export default function AddCustomerForm({ onSuccess }: AddCustomerFormProps) {
 
       console.log('Submitting customer data:', customerData);
 
-      const response = await fetch('http://localhost:4000/api/customers', {
+      const response = await fetch(buildApiUrl(API_ENDPOINTS.CUSTOMERS), {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -101,7 +102,7 @@ export default function AddCustomerForm({ onSuccess }: AddCustomerFormProps) {
           phone: "",
           address: "",
           defaultCans: 1,
-          pricePerCan: 1, // Set to minimum allowed value
+          pricePerCan: 0, // Set to minimum allowed value
           notes: "",
         });
 

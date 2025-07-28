@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 
 
 export default function StaffPage() {
@@ -22,7 +23,7 @@ export default function StaffPage() {
     // Check backend connection
     const checkBackendConnection = async () => {
       try {
-        const response = await fetch('http://localhost:4000/api/health', {
+        const response = await fetch(buildApiUrl(API_ENDPOINTS.HEALTH), {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
           signal: AbortSignal.timeout(5000)
@@ -43,7 +44,7 @@ export default function StaffPage() {
     // Function to fetch delivery requests
     const fetchDeliveryRequests = async () => {
       try {
-        const res = await fetch('http://localhost:4000/api/delivery-requests');
+        const res = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS));
         if (!res.ok) {
           throw new Error(`HTTP error! status: ${res.status}`);
         }
@@ -87,7 +88,7 @@ export default function StaffPage() {
       }
 
       const actualRequestId = currentRequest._id || currentRequest.requestId;
-      const response = await fetch(`http://localhost:4000/api/delivery-requests/${actualRequestId}/status`, {
+      const response = await fetch(buildApiUrl(`api/delivery-requests/${actualRequestId}/status`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
@@ -144,7 +145,7 @@ export default function StaffPage() {
                 <p className="text-sm font-medium">⚠️ Backend server is not connected</p>
                 <p className="text-xs mt-1">
                   Make sure the backend is running on port 4000. 
-                  <a href="http://localhost:4000/api/health" target="_blank" rel="noopener noreferrer" className="underline ml-1">
+                  <a href={buildApiUrl(API_ENDPOINTS.HEALTH)} target="_blank" rel="noopener noreferrer" className="underline ml-1">
                     Test backend health
                   </a>
                 </p>

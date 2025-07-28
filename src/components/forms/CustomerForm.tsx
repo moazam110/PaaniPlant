@@ -14,6 +14,7 @@ import { Loader2 } from 'lucide-react';
 import type { Customer } from '@/types'; 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 
 // Schema without profilePicture
 const customerFormSchema = z.object({
@@ -21,7 +22,7 @@ const customerFormSchema = z.object({
   phone: z.string().optional(),
   address: z.string().min(1, { message: "Address is required." }),
   defaultCans: z.coerce.number().min(0, { message: "Default cans cannot be negative." }).default(1),
-  pricePerCan: z.coerce.number().min(1, { message: "Price per can is required and must be greater than 0." }).max(999, { message: "Price cannot exceed 999." }),
+  pricePerCan: z.coerce.number().min(0, { message: "Price per can cannot be negative." }).max(999, { message: "Price cannot exceed 999." }),
   notes: z.string().optional(),
 });
 
@@ -50,7 +51,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
       phone: "",
       address: "",
       defaultCans: 1,
-      pricePerCan: 1, // Set to minimum allowed value
+      pricePerCan: 0, // Set to minimum allowed value
       notes: "",
     },
   });
@@ -79,7 +80,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
           console.log('Customer ID type:', typeof customerId);
           console.log('Full customer object:', editingCustomer);
           
-          const statsUrl = `http://localhost:4000/api/customers/${customerId}/stats`;
+          const statsUrl = buildApiUrl(`api/customers/${customerId}/stats`);
           console.log('Stats URL:', statsUrl);
           
           const response = await fetch(statsUrl);
@@ -143,7 +144,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
         phone: "",
         address: "",
         defaultCans: 1,
-        pricePerCan: 1, // Set to minimum allowed value
+        pricePerCan: 0, // Set to minimum allowed value
         notes: "",
       });
       setTotalOrders(null);
@@ -187,7 +188,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
       if (isEditMode && (editingCustomer?._id || editingCustomer?.customerId)) {
         // Update existing customer
         const customerId = editingCustomer._id || editingCustomer.customerId;
-        const response = await fetch(`http://localhost:4000/api/customers/${customerId}`, {
+        const response = await fetch(buildApiUrl(`api/customers/${customerId}`), {
           method: 'PUT',
           headers: { 
             'Content-Type': 'application/json',
@@ -209,7 +210,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
         });
       } else {
         // Add new customer
-        const response = await fetch('http://localhost:4000/api/customers', {
+        const response = await fetch(buildApiUrl(API_ENDPOINTS.CUSTOMERS), {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
