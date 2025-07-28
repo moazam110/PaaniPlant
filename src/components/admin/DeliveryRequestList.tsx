@@ -247,16 +247,16 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
       )}
 
       {filteredDeliveryRequests.length > 0 && (
-        <div className="border rounded-lg overflow-hidden max-h-[500px] overflow-y-auto">
+        <div className="border rounded-lg overflow-hidden max-h-[500px] overflow-y-auto table-container">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Customer</TableHead>
-                <TableHead>Address</TableHead>
                 <TableHead className="text-center">Cans</TableHead>
-                <TableHead>Priority</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Requested</TableHead>
+                <TableHead className="hidden sm:table-cell">Address</TableHead>
+                <TableHead className="hidden md:table-cell">Priority</TableHead>
+                <TableHead className="hidden lg:table-cell">Requested</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -282,21 +282,21 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                     <TableCell className={cn(nameClasses, isCancelled && 'line-through')}>
                         {request.customerName}
                     </TableCell>
-                    <TableCell className={cn("whitespace-normal break-words max-w-xs", isCancelled && 'line-through')}>
-                        {request.address}
-                    </TableCell>
                     <TableCell className={cn("text-center", isCancelled && 'line-through')}>{request.cans}</TableCell>
-                    <TableCell className={isCancelled ? 'line-through' : ''}>
-                      {getPriorityIcon(request.priority)}
-                      <span className="capitalize">{request.priority}</span>
-                    </TableCell>
                     <TableCell>
                       <Badge variant={getStatusBadgeVariant(request.status)} className="capitalize">
                         {getStatusIcon(request.status)}
                         {getStatusDisplay(request.status)}
                       </Badge>
                     </TableCell>
-                    <TableCell className={isCancelled ? 'line-through' : ''}>
+                    <TableCell className={cn("hidden sm:table-cell whitespace-normal break-words max-w-xs", isCancelled && 'line-through')}>
+                        {request.address}
+                    </TableCell>
+                    <TableCell className={cn("hidden md:table-cell", isCancelled ? 'line-through' : '')}>
+                      {getPriorityIcon(request.priority)}
+                      <span className="capitalize">{request.priority}</span>
+                    </TableCell>
+                    <TableCell className={cn("hidden lg:table-cell", isCancelled ? 'line-through' : '')}>
                       {request.requestedAt ? format(new Date(request.requestedAt), 'MMM d, HH:mm') : '-'}
                     </TableCell>
                     <TableCell className="text-right space-x-1">

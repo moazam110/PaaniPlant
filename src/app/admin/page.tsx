@@ -3,21 +3,15 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import Link from 'next/link';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { Users, ListChecks, Settings, LogOut, UserPlus, Bell, PackageCheck, Pencil, PackageSearch } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { LogOut } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import type { Customer, DeliveryRequest, AdminNotification } from '@/types';
+import type { Customer, DeliveryRequest } from '@/types';
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogTrigger, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import CustomerForm from '@/components/forms/CustomerForm';
 import CreateDeliveryRequestForm from '@/components/forms/CreateDeliveryRequestForm';
 import CustomerList, { CustomerListRef } from '@/components/admin/CustomerList';
-import DeliveryRequestList from '@/components/admin/DeliveryRequestList';
-import NotificationItem from '@/components/notifications/NotificationItem';
-import { startOfDay, endOfDay, isWithinInterval } from 'date-fns';
 import { buildApiUrl, API_ENDPOINTS, API_BASE_URL } from '@/lib/api';
 import TabNavigation from '@/components/admin/TabNavigation';
 import DeliveryTab from '@/components/admin/tabs/DeliveryTab';
@@ -44,9 +38,7 @@ export default function AdminDashboardPage() {
   const [totalCansToday, setTotalCansToday] = useState(0);
   const [deliveryRequests, setDeliveryRequests] = useState<DeliveryRequest[]>([]);
 
-  const [notifications, setNotifications] = useState<AdminNotification[]>([]);
-  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
-  const [isNotificationPopoverOpen, setIsNotificationPopoverOpen] = useState(false);
+
 
   // Tab navigation state
   const [activeTab, setActiveTab] = useState('delivery');
@@ -105,9 +97,6 @@ export default function AdminDashboardPage() {
       const metricsInterval = setInterval(fetchDashboardMetrics, 5000);
       const requestsInterval = setInterval(fetchDeliveryRequests, 3000);
 
-      setNotifications([]);
-      setUnreadNotificationCount(0);
-
       // Cleanup intervals on unmount
       return () => {
         clearInterval(metricsInterval);
@@ -119,8 +108,6 @@ export default function AdminDashboardPage() {
       setDeliveriesTodayCount(0);
       setTotalCansToday(0);
       setDeliveryRequests([]);
-      setNotifications([]);
-      setUnreadNotificationCount(0);
     }
   }, [authUser]); 
 
@@ -191,9 +178,7 @@ export default function AdminDashboardPage() {
     setCustomerToPreselectForRequest(null);
   };
 
-  const handleOpenNotificationPopover = (open: boolean) => {
-    setIsNotificationPopoverOpen(open);
-  };
+
 
   const handleEditCustomer = (customer: Customer) => {
     setCustomerToEdit(customer);
@@ -251,42 +236,6 @@ export default function AdminDashboardPage() {
   
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-[hsl(var(--background))] to-[hsl(var(--accent))]/5">
-      <div className="sticky top-0 z-50 flex justify-between items-center p-3 md:p-4 shadow-lg bg-white/70 backdrop-blur-lg border-b border-[hsl(var(--border))]/50">
-        <Link href="/admin" passHref>
-            <h1 className="text-xl md:text-2xl font-bold font-headline text-primary cursor-pointer">
-              Paani Delivery System
-            </h1>
-        </Link>
-        <div className="flex items-center gap-3 md:gap-4">
-            <Popover open={isNotificationPopoverOpen} onOpenChange={handleOpenNotificationPopover}>
-              <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" className="relative rounded-full hover:bg-primary/10">
-                  <Bell className="h-5 w-5 text-primary" />
-                  {unreadNotificationCount > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-xs text-destructive-foreground">
-                      {unreadNotificationCount}
-                    </span>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-80 p-0 glass-card">
-                 <div className="p-4 border-b border-[hsl(var(--border))]/50"><h4 className="font-medium text-sm text-foreground">Notifications</h4></div>
-                 {notifications.length === 0 ? (
-                    <p className="p-4 text-sm text-muted-foreground">No new notifications.</p>
-                 ) : (
-                    <div className="max-h-[300px] overflow-y-auto">
-                        {notifications.map(notification => (
-                            <NotificationItem key={notification.notificationId} notification={notification} />
-                        ))}
-                    </div>
-                 )}
-              </PopoverContent>
-            </Popover>
-            <Button variant="outline" size="sm" onClick={handleSignOut} className="border-primary text-primary hover:bg-primary hover:text-primary-foreground rounded-lg">
-                <LogOut className="mr-2 h-4 w-4" /> Sign Out
-            </Button>
-        </div>
-      </div>
       
       <main className="flex-grow flex flex-col">
         {!isBackendConnected && (
@@ -378,10 +327,18 @@ export default function AdminDashboardPage() {
             </Dialog>
 
 
-      </main>
-      <footer className="text-center p-4 text-sm text-muted-foreground bg-background/30 border-t border-[hsl(var(--border))]/20 mt-auto">
-        Paani Delivery System &copy; {new Date().getFullYear()}
-      </footer>
+              </main>
+        
+        {/* Bottom Sign Out Button */}
+        <div className="p-4 border-t border-[hsl(var(--border))]/20 bg-background/30">
+          <Button 
+            variant="outline" 
+            onClick={handleSignOut} 
+            className="w-full border-primary text-primary hover:bg-primary hover:text-primary-foreground rounded-lg"
+          >
+            <LogOut className="mr-2 h-4 w-4" /> Sign Out
+          </Button>
+        </div>
     </div>
   );
 }

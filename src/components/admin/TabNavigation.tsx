@@ -42,9 +42,17 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
     const diffY = Math.abs(currentY - startY);
 
     // Only handle horizontal swipes (ignore vertical scrolling)
-    if (diffX > diffY && diffX > 10) {
-      setIsDragging(true);
-      e.preventDefault(); // Prevent scrolling when swiping
+    // Increased threshold and added target element checking
+    if (diffX > diffY && diffX > 20) {
+      // Check if the touch started on a scrollable element (table, list, etc.)
+      const target = e.target as HTMLElement;
+      const isScrollableElement = target.closest('.overflow-y-auto, .overflow-auto, table, .table-container');
+      
+      // Only prevent scrolling and enable dragging if not in a scrollable element
+      if (!isScrollableElement) {
+        setIsDragging(true);
+        e.preventDefault(); // Prevent scrolling when swiping
+      }
     }
   };
 
