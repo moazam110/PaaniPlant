@@ -23,14 +23,9 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
   const [startY, setStartY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
 
-  // Simplified activeIndex calculation with proper fallback
-  let activeIndex = tabs.findIndex(tab => tab.id === activeTab);
-  if (activeIndex === -1) {
-    activeIndex = 0; // Default to first tab if not found
-  }
-
-  // Convert children to array for easier handling
-  const childrenArray = React.Children.toArray(children);
+  // Find active index with proper fallback
+  const activeIndex = tabs.findIndex(tab => tab.id === activeTab);
+  const validActiveIndex = activeIndex >= 0 ? activeIndex : 0;
 
   // Handle touch start
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -128,20 +123,31 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
         </nav>
       </div>
 
-      {/* Tab Content */}
-      <div className="flex-1 overflow-hidden relative">
-        {/* Individual tab content - only show active tab */}
-        {childrenArray.map((child, index) => (
-          <div
-            key={index}
-            className={cn(
-              "absolute inset-0 w-full h-full overflow-y-auto transition-opacity duration-300",
-              index === activeIndex ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-            )}
-          >
-            {child}
-          </div>
-        ))}
+      {/* Tab Content with Sliding */}
+      <div
+        ref={contentRef}
+        className="flex-1 overflow-hidden"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        <div 
+          className="flex h-full transition-transform duration-300 ease-out"
+          style={{
+            transform: `translateX(-${validActiveIndex * 100}%)`,
+            width: `${tabs.length * 100}%`
+          }}
+        >
+          {React.Children.map(children, (child, index) => (
+            <div
+              key={index}
+              className="w-full flex-shrink-0 overflow-y-auto"
+              style={{ width: `${100 / tabs.length}%` }}
+            >
+              {child}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
