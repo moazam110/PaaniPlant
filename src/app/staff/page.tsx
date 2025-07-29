@@ -27,7 +27,7 @@ export default function StaffPage() {
 
 
 
-  // Function to play notification sound for exactly 5 seconds using HTML5 Audio
+  // Function to play notification sound for exactly 5 seconds - SIMPLIFIED VERSION
   const playNotificationSound = () => {
     if (isPlayingAlarm) {
       console.log('🔇 Alarm already playing, skipping');
@@ -37,68 +37,112 @@ export default function StaffPage() {
     setIsPlayingAlarm(true);
     console.log('🔊 Starting 5-second alarm for new delivery request');
 
-    // Create beep sound using data URI (more reliable than Web Audio API)
-    const beepFrequency = 800;
-    const sampleRate = 44100;
-    const beepDuration = 0.2;
-    const silenceDuration = 0.3;
-    const totalDuration = 5.0;
-    
-    // Calculate samples needed
-    const beepSamples = Math.floor(sampleRate * beepDuration);
-    const silenceSamples = Math.floor(sampleRate * silenceDuration);
-    const cycleSamples = beepSamples + silenceSamples;
-    const totalSamples = Math.floor(sampleRate * totalDuration);
-    
-    // Generate audio data
-    const audioData = new Array(totalSamples);
-    for (let i = 0; i < totalSamples; i++) {
-      const cyclePosition = i % cycleSamples;
-      if (cyclePosition < beepSamples) {
-        // Generate sine wave for beep
-        audioData[i] = Math.sin(beepFrequency * 2 * Math.PI * i / sampleRate) * 0.3;
-      } else {
-        // Silence
-        audioData[i] = 0;
-      }
-    }
-    
-    // Convert to WAV format and play
     try {
-      const audio = new Audio();
-      audio.volume = 0.8;
+      // Use Web Audio API for reliable cross-browser beeping
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
       
-      // Use a simpler approach - just play multiple short beeps
+      // Create a sequence of beeps for 5 seconds
+      const frequency = 800; // Hz
+      const beepDuration = 0.2; // 200ms beep
+      const pauseDuration = 0.3; // 300ms pause
+      const totalDuration = 5; // 5 seconds total
+      
+      let currentTime = audioContext.currentTime;
+      const endTime = currentTime + totalDuration;
+      
+      // Generate beeps until 5 seconds is reached
+      while (currentTime < endTime) {
+        // Create oscillator for this beep
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.setValueAtTime(frequency, currentTime);
+        oscillator.type = 'sine';
+        
+        // Set volume envelope
+        gainNode.gain.setValueAtTime(0, currentTime);
+        gainNode.gain.linearRampToValueAtTime(0.5, currentTime + 0.01);
+        gainNode.gain.linearRampToValueAtTime(0.5, currentTime + beepDuration - 0.01);
+        gainNode.gain.linearRampToValueAtTime(0, currentTime + beepDuration);
+        
+        // Start and stop the beep
+        oscillator.start(currentTime);
+        oscillator.stop(currentTime + beepDuration);
+        
+        // Move to next beep time
+        currentTime += beepDuration + pauseDuration;
+      }
+      
+    } catch (error) {
+      console.warn('Web Audio API failed, falling back to simple approach:', error);
+      
+      // Fallback: Use simple alert-like approach
       let beepCount = 0;
-      const maxBeeps = 10; // 10 beeps over 5 seconds
+      const maxBeeps = 10;
       
-      const playBeep = () => {
+      const playSimpleBeep = () => {
         if (beepCount >= maxBeeps || !isPlayingAlarm) return;
         
-        const beepAudio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhCSuByO/efy8TLHrP8dZeLhJFme7hd0wKFVew6eimUSQMUrPn5al4KhxGme/nhnASJ3nA7+OVQw4NV6nn6a5VHBFHmenm');
-        beepAudio.volume = 0.6;
-        beepAudio.play().catch(() => {});
+        // Create a short beep using base64 audio
+        const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhCSuByO/efy8TLHrP8dZeLhJFme7hd0wKFVew6eimUSQMUrPn5al4KhxGme/nhnASJ3nA7+OVQw4NV6nn6a5VHBFHmenm');
+        audio.volume = 0.7;
+        audio.play().catch(() => console.log('Audio play failed'));
         
         beepCount++;
         if (beepCount < maxBeeps && isPlayingAlarm) {
-          setTimeout(playBeep, 500); // Next beep in 500ms
+          setTimeout(playSimpleBeep, 500);
         }
       };
       
-      playBeep();
-      
-    } catch (error) {
-      console.warn('Failed to create audio:', error);
+      playSimpleBeep();
     }
     
-    // Force stop after exactly 5 seconds
+    // GUARANTEED stop after exactly 5 seconds
     setTimeout(() => {
       setIsPlayingAlarm(false);
-      console.log('🔇 5-second alarm completed - force stopped');
+      console.log('🔇 5-second alarm completed - FORCE STOPPED');
     }, 5000);
   };
 
-  
+  // Initialize audio context on user interaction (required by browsers)
+  useEffect(() => {
+    const enableAudio = async () => {
+      try {
+        // Create and resume AudioContext on any user interaction
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        
+        if (audioContext.state === 'suspended') {
+          await audioContext.resume();
+          console.log('🔊 Audio context enabled');
+        }
+      } catch (error) {
+        console.log('Audio context setup failed:', error);
+      }
+    };
+
+    // Listen for user interactions to enable audio
+    const events = ['click', 'touchstart', 'keydown'];
+    const handler = () => {
+      enableAudio();
+      // Remove listeners after first interaction
+      events.forEach(event => {
+        document.removeEventListener(event, handler);
+      });
+    };
+
+    events.forEach(event => {
+      document.addEventListener(event, handler);
+    });
+
+    return () => {
+      events.forEach(event => {
+        document.removeEventListener(event, handler);
+      });
+    };
+  }, []);
 
   // Check staff authentication
   useEffect(() => {
