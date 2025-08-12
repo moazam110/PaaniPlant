@@ -62,6 +62,8 @@ export default function CreateDeliveryRequestForm({
   const [customersWithActiveRequests, setCustomersWithActiveRequests] = useState<Set<string>>(new Set());
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const holdIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isHoldingRef = useRef<boolean>(false);
+  const holdStopCleanupRef = useRef<() => void>(() => {});
 
   const isEditMode = !!editingRequest;
   // A request can be cancelled if it's in 'edit mode' AND its status is 'pending', 'pending_confirmation', or 'processing'
@@ -80,12 +82,18 @@ export default function CreateDeliveryRequestForm({
   useEffect(() => {
     if (editingRequest) {
       const customerForEdit: Customer = {
+        _id: (editingRequest as any).customerId as any,
+        id: (editingRequest as any).customerIntId ?? 0,
         customerId: editingRequest.customerId,
         name: editingRequest.customerName,
         address: editingRequest.address,
         defaultCans: editingRequest.cans, 
+        pricePerCan: (editingRequest as any).pricePerCan,
+        notes: '',
+        phone: '',
         createdAt: '', 
         updatedAt: '', 
+        paymentType: (editingRequest as any).paymentType,
       };
       setSelectedCustomer(customerForEdit);
       form.reset({
@@ -95,7 +103,11 @@ export default function CreateDeliveryRequestForm({
       });
       setIsLoadingCustomers(false);
     } else if (customerToPreselect) {
-      setSelectedCustomer(customerToPreselect);
+      const ensured: Customer = {
+        ...(customerToPreselect as any),
+        id: (customerToPreselect as any).id ?? 0,
+      } as Customer;
+      setSelectedCustomer(ensured);
       form.reset({
         cans: customerToPreselect.defaultCans || 1,
         orderDetails: "",
@@ -280,17 +292,38 @@ export default function CreateDeliveryRequestForm({
   };
 
   // Helpers for continuous +/- hold
-  const startHold = (callback: () => void) => {
-    callback();
-    if (holdIntervalRef.current) clearInterval(holdIntervalRef.current);
-    holdIntervalRef.current = setInterval(callback, 100);
-  };
   const stopHold = () => {
     if (holdIntervalRef.current) {
       clearInterval(holdIntervalRef.current);
       holdIntervalRef.current = null;
     }
+    if (holdStopCleanupRef.current) {
+      holdStopCleanupRef.current();
+      holdStopCleanupRef.current = () => {};
+    }
+    isHoldingRef.current = false;
   };
+
+  const startHold = (callback: () => void) => {
+    if (isHoldingRef.current) return;
+    isHoldingRef.current = true;
+    callback();
+    holdIntervalRef.current = setInterval(callback, 100);
+    const stop = () => stopHold();
+    document.addEventListener('mouseup', stop);
+    document.addEventListener('touchend', stop as any, { passive: true });
+    holdStopCleanupRef.current = () => {
+      document.removeEventListener('mouseup', stop);
+      document.removeEventListener('touchend', stop as any);
+    };
+  };
+
+  useEffect(() => {
+    return () => {
+      // Cleanup any running intervals on unmount
+      stopHold();
+    };
+  }, []);
 
   const handleMarkRequestAsCancelled = async () => {
     if (!editingRequest) return; // Should not happen if button is shown correctly
@@ -461,14 +494,14 @@ export default function CreateDeliveryRequestForm({
                       variant="outline"
                       size="icon"
                       onMouseDown={() => startHold(() => {
-                        const currentValue = Number(field.value) || 1;
-                        if (currentValue > 1) field.onChange(currentValue - 1);
+                        const currentValue = Number(form.getValues('cans')) || 1;
+                        if (currentValue > 1) form.setValue('cans', currentValue - 1);
                       })}
                       onMouseUp={stopHold}
                       onMouseLeave={stopHold}
                       onTouchStart={() => startHold(() => {
-                        const currentValue = Number(field.value) || 1;
-                        if (currentValue > 1) field.onChange(currentValue - 1);
+                        const currentValue = Number(form.getValues('cans')) || 1;
+                        if (currentValue > 1) form.setValue('cans', currentValue - 1);
                       })}
                       onTouchEnd={stopHold}
                       disabled={isSubmitting || (Number(field.value) || 1) <= 1}
@@ -486,14 +519,14 @@ export default function CreateDeliveryRequestForm({
                       variant="outline"
                       size="icon"
                       onMouseDown={() => startHold(() => {
-                        const currentValue = Number(field.value) || 1;
-                        field.onChange(currentValue + 1);
+                        const currentValue = Number(form.getValues('cans')) || 1;
+                        form.setValue('cans', currentValue + 1);
                       })}
                       onMouseUp={stopHold}
                       onMouseLeave={stopHold}
                       onTouchStart={() => startHold(() => {
-                        const currentValue = Number(field.value) || 1;
-                        field.onChange(currentValue + 1);
+                        const currentValue = Number(form.getValues('cans')) || 1;
+                        form.setValue('cans', currentValue + 1);
                       })}
                       onTouchEnd={stopHold}
                       disabled={isSubmitting}
