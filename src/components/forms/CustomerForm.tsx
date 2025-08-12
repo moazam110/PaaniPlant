@@ -82,7 +82,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
       defaultCans: 1,
       pricePerCan: 0, // Set to minimum allowed value
       notes: "",
-      paymentType: 'cash' as any,
+      paymentType: 'account' as any,
     },
   });
 
@@ -95,7 +95,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
         defaultCans: editingCustomer.defaultCans,
         pricePerCan: editingCustomer.pricePerCan || 1,
         notes: editingCustomer.notes || "",
-        paymentType: (editingCustomer as any).paymentType || 'cash',
+        paymentType: (editingCustomer as any).paymentType || 'account',
       });
 
       const fetchCustomerStats = async (month?: string, year?: string) => {
@@ -268,7 +268,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
         defaultCans: Number(data.defaultCans) || 1,
         pricePerCan: Number(data.pricePerCan) || 0, // Ensure 0 is properly handled
         notes: data.notes?.trim() || "",
-        paymentType: (data as any).paymentType || 'cash',
+        paymentType: (data as any).paymentType || 'account',
       };
 
       console.log('Submitting customer data:', customerDataToSave);

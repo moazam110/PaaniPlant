@@ -416,23 +416,26 @@ app.get('/api/dashboard/metrics', async (req, res) => {
     let isMonthlyView = false;
     let isYearView = false;
 
+    // Helper to build start/end date
+    const makeRange = (start, end) => ({ $gte: start, $lt: end });
+    let startDate = null;
+    let endDate = null;
+
     if (day && month && year) {
       const dayNum = parseInt(day);
       const monthNum = parseInt(month);
       const yearNum = parseInt(year);
       if (!isNaN(dayNum) && !isNaN(monthNum) && !isNaN(yearNum) && dayNum >= 1 && dayNum <= 31 && monthNum >= 1 && monthNum <= 12 && yearNum > 1900) {
-        const startDate = new Date(yearNum, monthNum - 1, dayNum);
-        const endDate = new Date(yearNum, monthNum - 1, dayNum + 1);
-        dateQuery = { deliveredAt: { $gte: startDate, $lt: endDate } };
+        startDate = new Date(yearNum, monthNum - 1, dayNum);
+        endDate = new Date(yearNum, monthNum - 1, dayNum + 1);
         timeLabel = startDate.toLocaleDateString('en-GB');
       }
     } else if (month && year) {
       const monthNum = parseInt(month);
       const yearNum = parseInt(year);
       if (monthNum >= 1 && monthNum <= 12 && yearNum > 1900) {
-        const startDate = new Date(yearNum, monthNum - 1, 1);
-        const endDate = new Date(yearNum, monthNum, 1);
-        dateQuery = { deliveredAt: { $gte: startDate, $lt: endDate } };
+        startDate = new Date(yearNum, monthNum - 1, 1);
+        endDate = new Date(yearNum, monthNum, 1);
         const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         timeLabel = `${monthNames[monthNum - 1]} ${yearNum}`;
         isMonthlyView = true;
@@ -440,16 +443,27 @@ app.get('/api/dashboard/metrics', async (req, res) => {
     } else if (year) {
       const yearNum = parseInt(year);
       if (!isNaN(yearNum) && yearNum > 1900) {
-        const startDate = new Date(yearNum, 0, 1);
-        const endDate = new Date(yearNum + 1, 0, 1);
-        dateQuery = { deliveredAt: { $gte: startDate, $lt: endDate } };
+        startDate = new Date(yearNum, 0, 1);
+        endDate = new Date(yearNum + 1, 0, 1);
         timeLabel = `${yearNum}`;
         isYearView = true;
       }
     } else {
       // All-time history (no time limit)
-      dateQuery = {};
       timeLabel = 'All Time';
+    }
+
+    if (startDate && endDate) {
+      const range = makeRange(startDate, endDate);
+      // Consider both deliveredAt and completedAt to handle historical data
+      dateQuery = {
+        $or: [
+          { deliveredAt: range },
+          { completedAt: range },
+        ],
+      };
+    } else {
+      dateQuery = {};
     }
 
     const deliveries = await DeliveryRequest.find({

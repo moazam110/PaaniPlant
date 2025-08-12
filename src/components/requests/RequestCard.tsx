@@ -42,8 +42,8 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
   );
 
   return (
-    <Card className={cardClasses}>
-      <CardHeader>
+    <Card className={cn(cardClasses, 'py-1')}>
+      <CardHeader className="py-2">
         <div className="flex items-center justify-between">
           <div className="flex flex-col gap-1">
             <CardTitle className={customerNameClasses}>
@@ -72,19 +72,13 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
             <Truck className={cn("h-6 w-6", isUrgent ? "text-destructive" : "text-primary")} />
           )}
         </div>
-        {isProcessing && (
-          <Badge className="mt-1 w-fit bg-yellow-400 text-yellow-900">Processing</Badge>
-        )}
-        {isDelivered && (
-          <Badge className="mt-1 w-fit bg-green-500 text-white">Delivered</Badge>
-        )}
-        {isCancelled && (
-          <Badge className="mt-1 w-fit bg-red-500 text-white">Cancelled</Badge>
-        )}
+        {isProcessing && (<Badge className="mt-1 w-fit bg-yellow-400 text-yellow-900 text-[10px] py-0.5 px-2">Processing</Badge>)}
+        {isDelivered && (<Badge className="mt-1 w-fit bg-green-500 text-white text-[10px] py-0.5 px-2">Delivered</Badge>)}
+        {isCancelled && (<Badge className="mt-1 w-fit bg-red-500 text-white text-[10px] py-0.5 px-2">Cancelled</Badge>)}
       </CardHeader>
-      <CardContent>
-        <div className="mb-3">
-          <div className="flex items-center justify-between mb-2">
+      <CardContent className="py-2">
+        <div className="mb-2">
+          <div className="flex items-center justify-between mb-1">
             <p className="text-2xl font-bold text-primary">{request.cans} cans</p>
             {request.priority === 'urgent' && !isDelivered && (
               <Badge variant="destructive" className="text-xs">
@@ -97,7 +91,7 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
         </div>
         
         {request.orderDetails && (
-          <p className="text-sm mb-3 p-2 bg-muted/50 rounded text-muted-foreground">
+          <p className="text-sm mb-2 p-2 bg-muted/50 rounded text-muted-foreground">
             {request.orderDetails}
           </p>
         )}
@@ -123,12 +117,12 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
           </div>
         )}
       </CardContent>
-      <CardFooter>
+      <CardFooter className="py-2">
         {isPending && (
           <>
             <Button 
               onClick={() => onMarkAsDone(request._id || request.requestId || '')}
-              className="w-full bg-yellow-400 hover:bg-yellow-300 text-yellow-900"
+              className="w-full bg-yellow-400 hover:bg-yellow-300 text-yellow-900 h-8"
               aria-label={`Mark order for ${request.customerName} as processing`}
             >
               <CheckCircle2 className="mr-2 h-4 w-4" /> Mark as Processing
@@ -137,7 +131,7 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
               <Button 
                 onClick={() => onCancel(request._id || request.requestId || '')}
                 variant="outline"
-                className="w-full border-red-500 text-red-500 hover:bg-red-50 mt-2"
+                className="w-full border-red-500 text-red-500 hover:bg-red-50 mt-1 h-8"
                 aria-label={`Cancel order for ${request.customerName}`}
               >
                 <X className="mr-2 h-4 w-4" /> Cancel Request
@@ -149,7 +143,7 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
           <>
             <Button 
               onClick={() => onMarkAsDone(request._id || request.requestId || '')}
-              className="w-full bg-green-500 hover:bg-green-400 text-white"
+              className="w-full bg-green-500 hover:bg-green-400 text-white h-8"
               aria-label={`Mark order for ${request.customerName} as delivered`}
             >
               <CheckCircle2 className="mr-2 h-4 w-4" /> Mark as Delivered
@@ -158,7 +152,7 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
               <Button 
                 onClick={() => onCancel(request._id || request.requestId || '')}
                 variant="outline"
-                className="w-full border-red-500 text-red-500 hover:bg-red-50 mt-2"
+                className="w-full border-red-500 text-red-500 hover:bg-red-50 mt-1 h-8"
                 aria-label={`Cancel order for ${request.customerName}`}
               >
                 <X className="mr-2 h-4 w-4" /> Cancel Request
@@ -167,10 +161,10 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
           </>
         )}
         {isDelivered && (
-          <p className="text-sm text-green-600 font-medium w-full text-center">Delivery Fulfilled</p>
+          <p className="text-xs text-green-600 font-medium w-full text-center">Delivery Fulfilled</p>
         )}
         {isCancelled && (
-          <p className="text-sm text-red-600 font-medium w-full text-center">Request Cancelled</p>
+          <p className="text-xs text-red-600 font-medium w-full text-center">Request Cancelled</p>
         )}
       </CardFooter>
     </Card>

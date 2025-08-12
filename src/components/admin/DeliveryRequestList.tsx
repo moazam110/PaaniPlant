@@ -36,6 +36,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ListFilter } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -68,8 +69,8 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
   const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [filterDraft, setFilterDraft] = useState<{ today: boolean; yesterday: boolean; cash: boolean; account: boolean; cans: string }>({ today: false, yesterday: false, cash: false, account: false, cans: '' });
-  const [activeFilter, setActiveFilter] = useState<{ today: boolean; yesterday: boolean; cash: boolean; account: boolean; cans: string }>({ today: false, yesterday: false, cash: false, account: false, cans: '' });
+  const [filterDraft, setFilterDraft] = useState<{ today: boolean; yesterday: boolean; cash: boolean; account: boolean; cans: string; price: string; priceOp: '' | '<' | '=' | '>' }>({ today: false, yesterday: false, cash: false, account: false, cans: '', price: '', priceOp: '' });
+  const [activeFilter, setActiveFilter] = useState<{ today: boolean; yesterday: boolean; cash: boolean; account: boolean; cans: string; price: string; priceOp: '' | '<' | '=' | '>' }>({ today: false, yesterday: false, cash: false, account: false, cans: '', price: '', priceOp: '' });
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
@@ -141,7 +142,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
       const idNum = Number(trimmed);
       return processedRequests.filter(req => (req as any).customerIntId === idNum);
     }
-
+    
     // Fuzzy search implementation
     return processedRequests.filter(request => {
       const searchLower = trimmed.toLowerCase();
@@ -157,13 +158,14 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
   // Apply panel filters after search filtering
   const fullyFilteredRequests = useMemo(() => {
     const list = filteredDeliveryRequests;
-    const { today, yesterday, cash, account, cans } = activeFilter;
+    const { today, yesterday, cash, account, cans, price, priceOp } = activeFilter;
 
     const hasDateFilter = today || yesterday;
     const hasPaymentFilter = cash || account;
     const cansFilterVal = cans && /^\d{1,2}$/.test(cans) ? Number(cans) : null;
+    const priceFilterVal = price && /^\d{1,3}$/.test(price) ? Number(price) : null;
 
-    if (!hasDateFilter && !hasPaymentFilter && cansFilterVal == null) return list;
+    if (!hasDateFilter && !hasPaymentFilter && cansFilterVal == null && priceFilterVal == null) return list;
 
     // Helper to check day
     const isSameDay = (date: Date, ref: Date) => {
@@ -204,6 +206,16 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
       // Cans filter (exact match)
       if (cansFilterVal != null) {
         if (Number(req.cans) !== cansFilterVal) return false;
+      }
+
+      // Price filter
+      if (priceFilterVal != null) {
+        const p = (req as any).pricePerCan;
+        if (typeof p !== 'number') return false;
+        const op = priceOp || '=';
+        if (op === '<' && !(p < priceFilterVal)) return false;
+        if (op === '=' && !(p === priceFilterVal)) return false;
+        if (op === '>' && !(p > priceFilterVal)) return false;
       }
 
       return true;
@@ -306,11 +318,11 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
       <div className="relative mb-4">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-            <Input
-              type="search"
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+        <Input
+          type="search"
               placeholder="Search by id, name, phone, or address..."
-              value={searchTerm}
+          value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value.replace(/\s+/g, ''))}
               onKeyDown={(e) => {
                 if (e.key === '\\') {
@@ -370,8 +382,37 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                     }}
                   />
                 </div>
+                <div>
+                  <Label className="mb-2 block">Price (optional)</Label>
+                  <div className="flex items-center gap-2">
+                    <div className="w-24">
+                      <Select value={filterDraft.priceOp} onValueChange={(v) => setFilterDraft(prev => ({ ...prev, priceOp: v as any }))}>
+                        <SelectTrigger>
+                          <SelectValue placeholder=">=\u2264\u2265" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value=">">Greater</SelectItem>
+                          <SelectItem value="=">Equal</SelectItem>
+                          <SelectItem value="<">Less</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={3}
+                      placeholder="e.g., 100"
+                      value={filterDraft.price}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D+/g, '').slice(0, 3);
+                        setFilterDraft(prev => ({ ...prev, price: digits }));
+                      }}
+                    />
+                  </div>
+                </div>
                 <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => { setFilterDraft({ today: false, yesterday: false, cash: false, account: false, cans: '' }); }}>Clear</Button>
+                  <Button variant="outline" onClick={() => { setFilterDraft({ today: false, yesterday: false, cash: false, account: false, cans: '', price: '', priceOp: '' }); }}>Clear</Button>
                   <Button onClick={() => { setActiveFilter(filterDraft); setIsFilterOpen(false); }}>Apply</Button>
                 </div>
               </div>
@@ -386,22 +427,22 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
               <h4 className="text-lg font-semibold mb-3">Create New Request for:</h4>
               <ScrollArea className="h-[300px] rounded-md border">
                 <div className="p-2 grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {customersForNewRequest.map(customer => (
-                      <Card key={customer._id || customer.customerId || `customer-${Math.random()}`} className="shadow-sm hover:shadow-md transition-shadow">
-                          <CardContent className="p-4 flex justify-between items-center">
-                              <div>
+              {customersForNewRequest.map(customer => (
+                  <Card key={customer._id || customer.customerId || `customer-${Math.random()}`} className="shadow-sm hover:shadow-md transition-shadow">
+                      <CardContent className="p-4 flex justify-between items-center">
+                          <div>
                                   <p className={cn("font-medium", /[ء-ي]/.test(customer.name) ? 'font-sindhi rtl' : 'ltr')}>
                                     {(customer as any).id ? `${(customer as any).id} - ${customer.name}` : customer.name}
                                   </p>
-                                  <p className="text-xs text-muted-foreground">{customer.address}</p>
-                              </div>
-                              <Button size="sm" onClick={() => handleCreateRequest(customer)}>
-                                  <PlusCircle className="mr-2 h-4 w-4" /> Create Request
-                              </Button>
-                          </CardContent>
-                      </Card>
-                  ))}
-                </div>
+                              <p className="text-xs text-muted-foreground">{customer.address}</p>
+                          </div>
+                          <Button size="sm" onClick={() => handleCreateRequest(customer)}>
+                              <PlusCircle className="mr-2 h-4 w-4" /> Create Request
+                          </Button>
+                      </CardContent>
+                  </Card>
+              ))}
+              </div>
               </ScrollArea>
           </div>
       )}
@@ -422,15 +463,11 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                 <TableHead className="text-center">Cans</TableHead>
                 <TableHead>Requested</TableHead>
                 <TableHead>Address</TableHead>
-                <TableHead>Price</TableHead>
-                <TableHead>Payment Type</TableHead>
-                <TableHead>Priority</TableHead>
-                <TableHead className="text-right">
-                  <div className="flex items-center justify-end gap-6">
-                    <span>Status</span>
-                    <span>Edit</span>
-                  </div>
-                </TableHead>
+                <TableHead className="w-[10%] text-center whitespace-nowrap">Price</TableHead>
+                <TableHead className="w-[10%] text-center whitespace-nowrap">Payment Type</TableHead>
+                <TableHead className="w-[10%] text-center whitespace-nowrap">Priority</TableHead>
+                <TableHead className="w-[10%] text-center whitespace-nowrap">Status</TableHead>
+                <TableHead className="w-[10%] text-center whitespace-nowrap">Edit</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -439,12 +476,13 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                 const nameClasses = cn(isSindhiName ? 'font-sindhi rtl' : 'ltr');
                 const isCancelled = request.status === 'cancelled';
                 const isDelivered = request.status === 'delivered';
+                const canEdit = request.status === 'pending' || request.status === 'processing';
                 const rowClasses = cn(
                     isCancelled ? 'opacity-60 bg-muted/30' : '',
                     isDelivered ? 'bg-green-500/10' : '',
                     request.status === 'processing' ? 'bg-yellow-100' : ''
                 );
-
+                
                 const pricePerCan = (request as any).pricePerCan;
                 const paymentType = ((request as any).paymentType || '').toString();
                 const intId = (request as any).customerIntId;
@@ -452,14 +490,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                 return (
                   <TableRow key={request._id || request.requestId || `req-${Math.random()}`} className={rowClasses}>
                     <TableCell className={cn(nameClasses, isCancelled && 'line-through')}>
-                        <span>
-                          {intId ? `${intId} - ${request.customerName}` : request.customerName}
-                        </span>
-                        {typeof pricePerCan === 'number' && pricePerCan >= 100 && (
-                          <span aria-label="Premium" className="inline-flex ml-2 align-middle">
-                            <Star className="h-3 w-3 text-yellow-500" />
-                          </span>
-                        )}
+                        {intId ? `${intId} - ${request.customerName}` : request.customerName}
                     </TableCell>
                     <TableCell className={cn("text-center", isCancelled && 'line-through')}>{request.cans}</TableCell>
                     <TableCell className={cn(isCancelled ? 'line-through' : '')}>
@@ -468,26 +499,30 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                     <TableCell className={cn("whitespace-normal break-words max-w-xs", isCancelled && 'line-through')}>
                         {request.address}
                     </TableCell>
-                    <TableCell>{pricePerCan !== undefined ? `Rs. ${pricePerCan}` : '-'}</TableCell>
-                    <TableCell>
+                    <TableCell className="w-[10%] text-center whitespace-nowrap">{pricePerCan !== undefined ? `Rs. ${pricePerCan}` : '-'}</TableCell>
+                    <TableCell className="w-[10%] text-center whitespace-nowrap">
                       {paymentType ? (
-                        <Badge variant="outline" className="capitalize">{paymentType}</Badge>
+                        <Badge variant="outline" className="capitalize whitespace-nowrap">{paymentType}</Badge>
                       ) : '-'}
                     </TableCell>
-                    <TableCell className={cn(isCancelled ? 'line-through' : '')}>
+                    <TableCell className={cn('w-[10%] text-center whitespace-nowrap', isCancelled ? 'line-through' : '')}>
                       {getPriorityIcon(request.priority)}
                       <span className="capitalize">{request.priority}</span>
                     </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-3">
-                        <Badge variant={getStatusBadgeVariant(request.status)} className="capitalize">
-                          {getStatusIcon(request.status)}
-                          {getStatusDisplay(request.status)}
-                        </Badge>
-                        <Button variant="ghost" size="icon" title="Edit/View Request" onClick={() => onEditRequest(request)}>
-                          <Pencil className="h-4 w-4 text-blue-600" />
+                    <TableCell className="w-[10%] text-center whitespace-nowrap">
+                      <Badge variant={getStatusBadgeVariant(request.status)} className="capitalize">
+                        {getStatusIcon(request.status)}
+                        {getStatusDisplay(request.status)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="w-[10%] text-center whitespace-nowrap">
+                      {canEdit ? (
+                        <Button variant="ghost" size="icon" title="Edit Request" onClick={() => onEditRequest(request)}>
+                            <Pencil className="h-4 w-4 text-blue-600" />
                         </Button>
-                      </div>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                   </TableRow>
                 );

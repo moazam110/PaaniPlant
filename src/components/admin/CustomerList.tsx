@@ -172,9 +172,9 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
                 <TableHead>Name</TableHead>
                 <TableHead>Phone</TableHead>
                 <TableHead>Address</TableHead>
-                <TableHead>Payment Type</TableHead>
-                <TableHead className="text-center">Default Cans</TableHead>
-                <TableHead className="text-center">Price/Can</TableHead>
+                <TableHead className="w-[15%] text-center whitespace-nowrap">Payment Type</TableHead>
+                <TableHead className="w-[12%] text-center whitespace-nowrap">Default Cans</TableHead>
+                <TableHead className="w-[12%] text-center whitespace-nowrap">Price/Can</TableHead>
                 <TableHead className="text-right">Edit</TableHead>
               </TableRow>
             </TableHeader>
@@ -198,15 +198,15 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
                     </TableCell>
                     <TableCell>{customer.phone || '-'}</TableCell>
                     <TableCell className="whitespace-normal break-words max-w-xs">{customer.address}</TableCell>
-                    <TableCell>
+                    <TableCell className="w-[15%] text-center whitespace-nowrap">
                       {(() => {
                         const pt = ((customer as any).paymentType || '').toString().toLowerCase();
                         const label = pt === 'account' ? 'Account' : 'Cash';
                         return <Badge variant="outline" className="capitalize">{label}</Badge>;
                       })()}
                     </TableCell>
-                    <TableCell className="text-center">{customer.defaultCans}</TableCell>
-                    <TableCell className="text-center">{customer.pricePerCan ? `Rs. ${customer.pricePerCan}` : '-'}</TableCell>
+                    <TableCell className="w-[12%] text-center whitespace-nowrap">{customer.defaultCans}</TableCell>
+                    <TableCell className="w-[12%] text-center whitespace-nowrap">{customer.pricePerCan ? `Rs. ${customer.pricePerCan}` : '-'}</TableCell>
                     <TableCell className="text-right">
                       {onEditCustomer && (
                         <Button 

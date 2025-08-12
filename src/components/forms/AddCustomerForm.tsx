@@ -44,7 +44,7 @@ export default function AddCustomerForm({ onSuccess }: AddCustomerFormProps) {
       defaultCans: 1,
       pricePerCan: 0,
       notes: "",
-      paymentType: 'cash',
+      paymentType: 'account',
     },
   });
 
@@ -107,7 +107,7 @@ export default function AddCustomerForm({ onSuccess }: AddCustomerFormProps) {
           defaultCans: 1,
           pricePerCan: 0,
           notes: "",
-          paymentType: 'cash',
+          paymentType: 'account',
         });
 
       toast({
