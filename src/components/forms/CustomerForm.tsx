@@ -25,6 +25,7 @@ const customerFormSchema = z.object({
   defaultCans: z.coerce.number().min(0, { message: "Default cans cannot be negative." }).default(1),
   pricePerCan: z.coerce.number().min(0, { message: "Price per can cannot be negative." }).max(999, { message: "Price cannot exceed 999." }),
   notes: z.string().optional(),
+  paymentType: z.enum(['cash','account']).optional(),
 });
 
 type CustomerFormValues = z.infer<typeof customerFormSchema>;
@@ -81,6 +82,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
       defaultCans: 1,
       pricePerCan: 0, // Set to minimum allowed value
       notes: "",
+      paymentType: 'cash' as any,
     },
   });
 
@@ -93,6 +95,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
         defaultCans: editingCustomer.defaultCans,
         pricePerCan: editingCustomer.pricePerCan || 1,
         notes: editingCustomer.notes || "",
+        paymentType: (editingCustomer as any).paymentType || 'cash',
       });
 
       const fetchCustomerStats = async (month?: string, year?: string) => {
@@ -265,6 +268,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
         defaultCans: Number(data.defaultCans) || 1,
         pricePerCan: Number(data.pricePerCan) || 0, // Ensure 0 is properly handled
         notes: data.notes?.trim() || "",
+        paymentType: (data as any).paymentType || 'cash',
       };
 
       console.log('Submitting customer data:', customerDataToSave);
@@ -530,6 +534,39 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
               <FormLabel>Notes (Optional)</FormLabel>
               <FormControl>
                 <Textarea placeholder="Any special instructions or notes about the customer" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="paymentType"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Payment Type</FormLabel>
+              <FormControl>
+                <div className="flex items-center gap-6">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      value="cash"
+                      checked={field.value === 'cash'}
+                      onChange={() => field.onChange('cash')}
+                    />
+                    Cash
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      value="account"
+                      checked={field.value === 'account'}
+                      onChange={() => field.onChange('account')}
+                    />
+                    Account
+                  </label>
+                </div>
               </FormControl>
               <FormMessage />
             </FormItem>

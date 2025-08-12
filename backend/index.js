@@ -44,6 +44,8 @@ const customerSchema = new mongoose.Schema({
   defaultCans: { type: Number, default: 1 },
   pricePerCan: { type: Number, required: true, min: 0, max: 999 },
   notes: { type: String, default: '' },
+  paymentType: { type: String, enum: ['cash','account'], default: 'cash' },
+  serialNumber: { type: Number, index: true },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });
@@ -65,6 +67,9 @@ const deliveryRequestSchema = new mongoose.Schema({
   completedAt: { type: Date },
   createdBy: { type: String, default: '' },
   internalNotes: { type: String, default: '' },
+  // denormalized fields for fast rendering
+  pricePerCan: { type: Number },
+  paymentType: { type: String, enum: ['cash','account'] },
 });
 
 const DeliveryRequest = mongoose.model('DeliveryRequest', deliveryRequestSchema);
@@ -133,7 +138,8 @@ app.post('/api/auth/register', (req, res) => {
 app.get('/api/customers', async (req, res) => {
   try {
     console.log('Fetching customers from database...');
-    const customers = await Customer.find().sort({ createdAt: -1 });
+    // Prefer sorting by serialNumber desc if present; fallback to createdAt desc
+    const customers = await Customer.find().sort({ serialNumber: -1, createdAt: -1 });
     console.log(`Found ${customers.length} customers`);
     res.json(customers);
   } catch (err) {
@@ -166,13 +172,25 @@ app.post('/api/customers', async (req, res) => {
       });
     }
 
+    // Determine next serial number
+    let nextSerial = 1;
+    const lastCustomer = await Customer.findOne({}).sort({ serialNumber: -1 });
+    if (lastCustomer && typeof lastCustomer.serialNumber === 'number') {
+      nextSerial = lastCustomer.serialNumber + 1;
+    } else {
+      const count = await Customer.countDocuments();
+      nextSerial = count + 1;
+    }
+
     const customerData = {
       name: req.body.name.trim(),
       phone: req.body.phone || '',
       address: req.body.address.trim(),
       defaultCans: Number(req.body.defaultCans) || 1,
-      pricePerCan: pricePerCan,
+      pricePerCan: Number(req.body.pricePerCan),
       notes: req.body.notes || '',
+      paymentType: req.body.paymentType === 'account' ? 'account' : 'cash',
+      serialNumber: nextSerial,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -261,7 +279,21 @@ app.get('/api/delivery-requests', async (req, res) => {
 app.post('/api/delivery-requests', async (req, res) => {
   try {
     console.log('Creating delivery request:', req.body);
-    const request = new DeliveryRequest(req.body);
+    // If price/payment not sent, derive from customer
+    let pricePerCan = req.body.pricePerCan;
+    let paymentType = req.body.paymentType;
+    if ((pricePerCan === undefined || paymentType === undefined) && req.body.customerId) {
+      const cust = await Customer.findById(req.body.customerId);
+      if (cust) {
+        if (pricePerCan === undefined) pricePerCan = cust.pricePerCan;
+        if (paymentType === undefined) paymentType = cust.paymentType;
+      }
+    }
+    const request = new DeliveryRequest({
+      ...req.body,
+      pricePerCan,
+      paymentType,
+    });
     const savedRequest = await request.save();
     console.log('Delivery request saved:', savedRequest);
     res.status(201).json(savedRequest);
@@ -376,71 +408,76 @@ app.put('/api/delivery-requests/:id/cancel', async (req, res) => {
 app.get('/api/dashboard/metrics', async (req, res) => {
   try {
     console.log('Fetching dashboard metrics...');
-    const { month, year } = req.query;
-    
+    const month = req.query.month;
+    const year = req.query.year;
+    const day = req.query.day;
+
     const totalCustomers = await Customer.countDocuments();
     const pendingRequests = await DeliveryRequest.countDocuments({ 
       status: { $in: ['pending', 'pending_confirmation', 'processing'] } 
     });
-    
+
     let dateQuery = {};
-    let timeLabel = 'Today';
-    
-    if (month && year) {
-      // Monthly filtering
+    let timeLabel = 'All Time';
+
+    if (day && month && year) {
+      const dayNum = parseInt(day);
       const monthNum = parseInt(month);
       const yearNum = parseInt(year);
-      
+      if (!isNaN(dayNum) && !isNaN(monthNum) && !isNaN(yearNum) && dayNum >= 1 && dayNum <= 31 && monthNum >= 1 && monthNum <= 12 && yearNum > 1900) {
+        const startDate = new Date(yearNum, monthNum - 1, dayNum);
+        const endDate = new Date(yearNum, monthNum - 1, dayNum + 1);
+        dateQuery = { deliveredAt: { $gte: startDate, $lt: endDate } };
+        timeLabel = startDate.toLocaleDateString('en-GB');
+      }
+    } else if (month && year) {
+      const monthNum = parseInt(month);
+      const yearNum = parseInt(year);
       if (monthNum >= 1 && monthNum <= 12 && yearNum > 1900) {
         const startDate = new Date(yearNum, monthNum - 1, 1);
         const endDate = new Date(yearNum, monthNum, 1);
-        
-        dateQuery = {
-          deliveredAt: { $gte: startDate, $lt: endDate }
-        };
-        
+        dateQuery = { deliveredAt: { $gte: startDate, $lt: endDate } };
         const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         timeLabel = `${monthNames[monthNum - 1]} ${yearNum}`;
-        
-        console.log(`Filtering for ${timeLabel}: ${startDate} to ${endDate}`);
       }
     } else {
-      // Default: 24 hours (today)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      
-      dateQuery = {
-        deliveredAt: { $gte: today, $lt: tomorrow }
-      };
+      // All-time history (no time limit)
+      dateQuery = {};
+      timeLabel = 'All Time';
     }
-    
+
     const deliveries = await DeliveryRequest.find({
       status: 'delivered',
       ...dateQuery
-    }).populate('customerId', 'pricePerCan');
-    
+    }).populate('customerId', 'pricePerCan paymentType');
+
     const totalCans = deliveries.reduce((sum, req) => sum + req.cans, 0);
-    
-    // Calculate total amount generated (cans * price per can for each customer)
+
     let totalAmountGenerated = 0;
+    let totalCashAmountGenerated = 0;
     for (const delivery of deliveries) {
-      if (delivery.customerId && delivery.customerId.pricePerCan) {
-        totalAmountGenerated += delivery.cans * delivery.customerId.pricePerCan;
-      }
+      const unitPrice = (delivery.pricePerCan != null)
+        ? delivery.pricePerCan
+        : (delivery.customerId && delivery.customerId.pricePerCan) ? delivery.customerId.pricePerCan : 0;
+      const payType = (delivery.paymentType != null)
+        ? delivery.paymentType
+        : (delivery.customerId && delivery.customerId.paymentType) ? delivery.customerId.paymentType : undefined;
+      const amount = delivery.cans * (unitPrice || 0);
+      totalAmountGenerated += amount;
+      if (payType === 'cash') totalCashAmountGenerated += amount;
     }
-    
+
     const metrics = {
       totalCustomers,
       pendingRequests,
       deliveries: deliveries.length,
       totalCans,
       totalAmountGenerated,
+      totalCashAmountGenerated,
       timeLabel,
-      isMonthlyView: !!(month && year)
+      isMonthlyView: !!(month && year) && !day,
     };
-    
+
     console.log(`Dashboard metrics for ${timeLabel}:`, metrics);
     res.json(metrics);
   } catch (err) {

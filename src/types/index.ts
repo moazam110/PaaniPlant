@@ -18,6 +18,7 @@ export interface Customer {
   notes?: string;
   createdAt: any; // Firestore Server Timestamp
   updatedAt: any; // Firestore Server Timestamp
+  paymentType?: 'cash' | 'account';
 }
 
 export interface DeliveryRequest {
@@ -37,6 +38,8 @@ export interface DeliveryRequest {
   cancelledAt?: any; // Firestore Timestamp - When the request was cancelled
   createdBy?: string; // UID of admin/staff who created or 'customer_portal' etc.
   internalNotes?: string; // Optional: Internal notes for admin/staff about this request - kept for schema flexibility
+  pricePerCan?: number; // Denormalized for fast display
+  paymentType?: 'cash' | 'account';
 }
 
 export interface AdminNotification {

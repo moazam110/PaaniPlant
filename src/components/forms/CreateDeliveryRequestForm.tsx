@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -60,6 +60,8 @@ export default function CreateDeliveryRequestForm({
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(true);
   const [isCancelConfirmationOpen, setIsCancelConfirmationOpen] = useState(false);
   const [customersWithActiveRequests, setCustomersWithActiveRequests] = useState<Set<string>>(new Set());
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const holdIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const isEditMode = !!editingRequest;
   // A request can be cancelled if it's in 'edit mode' AND its status is 'pending', 'pending_confirmation', or 'processing'
@@ -158,21 +160,19 @@ export default function CreateDeliveryRequestForm({
 
   // Standard search filtering - only show customers that match the search term
   const filteredCustomers = useMemo(() => {
-    if (isEditMode || customerToPreselect) return []; 
+    if (isEditMode || customerToPreselect) return [];
     if (!searchTerm.trim()) return [];
-    
+
     return allCustomers
       .filter(customer => {
-        // Standard search: match customer name with the search term (character by character)
         const searchLower = searchTerm.toLowerCase().trim();
         const nameLower = customer.name.toLowerCase();
-        
-        // Match if customer name starts with search term or contains the search term
-        return nameLower.includes(searchLower) ||
-               (customer.phone && customer.phone.includes(searchTerm)) ||
-               customer.address.toLowerCase().includes(searchLower);
-      })
-      .slice(0, 8); // Show more results for better UX
+        return (
+          nameLower.includes(searchLower) ||
+          (customer.phone && customer.phone.includes(searchTerm)) ||
+          customer.address.toLowerCase().includes(searchLower)
+        );
+      }); // removed hard limit to show all matches; ScrollArea will handle overflow
   }, [allCustomers, searchTerm, customerToPreselect, isEditMode]);
 
   const handleSelectCustomer = async (customer: Customer) => {
@@ -191,7 +191,8 @@ export default function CreateDeliveryRequestForm({
 
     setSelectedCustomer(customer);
     form.setValue("cans", customer.defaultCans || 1);
-    setSearchTerm(''); // Clear search immediately after selection
+    // Do NOT clear search automatically; keep it so multiple city-specific requests are easy
+    // setSearchTerm('');
   };
 
   const onSubmit = async (data: CreateDeliveryRequestFormValues) => {
@@ -215,6 +216,9 @@ export default function CreateDeliveryRequestForm({
             customerId: selectedCustomer?._id || selectedCustomer?.customerId || editingRequest.customerId,
             customerName: selectedCustomer?.name || editingRequest.customerName,
             address: selectedCustomer?.address || editingRequest.address,
+            // carry-through values if available
+            pricePerCan: (selectedCustomer as any)?.pricePerCan ?? (editingRequest as any)?.pricePerCan,
+            paymentType: (selectedCustomer as any)?.paymentType ?? (editingRequest as any)?.paymentType,
           }),
         });
         
@@ -232,6 +236,9 @@ export default function CreateDeliveryRequestForm({
             customerId: selectedCustomer._id || selectedCustomer.customerId,
             customerName: selectedCustomer.name,
             address: selectedCustomer.address,
+            // include denormalized values for table rendering
+            pricePerCan: (selectedCustomer as any)?.pricePerCan,
+            paymentType: (selectedCustomer as any)?.paymentType || 'cash',
           }),
         });
         
@@ -244,13 +251,14 @@ export default function CreateDeliveryRequestForm({
 
       form.reset();
       setSelectedCustomer(null);
-      setSearchTerm(''); // Clear search after successful creation
-      
-      // Hide keyboard by blurring any active input
-      const activeElement = document.activeElement as HTMLElement;
-      if (activeElement && activeElement.blur) {
-        activeElement.blur();
-      }
+      // Keep the search term; do not clear automatically
+      // setSearchTerm('');
+
+      // Do not auto-blur cursor; user can press backslash to blur explicitly
+      // const activeElement = document.activeElement as HTMLElement;
+      // if (activeElement && activeElement.blur) {
+      //   activeElement.blur();
+      // }
       
       if (onSuccess) {
         onSuccess();
@@ -267,6 +275,19 @@ export default function CreateDeliveryRequestForm({
       });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Helpers for continuous +/- hold
+  const startHold = (callback: () => void) => {
+    callback();
+    if (holdIntervalRef.current) clearInterval(holdIntervalRef.current);
+    holdIntervalRef.current = setInterval(callback, 100);
+  };
+  const stopHold = () => {
+    if (holdIntervalRef.current) {
+      clearInterval(holdIntervalRef.current);
+      holdIntervalRef.current = null;
     }
   };
 
@@ -319,9 +340,17 @@ export default function CreateDeliveryRequestForm({
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
               <Input
                 id="customerSearch"
+                ref={searchInputRef}
                 placeholder="Search by name, phone, or address..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === '\\') {
+                    // Explicitly allow user to remove cursor by pressing backslash
+                    e.preventDefault();
+                    (e.currentTarget as HTMLInputElement).blur();
+                  }
+                }}
                 className="pl-10"
                 disabled={isLoadingCustomers || isSubmitting}
                 autoComplete="off"
@@ -335,14 +364,14 @@ export default function CreateDeliveryRequestForm({
               <p className="text-sm text-muted-foreground">No customers found matching "{searchTerm}".</p>
             )}
             {filteredCustomers.length > 0 && (
-              <ScrollArea className="h-[200px] rounded-md border">
+              <ScrollArea className="h-[300px] rounded-md border">
                 <div className="p-2 space-y-1">
                   {filteredCustomers.map(customer => {
                     const isSindhiName = /[ء-ي]/.test(customer.name);
                     const nameClasses = cn("font-medium", isSindhiName ? 'font-sindhi rtl' : 'ltr');
                     const customerId = customer._id || customer.customerId;
                     const hasActiveRequest = customersWithActiveRequests.has(customerId || '');
-                    
+
                     return (
                       <Button
                         key={customer._id || customer.customerId}
@@ -370,8 +399,8 @@ export default function CreateDeliveryRequestForm({
                             )}
                           </div>
                           <p className="text-xs text-muted-foreground">{customer.address}</p>
-                          {customer.pricePerCan && (
-                            <p className="text-xs text-green-600 font-medium">Rs. {customer.pricePerCan}/can</p>
+                          {(customer as any).pricePerCan !== undefined && (
+                            <p className="text-xs text-green-600 font-medium">Rs. {(customer as any).pricePerCan}/can</p>
                           )}
                         </div>
                       </Button>
@@ -397,14 +426,14 @@ export default function CreateDeliveryRequestForm({
                   </p>
                   <p className="text-sm text-muted-foreground">{selectedCustomer.address}</p>
                 </div>
-                {!customerToPreselect && !isEditMode && ( // Allow changing customer only in pure create mode from search
+                {!customerToPreselect && !isEditMode && (
                   <Button
                     type="button"
                     variant="link"
                     size="sm"
                     onClick={() => {
-                        setSelectedCustomer(null);
-                        form.reset({ cans: 1, orderDetails: "", priority: "normal" }); // Reset form if customer is changed
+                      setSelectedCustomer(null);
+                      form.reset({ cans: 1, orderDetails: "", priority: "normal" });
                     }}
                     className="p-0 h-auto"
                     disabled={isSubmitting}
@@ -430,12 +459,17 @@ export default function CreateDeliveryRequestForm({
                       type="button"
                       variant="outline"
                       size="icon"
-                      onClick={() => {
+                      onMouseDown={() => startHold(() => {
                         const currentValue = Number(field.value) || 1;
-                        if (currentValue > 1) {
-                          field.onChange(currentValue - 1);
-                        }
-                      }}
+                        if (currentValue > 1) field.onChange(currentValue - 1);
+                      })}
+                      onMouseUp={stopHold}
+                      onMouseLeave={stopHold}
+                      onTouchStart={() => startHold(() => {
+                        const currentValue = Number(field.value) || 1;
+                        if (currentValue > 1) field.onChange(currentValue - 1);
+                      })}
+                      onTouchEnd={stopHold}
                       disabled={isSubmitting || (Number(field.value) || 1) <= 1}
                       className="h-10 w-10"
                     >
@@ -450,10 +484,17 @@ export default function CreateDeliveryRequestForm({
                       type="button"
                       variant="outline"
                       size="icon"
-                      onClick={() => {
+                      onMouseDown={() => startHold(() => {
                         const currentValue = Number(field.value) || 1;
                         field.onChange(currentValue + 1);
-                      }}
+                      })}
+                      onMouseUp={stopHold}
+                      onMouseLeave={stopHold}
+                      onTouchStart={() => startHold(() => {
+                        const currentValue = Number(field.value) || 1;
+                        field.onChange(currentValue + 1);
+                      })}
+                      onTouchEnd={stopHold}
                       disabled={isSubmitting}
                       className="h-10 w-10"
                     >

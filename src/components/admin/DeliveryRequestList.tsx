@@ -280,17 +280,19 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-12 text-center">#</TableHead>
                 <TableHead>Customer</TableHead>
                 <TableHead className="text-center">Cans</TableHead>
-                <TableHead>Status</TableHead>
                 <TableHead>Requested</TableHead>
-                <TableHead className="hidden sm:table-cell">Address</TableHead>
-                <TableHead className="hidden md:table-cell">Priority</TableHead>
-                <TableHead className="text-right">Edit</TableHead>
+                <TableHead>Address</TableHead>
+                <TableHead>Price</TableHead>
+                <TableHead>Payment Type</TableHead>
+                <TableHead>Priority</TableHead>
+                <TableHead className="text-right">Status / Edit</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredDeliveryRequests.map((request) => {
+              {filteredDeliveryRequests.map((request, index) => {
                 const isSindhiName = /[ء-ي]/.test(request.customerName);
                 const nameClasses = cn(isSindhiName ? 'font-sindhi rtl' : 'ltr');
                 const isCancelled = request.status === 'cancelled';
@@ -300,39 +302,41 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                     isDelivered ? 'bg-green-500/10' : '',
                     request.status === 'processing' ? 'bg-yellow-100' : ''
                 );
-                
-                // Requests can be edited if they are not delivered or cancelled.
-                // const canBeEdited = request.status !== 'delivered' && request.status !== 'cancelled';
-                // All requests can be "edited" to view details or potentially cancel if pending/pending_confirmation.
-                // The form itself will handle if cancellation is possible.
+
+                const pricePerCan = (request as any).pricePerCan;
+                const paymentType = ((request as any).paymentType || '').toString();
 
                 return (
                   <TableRow key={request._id || request.requestId || `req-${Math.random()}`} className={rowClasses}>
+                    <TableCell className="text-center">{index + 1}</TableCell>
                     <TableCell className={cn(nameClasses, isCancelled && 'line-through')}>
                         {request.customerName}
                     </TableCell>
                     <TableCell className={cn("text-center", isCancelled && 'line-through')}>{request.cans}</TableCell>
-                    <TableCell>
-                      <Badge variant={getStatusBadgeVariant(request.status)} className="capitalize">
-                        {getStatusIcon(request.status)}
-                        {getStatusDisplay(request.status)}
-                      </Badge>
-                    </TableCell>
                     <TableCell className={cn(isCancelled ? 'line-through' : '')}>
                       {request.requestedAt ? format(new Date(request.requestedAt), 'MMM d, HH:mm') : '-'}
                     </TableCell>
-                    <TableCell className={cn("hidden sm:table-cell whitespace-normal break-words max-w-xs", isCancelled && 'line-through')}>
+                    <TableCell className={cn("whitespace-normal break-words max-w-xs", isCancelled && 'line-through')}>
                         {request.address}
                     </TableCell>
-                    <TableCell className={cn("hidden md:table-cell", isCancelled ? 'line-through' : '')}>
+                    <TableCell>{pricePerCan !== undefined ? `Rs. ${pricePerCan}` : '-'}</TableCell>
+                    <TableCell>
+                      {paymentType ? (
+                        <Badge variant="outline" className="capitalize">{paymentType}</Badge>
+                      ) : '-'}
+                    </TableCell>
+                    <TableCell className={cn(isCancelled ? 'line-through' : '')}>
                       {getPriorityIcon(request.priority)}
                       <span className="capitalize">{request.priority}</span>
                     </TableCell>
                     <TableCell className="text-right space-x-1">
-                       {/* Always show Edit button, form will handle context (new/edit/cancel) */}
-                        <Button variant="ghost" size="icon" title="Edit/View Request" onClick={() => onEditRequest(request)}>
-                            <Pencil className="h-4 w-4 text-blue-600" />
-                        </Button>
+                       <Badge variant={getStatusBadgeVariant(request.status)} className="capitalize mr-2">
+                         {getStatusIcon(request.status)}
+                         {getStatusDisplay(request.status)}
+                       </Badge>
+                       <Button variant="ghost" size="icon" title="Edit/View Request" onClick={() => onEditRequest(request)}>
+                           <Pencil className="h-4 w-4 text-blue-600" />
+                       </Button>
                     </TableCell>
                   </TableRow>
                 );

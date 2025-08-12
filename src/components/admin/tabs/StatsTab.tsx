@@ -22,6 +22,7 @@ export default function StatsTab({
 }: StatsTabProps) {
   // State for month/year filtering
   const currentDate = new Date();
+  const [selectedDay, setSelectedDay] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [selectedYear, setSelectedYear] = useState<string>('');
   const [isMonthlyView, setIsMonthlyView] = useState(false);
@@ -58,13 +59,20 @@ export default function StatsTab({
   });
 
   // Fetch filtered metrics when month/year changes
-  const fetchFilteredMetrics = async (month?: string, year?: string) => {
+  const fetchFilteredMetrics = async (month?: string, year?: string, day?: string) => {
     setFilteredMetrics(prev => ({ ...prev, isLoading: true }));
     
     try {
       let metricsUrl = buildApiUrl('api/dashboard/metrics');
+      const params: string[] = [];
       if (month && year) {
-        metricsUrl += `?month=${month}&year=${year}`;
+        params.push(`month=${month}`, `year=${year}`);
+      }
+      if (day) {
+        params.push(`day=${day}`);
+      }
+      if (params.length) {
+        metricsUrl += `?${params.join('&')}`;
       }
       
       const response = await fetch(metricsUrl);
@@ -77,7 +85,7 @@ export default function StatsTab({
           timeLabel: data.timeLabel || 'Today',
           isLoading: false
         });
-        setIsMonthlyView(data.isMonthlyView || false);
+        setIsMonthlyView(!!data.isMonthlyView);
       } else {
         console.error('Failed to fetch filtered metrics');
         setFilteredMetrics(prev => ({ ...prev, isLoading: false }));
@@ -88,18 +96,24 @@ export default function StatsTab({
     }
   };
 
-  // Handle dropdown selection
+  const handleDayChange = (day: string) => {
+    setSelectedDay(day);
+    if (day) {
+      fetchFilteredMetrics(selectedMonth || undefined, selectedYear || undefined, day);
+    }
+  };
+
   const handleMonthChange = (month: string) => {
     setSelectedMonth(month);
     if (month && selectedYear) {
-      fetchFilteredMetrics(month, selectedYear);
+      fetchFilteredMetrics(month, selectedYear, selectedDay || undefined);
     }
   };
 
   const handleYearChange = (year: string) => {
     setSelectedYear(year);
     if (selectedMonth && year) {
-      fetchFilteredMetrics(selectedMonth, year);
+      fetchFilteredMetrics(selectedMonth, year, selectedDay || undefined);
     }
   };
 
@@ -112,9 +126,24 @@ export default function StatsTab({
 
   return (
     <div className="p-4 space-y-6">
-      {/* Month/Year Selectors */}
+      {/* Day/Month/Year Selectors */}
       <div className="flex items-center gap-4">
         <div className="flex gap-3">
+          <div className="w-28">
+            <Select value={selectedDay} onValueChange={handleDayChange}>
+              <SelectTrigger>
+                <SelectValue placeholder="Date" />
+              </SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: 31 }, (_, i) => {
+                  const day = (i + 1).toString().padStart(2, '0');
+                  return (
+                    <SelectItem key={day} value={day}>{day}</SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="w-32">
             <Select value={selectedMonth} onValueChange={handleMonthChange}>
               <SelectTrigger>
@@ -144,8 +173,6 @@ export default function StatsTab({
             </Select>
           </div>
         </div>
-        
-
       </div>
 
       {/* Main Stats Grid */}
@@ -197,8 +224,8 @@ export default function StatsTab({
           </Card>
         </div>
       ) : (
-        // 24-Hour View - All KPIs including total amount
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        // 24-Hour View - All KPIs including total amount plus cash-specific KPI
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card className="glass-card">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
@@ -271,6 +298,22 @@ export default function StatsTab({
               <p className="text-xs text-muted-foreground mt-1">
                 Total cans × individual customer prices
               </p>
+            </CardContent>
+          </Card>
+          <Card className="glass-card lg:col-span-1">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Cash Amount Generated Today</CardTitle>
+              <IndianRupee className="h-5 w-5 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              {filteredMetrics.isLoading ? (
+                <Skeleton className="h-7 w-20 bg-muted/50" />
+              ) : (
+                <div className="text-2xl font-bold text-green-600">
+                  {/* This will be populated once backend provides 'totalCashAmountGenerated' */}
+                  Rs. {(filteredMetrics as any).totalCashAmountGenerated?.toLocaleString?.() || '0'}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

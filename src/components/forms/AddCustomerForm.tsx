@@ -21,6 +21,7 @@ const addCustomerSchema = z.object({
   defaultCans: z.coerce.number().min(0, { message: "Default cans cannot be negative." }).default(1),
   pricePerCan: z.coerce.number().min(0, { message: "Price per can cannot be negative." }).max(999, { message: "Price cannot exceed 999." }),
   notes: z.string().optional(),
+  paymentType: z.enum(['cash','account'], { required_error: 'Select payment type' })
 });
 
 type AddCustomerFormValues = z.infer<typeof addCustomerSchema>;
@@ -43,6 +44,7 @@ export default function AddCustomerForm({ onSuccess }: AddCustomerFormProps) {
       defaultCans: 1,
       pricePerCan: 0,
       notes: "",
+      paymentType: 'cash',
     },
   });
 
@@ -75,6 +77,7 @@ export default function AddCustomerForm({ onSuccess }: AddCustomerFormProps) {
         defaultCans: Number(data.defaultCans) || 1,
         pricePerCan: Number(data.pricePerCan) || 0, // Ensure 0 is properly handled
         notes: data.notes?.trim() || "",
+        paymentType: data.paymentType,
       };
 
       console.log('Submitting customer data:', customerData);
@@ -104,6 +107,7 @@ export default function AddCustomerForm({ onSuccess }: AddCustomerFormProps) {
           defaultCans: 1,
           pricePerCan: 0,
           notes: "",
+          paymentType: 'cash',
         });
 
       toast({
@@ -240,6 +244,39 @@ export default function AddCustomerForm({ onSuccess }: AddCustomerFormProps) {
               <FormLabel>Notes (Optional)</FormLabel>
               <FormControl>
                 <Textarea placeholder="Any special instructions or notes about the customer" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="paymentType"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Payment Type</FormLabel>
+              <FormControl>
+                <div className="flex items-center gap-6">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      value="cash"
+                      checked={field.value === 'cash'}
+                      onChange={() => field.onChange('cash')}
+                    />
+                    Cash
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      value="account"
+                      checked={field.value === 'account'}
+                      onChange={() => field.onChange('account')}
+                    />
+                    Account
+                  </label>
+                </div>
               </FormControl>
               <FormMessage />
             </FormItem>
