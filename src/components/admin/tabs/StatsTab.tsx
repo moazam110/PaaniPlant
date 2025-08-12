@@ -22,9 +22,9 @@ export default function StatsTab({
 }: StatsTabProps) {
   // State for month/year filtering
   const currentDate = new Date();
-  const [selectedDay, setSelectedDay] = useState<string>(String(currentDate.getDate()).padStart(2, '0'));
-  const [selectedMonth, setSelectedMonth] = useState<string>(String(currentDate.getMonth() + 1));
-  const [selectedYear, setSelectedYear] = useState<string>(String(currentDate.getFullYear())) ;
+  const [selectedDay, setSelectedDay] = useState<string>('');
+  const [selectedMonth, setSelectedMonth] = useState<string>('');
+  const [selectedYear, setSelectedYear] = useState<string>('');
   const [isMonthlyView, setIsMonthlyView] = useState(false);
   const [isYearView, setIsYearView] = useState(false);
   
@@ -103,34 +103,46 @@ export default function StatsTab({
     }
   };
 
+  // Helper: fetch for current selection; if none selected, fetch today
+  const fetchForCurrentSelection = () => {
+    const todayDay = String(currentDate.getDate()).padStart(2, '0');
+    const todayMonth = String(currentDate.getMonth() + 1);
+    const todayYear = String(currentDate.getFullYear());
+    if (!selectedDay && !selectedMonth && !selectedYear) {
+      fetchFilteredMetrics(todayMonth, todayYear, todayDay);
+    } else if (selectedDay) {
+      fetchFilteredMetrics(selectedMonth || undefined, selectedYear || undefined, selectedDay);
+    } else if (selectedMonth && selectedYear) {
+      fetchFilteredMetrics(selectedMonth, selectedYear, undefined);
+    } else if (selectedYear) {
+      fetchFilteredMetrics(undefined, selectedYear, undefined);
+    } else {
+      // Fallback to today
+      fetchFilteredMetrics(todayMonth, todayYear, todayDay);
+    }
+  };
+
   const handleDayChange = (day: string) => {
     setSelectedDay(day);
-    if (day) {
-      fetchFilteredMetrics(selectedMonth || undefined, selectedYear || undefined, day);
-    }
+    // After any change, fetch according to current selection
+    setTimeout(fetchForCurrentSelection, 0);
   };
 
   const handleMonthChange = (month: string) => {
     setSelectedMonth(month);
-    if (month && selectedYear) {
-      fetchFilteredMetrics(month, selectedYear, selectedDay || undefined);
-    }
+    setTimeout(fetchForCurrentSelection, 0);
   };
 
   const handleYearChange = (year: string) => {
     setSelectedYear(year);
-    if (selectedMonth && year) {
-      fetchFilteredMetrics(selectedMonth, year, selectedDay || undefined);
-    } else if (year && !selectedMonth && !selectedDay) {
-      fetchFilteredMetrics(undefined, year, undefined);
-    }
+    setTimeout(fetchForCurrentSelection, 0);
   };
 
 
 
-  // Initialize with today's data
+  // Initialize with today's data (while showing blank selectors)
   useEffect(() => {
-    fetchFilteredMetrics(selectedMonth, selectedYear, selectedDay);
+    fetchForCurrentSelection();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -191,7 +203,8 @@ export default function StatsTab({
         const todayDay = String(now.getDate()).padStart(2, '0');
         const todayMonth = String(now.getMonth() + 1);
         const todayYear = String(now.getFullYear());
-        const isTodaySelected = selectedDay === todayDay && selectedMonth === todayMonth && selectedYear === todayYear;
+        const isBlankSelection = !selectedDay && !selectedMonth && !selectedYear;
+        const isTodaySelected = isBlankSelection || (selectedDay === todayDay && selectedMonth === todayMonth && selectedYear === todayYear);
 
         // Monthly View: only four KPIs
         if (isMonthlyView) {

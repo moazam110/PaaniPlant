@@ -16,7 +16,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, AlertTriangle, PlusCircle, Pencil, CheckCircle, XCircle, Ban } from 'lucide-react';
+import { Search, AlertTriangle, PlusCircle, Pencil, CheckCircle, XCircle, Ban, Star } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 import { format } from 'date-fns';
@@ -425,7 +425,12 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                 <TableHead>Price</TableHead>
                 <TableHead>Payment Type</TableHead>
                 <TableHead>Priority</TableHead>
-                <TableHead className="text-right">Status / Edit</TableHead>
+                <TableHead className="text-right">
+                  <div className="flex items-center justify-end gap-6">
+                    <span>Status</span>
+                    <span>Edit</span>
+                  </div>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -447,7 +452,14 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                 return (
                   <TableRow key={request._id || request.requestId || `req-${Math.random()}`} className={rowClasses}>
                     <TableCell className={cn(nameClasses, isCancelled && 'line-through')}>
-                        {intId ? `${intId} - ${request.customerName}` : request.customerName}
+                        <span>
+                          {intId ? `${intId} - ${request.customerName}` : request.customerName}
+                        </span>
+                        {typeof pricePerCan === 'number' && pricePerCan >= 100 && (
+                          <span aria-label="Premium" className="inline-flex ml-2 align-middle">
+                            <Star className="h-3 w-3 text-yellow-500" />
+                          </span>
+                        )}
                     </TableCell>
                     <TableCell className={cn("text-center", isCancelled && 'line-through')}>{request.cans}</TableCell>
                     <TableCell className={cn(isCancelled ? 'line-through' : '')}>
@@ -466,14 +478,16 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                       {getPriorityIcon(request.priority)}
                       <span className="capitalize">{request.priority}</span>
                     </TableCell>
-                    <TableCell className="text-right space-x-1">
-                       <Badge variant={getStatusBadgeVariant(request.status)} className="capitalize mr-2">
-                         {getStatusIcon(request.status)}
-                         {getStatusDisplay(request.status)}
-                       </Badge>
-                       <Button variant="ghost" size="icon" title="Edit/View Request" onClick={() => onEditRequest(request)}>
-                           <Pencil className="h-4 w-4 text-blue-600" />
-                       </Button>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-3">
+                        <Badge variant={getStatusBadgeVariant(request.status)} className="capitalize">
+                          {getStatusIcon(request.status)}
+                          {getStatusDisplay(request.status)}
+                        </Badge>
+                        <Button variant="ghost" size="icon" title="Edit/View Request" onClick={() => onEditRequest(request)}>
+                          <Pencil className="h-4 w-4 text-blue-600" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 );

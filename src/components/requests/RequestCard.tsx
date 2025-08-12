@@ -4,7 +4,7 @@ import type { DeliveryRequest } from '@/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Truck, CheckCircle2, CalendarDays, Check, AlertTriangle, X } from 'lucide-react';
+import { Truck, CheckCircle2, CalendarDays, Check, AlertTriangle, X, Star } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 
@@ -17,6 +17,9 @@ interface RequestCardProps {
 const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCancel }) => {
   const isUrgent = request.priority === 'urgent';
   const isSindhiName = /[ء-ي]/.test(request.customerName); 
+  const intId = (request as any).customerIntId;
+  const paymentType = ((request as any).paymentType || '').toString().toLowerCase();
+  const pricePerCan = (request as any).pricePerCan;
 
   // Check for request statuses
   const isPending = request.status === 'pending' || request.status === 'pending_confirmation';
@@ -42,9 +45,23 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
     <Card className={cardClasses}>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className={customerNameClasses}>
-            {request.customerName}
-          </CardTitle>
+          <div className="flex flex-col gap-1">
+            <CardTitle className={customerNameClasses}>
+              <span>{intId ? `${intId} - ${request.customerName}` : request.customerName}</span>
+              {typeof pricePerCan === 'number' && pricePerCan >= 100 && (
+                <span aria-label="Premium" className="inline-flex ml-2 align-middle">
+                  <Star className="h-3 w-3 text-yellow-500" />
+                </span>
+              )}
+            </CardTitle>
+            {paymentType && (
+              <div>
+                <Badge variant="outline" className="text-[10px] py-0.5 px-2 capitalize">
+                  {paymentType === 'account' ? 'Account' : 'Cash'}
+                </Badge>
+              </div>
+            )}
+          </div>
           {isDelivered ? (
             <CheckCircle2 className="h-6 w-6 text-green-600" />
           ) : isCancelled ? (
@@ -90,7 +107,7 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
           Requested: {request.requestedAt ? format(new Date(request.requestedAt), 'MMM d, yyyy HH:mm') : '-'}
         </div>
         {request.completedAt && (
-          <div className={cn("flex items-center text-xs", isCancelled ? "text-red-600" : "text-green-600")}>
+          <div className={cn("flex items-center text-xs", isCancelled ? "text-red-600" : "text-green-600")}> 
             {isCancelled ? (
               <X className="h-4 w-4 mr-2" />
             ) : (

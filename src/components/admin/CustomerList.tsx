@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/table";
 // Removed Avatar imports to save space
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Pencil } from 'lucide-react';
+import { Search, Pencil, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
@@ -188,7 +188,14 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
                     className="cursor-pointer hover:bg-muted/50"
                     onClick={() => onEditCustomer && onEditCustomer(customer)}
                   >
-                    <TableCell className={nameClasses}>{(customer as any).id ? `${(customer as any).id} - ${customer.name}` : customer.name}</TableCell>
+                    <TableCell className={nameClasses}>
+                      <span>{(customer as any).id ? `${(customer as any).id} - ${customer.name}` : customer.name}</span>
+                      {typeof customer.pricePerCan === 'number' && customer.pricePerCan >= 100 && (
+                        <span aria-label="Premium" className="inline-flex ml-2 align-middle">
+                          <Star className="h-3 w-3 text-yellow-500" />
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell>{customer.phone || '-'}</TableCell>
                     <TableCell className="whitespace-normal break-words max-w-xs">{customer.address}</TableCell>
                     <TableCell>
