@@ -22,16 +22,18 @@ export default function StatsTab({
 }: StatsTabProps) {
   // State for month/year filtering
   const currentDate = new Date();
-  const [selectedDay, setSelectedDay] = useState<string>('');
-  const [selectedMonth, setSelectedMonth] = useState<string>('');
-  const [selectedYear, setSelectedYear] = useState<string>('');
+  const [selectedDay, setSelectedDay] = useState<string>(String(currentDate.getDate()).padStart(2, '0'));
+  const [selectedMonth, setSelectedMonth] = useState<string>(String(currentDate.getMonth() + 1));
+  const [selectedYear, setSelectedYear] = useState<string>(String(currentDate.getFullYear())) ;
   const [isMonthlyView, setIsMonthlyView] = useState(false);
+  const [isYearView, setIsYearView] = useState(false);
   
   // State for filtered metrics
   const [filteredMetrics, setFilteredMetrics] = useState({
     deliveries: deliveriesTodayCount,
     totalCans: totalCansToday,
     totalAmountGenerated: 0,
+    totalCashAmountGenerated: 0,
     timeLabel: 'Today',
     isLoading: false
   });
@@ -71,6 +73,9 @@ export default function StatsTab({
       if (day) {
         params.push(`day=${day}`);
       }
+      if (!month && year && !day) {
+        params.push(`year=${year}`);
+      }
       if (params.length) {
         metricsUrl += `?${params.join('&')}`;
       }
@@ -82,10 +87,12 @@ export default function StatsTab({
           deliveries: data.deliveries || 0,
           totalCans: data.totalCans || 0,
           totalAmountGenerated: data.totalAmountGenerated || 0,
+          totalCashAmountGenerated: data.totalCashAmountGenerated || 0,
           timeLabel: data.timeLabel || 'Today',
           isLoading: false
         });
         setIsMonthlyView(!!data.isMonthlyView);
+        setIsYearView(!!data.isYearView);
       } else {
         console.error('Failed to fetch filtered metrics');
         setFilteredMetrics(prev => ({ ...prev, isLoading: false }));
@@ -114,14 +121,17 @@ export default function StatsTab({
     setSelectedYear(year);
     if (selectedMonth && year) {
       fetchFilteredMetrics(selectedMonth, year, selectedDay || undefined);
+    } else if (year && !selectedMonth && !selectedDay) {
+      fetchFilteredMetrics(undefined, year, undefined);
     }
   };
 
 
 
-  // Initialize with 24-hour data
+  // Initialize with today's data
   useEffect(() => {
-    fetchFilteredMetrics();
+    fetchFilteredMetrics(selectedMonth, selectedYear, selectedDay);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -132,7 +142,7 @@ export default function StatsTab({
           <div className="w-28">
             <Select value={selectedDay} onValueChange={handleDayChange}>
               <SelectTrigger>
-                <SelectValue placeholder="Date" />
+                <SelectValue placeholder="Date">{selectedDay || 'Date'}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {Array.from({ length: 31 }, (_, i) => {
@@ -147,7 +157,7 @@ export default function StatsTab({
           <div className="w-32">
             <Select value={selectedMonth} onValueChange={handleMonthChange}>
               <SelectTrigger>
-                <SelectValue placeholder="Month" />
+                <SelectValue placeholder="Month">{selectedMonth || 'Month'}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {months.map((month) => (
@@ -161,7 +171,7 @@ export default function StatsTab({
           <div className="w-24">
             <Select value={selectedYear} onValueChange={handleYearChange}>
               <SelectTrigger>
-                <SelectValue placeholder="Year" />
+                <SelectValue placeholder="Year">{selectedYear || 'Year'}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {years.map((year) => (
@@ -175,149 +185,240 @@ export default function StatsTab({
         </div>
       </div>
 
-      {/* Main Stats Grid */}
-      {isMonthlyView ? (
-        // Monthly View - Only 3 KPIs
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="glass-card">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Deliveries</CardTitle>
-              <PackageCheck className="h-5 w-5 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              {filteredMetrics.isLoading ? (
-                <Skeleton className="h-7 w-12 bg-muted/50" />
-              ) : (
-                <div className="text-2xl font-bold">{filteredMetrics.deliveries}</div>
-              )}
-            </CardContent>
-          </Card>
+      {/* KPI Rendering Rules */}
+      {(() => {
+        const now = new Date();
+        const todayDay = String(now.getDate()).padStart(2, '0');
+        const todayMonth = String(now.getMonth() + 1);
+        const todayYear = String(now.getFullYear());
+        const isTodaySelected = selectedDay === todayDay && selectedMonth === todayMonth && selectedYear === todayYear;
 
-          <Card className="glass-card">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Delivered Cans</CardTitle>
-              <PackageSearch className="h-5 w-5 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              {filteredMetrics.isLoading ? (
-                <Skeleton className="h-7 w-12 bg-muted/50" />
-              ) : (
-                <div className="text-2xl font-bold">{filteredMetrics.totalCans}</div>
-              )}
-            </CardContent>
-          </Card>
+        // Monthly View: only four KPIs
+        if (isMonthlyView) {
+          return (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <Card className="glass-card">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Deliveries</CardTitle>
+                  <PackageCheck className="h-5 w-5 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  {filteredMetrics.isLoading ? (
+                    <Skeleton className="h-7 w-12 bg-muted/50" />
+                  ) : (
+                    <div className="text-2xl font-bold">{filteredMetrics.deliveries}</div>
+                  )}
+                </CardContent>
+              </Card>
 
-          <Card className="glass-card">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                          <CardTitle className="text-sm font-medium">Total Amount Generated</CardTitle>
-            <IndianRupee className="h-5 w-5 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              {filteredMetrics.isLoading ? (
-                <Skeleton className="h-7 w-12 bg-muted/50" />
-              ) : (
-                <div className="text-2xl font-bold text-green-600">
-                  Rs. {filteredMetrics.totalAmountGenerated.toLocaleString()}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      ) : (
-        // 24-Hour View - All KPIs including total amount plus cash-specific KPI
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card className="glass-card">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
-              <Users className="h-5 w-5 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              {totalCustomers >= 0 ? (
-                <div className="text-2xl font-bold">{totalCustomers}</div>
-              ) : (
-                <Skeleton className="h-7 w-12 bg-muted/50" />
-              )}
-            </CardContent>
-          </Card>
+              <Card className="glass-card">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Delivered Cans</CardTitle>
+                  <PackageSearch className="h-5 w-5 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  {filteredMetrics.isLoading ? (
+                    <Skeleton className="h-7 w-12 bg-muted/50" />
+                  ) : (
+                    <div className="text-2xl font-bold">{filteredMetrics.totalCans}</div>
+                  )}
+                </CardContent>
+              </Card>
 
-          <Card className="glass-card">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending Deliveries</CardTitle>
-              <ListChecks className="h-5 w-5 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              {pendingDeliveries >= 0 ? (
-                <div className="text-2xl font-bold">{pendingDeliveries}</div>
-              ) : (
-                <Skeleton className="h-7 w-12 bg-muted/50" />
-              )}
-            </CardContent>
-          </Card>
+              <Card className="glass-card">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Amount Generated</CardTitle>
+                  <IndianRupee className="h-5 w-5 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  {filteredMetrics.isLoading ? (
+                    <Skeleton className="h-7 w-20 bg-muted/50" />
+                  ) : (
+                    <div className="text-2xl font-bold text-green-600">
+                      Rs. {filteredMetrics.totalAmountGenerated.toLocaleString()}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
 
-          <Card className="glass-card">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Deliveries Today</CardTitle>
-              <PackageCheck className="h-5 w-5 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              {filteredMetrics.isLoading ? (
-                <Skeleton className="h-7 w-12 bg-muted/50" />
-              ) : (
-                <div className="text-2xl font-bold">{filteredMetrics.deliveries}</div>
-              )}
-            </CardContent>
-          </Card>
+              <Card className="glass-card">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Cash Amount Generated</CardTitle>
+                  <IndianRupee className="h-5 w-5 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  {filteredMetrics.isLoading ? (
+                    <Skeleton className="h-7 w-20 bg-muted/50" />
+                  ) : (
+                    <div className="text-2xl font-bold text-green-600">Rs. {filteredMetrics.totalCashAmountGenerated.toLocaleString()}</div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          );
+        }
 
-          <Card className="glass-card">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Cans Delivered Today</CardTitle>
-              <PackageSearch className="h-5 w-5 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              {filteredMetrics.isLoading ? (
-                <Skeleton className="h-7 w-12 bg-muted/50" />
-              ) : (
-                <div className="text-2xl font-bold">{filteredMetrics.totalCans}</div>
-              )}
-            </CardContent>
-          </Card>
+        // Day/Year View
+        if (isTodaySelected && !isYearView) {
+          // Today: keep all KPIs
+          return (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <Card className="glass-card">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
+                  <Users className="h-5 w-5 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  {totalCustomers >= 0 ? (
+                    <div className="text-2xl font-bold">{totalCustomers}</div>
+                  ) : (
+                    <Skeleton className="h-7 w-12 bg-muted/50" />
+                  )}
+                </CardContent>
+              </Card>
 
-          <Card className="glass-card md:col-span-2">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                          <CardTitle className="text-sm font-medium">Total Amount Generated Today</CardTitle>
-            <IndianRupee className="h-5 w-5 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              {filteredMetrics.isLoading ? (
-                <Skeleton className="h-7 w-20 bg-muted/50" />
-              ) : (
-                <div className="text-2xl font-bold text-green-600">
-                  Rs. {filteredMetrics.totalAmountGenerated.toLocaleString()}
-                </div>
-              )}
-              <p className="text-xs text-muted-foreground mt-1">
-                Total cans × individual customer prices
-              </p>
-            </CardContent>
-          </Card>
-          <Card className="glass-card lg:col-span-1">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Cash Amount Generated Today</CardTitle>
-              <IndianRupee className="h-5 w-5 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              {filteredMetrics.isLoading ? (
-                <Skeleton className="h-7 w-20 bg-muted/50" />
-              ) : (
-                <div className="text-2xl font-bold text-green-600">
-                  {/* This will be populated once backend provides 'totalCashAmountGenerated' */}
-                  Rs. {(filteredMetrics as any).totalCashAmountGenerated?.toLocaleString?.() || '0'}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
+              <Card className="glass-card">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Pending Deliveries</CardTitle>
+                  <ListChecks className="h-5 w-5 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  {pendingDeliveries >= 0 ? (
+                    <div className="text-2xl font-bold">{pendingDeliveries}</div>
+                  ) : (
+                    <Skeleton className="h-7 w-12 bg-muted/50" />
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card className="glass-card">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Deliveries</CardTitle>
+                  <PackageCheck className="h-5 w-5 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  {filteredMetrics.isLoading ? (
+                    <Skeleton className="h-7 w-12 bg-muted/50" />
+                  ) : (
+                    <div className="text-2xl font-bold">{filteredMetrics.deliveries}</div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card className="glass-card">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Delivered Cans</CardTitle>
+                  <PackageSearch className="h-5 w-5 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  {filteredMetrics.isLoading ? (
+                    <Skeleton className="h-7 w-12 bg-muted/50" />
+                  ) : (
+                    <div className="text-2xl font-bold">{filteredMetrics.totalCans}</div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card className="glass-card lg:col-span-2">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Amount Generated</CardTitle>
+                  <IndianRupee className="h-5 w-5 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  {filteredMetrics.isLoading ? (
+                    <Skeleton className="h-7 w-20 bg-muted/50" />
+                  ) : (
+                    <div className="text-2xl font-bold text-green-600">
+                      Rs. {filteredMetrics.totalAmountGenerated.toLocaleString()}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card className="glass-card lg:col-span-2">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Cash Amount Generated</CardTitle>
+                  <IndianRupee className="h-5 w-5 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  {filteredMetrics.isLoading ? (
+                    <Skeleton className="h-7 w-20 bg-muted/50" />
+                  ) : (
+                    <div className="text-2xl font-bold text-green-600">
+                      Rs. {filteredMetrics.totalCashAmountGenerated.toLocaleString()}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          );
+        }
+
+        // Non-today date or year view: only four KPIs
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="glass-card">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Deliveries</CardTitle>
+                <PackageCheck className="h-5 w-5 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                {filteredMetrics.isLoading ? (
+                  <Skeleton className="h-7 w-12 bg-muted/50" />
+                ) : (
+                  <div className="text-2xl font-bold">{filteredMetrics.deliveries}</div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="glass-card">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Delivered Cans</CardTitle>
+                <PackageSearch className="h-5 w-5 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                {filteredMetrics.isLoading ? (
+                  <Skeleton className="h-7 w-12 bg-muted/50" />
+                ) : (
+                  <div className="text-2xl font-bold">{filteredMetrics.totalCans}</div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="glass-card">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Amount Generated</CardTitle>
+                <IndianRupee className="h-5 w-5 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                {filteredMetrics.isLoading ? (
+                  <Skeleton className="h-7 w-20 bg-muted/50" />
+                ) : (
+                  <div className="text-2xl font-bold text-green-600">
+                    Rs. {filteredMetrics.totalAmountGenerated.toLocaleString()}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="glass-card">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Cash Amount Generated</CardTitle>
+                <IndianRupee className="h-5 w-5 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                {filteredMetrics.isLoading ? (
+                  <Skeleton className="h-7 w-20 bg-muted/50" />
+                ) : (
+                  <div className="text-2xl font-bold text-green-600">
+                    Rs. {filteredMetrics.totalCashAmountGenerated.toLocaleString()}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        );
+      })()}
     </div>
   );
 }

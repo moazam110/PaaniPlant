@@ -413,6 +413,8 @@ app.get('/api/dashboard/metrics', async (req, res) => {
 
     let dateQuery = {};
     let timeLabel = 'All Time';
+    let isMonthlyView = false;
+    let isYearView = false;
 
     if (day && month && year) {
       const dayNum = parseInt(day);
@@ -433,6 +435,16 @@ app.get('/api/dashboard/metrics', async (req, res) => {
         dateQuery = { deliveredAt: { $gte: startDate, $lt: endDate } };
         const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         timeLabel = `${monthNames[monthNum - 1]} ${yearNum}`;
+        isMonthlyView = true;
+      }
+    } else if (year) {
+      const yearNum = parseInt(year);
+      if (!isNaN(yearNum) && yearNum > 1900) {
+        const startDate = new Date(yearNum, 0, 1);
+        const endDate = new Date(yearNum + 1, 0, 1);
+        dateQuery = { deliveredAt: { $gte: startDate, $lt: endDate } };
+        timeLabel = `${yearNum}`;
+        isYearView = true;
       }
     } else {
       // All-time history (no time limit)
@@ -469,7 +481,8 @@ app.get('/api/dashboard/metrics', async (req, res) => {
       totalAmountGenerated,
       totalCashAmountGenerated,
       timeLabel,
-      isMonthlyView: !!(month && year) && !day,
+      isMonthlyView,
+      isYearView,
     };
 
     console.log(`Dashboard metrics for ${timeLabel}:`, metrics);

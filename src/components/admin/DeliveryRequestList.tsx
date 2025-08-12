@@ -33,6 +33,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { ListFilter } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 
@@ -63,6 +67,9 @@ const fuzzySearch = (text: string, query: string): boolean => {
 const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNewRequest, onEditRequest, deliveryRequests, setDeliveryRequests }) => {
   const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [filterDraft, setFilterDraft] = useState<{ today: boolean; yesterday: boolean; cash: boolean; account: boolean; cans: string }>({ today: false, yesterday: false, cash: false, account: false, cans: '' });
+  const [activeFilter, setActiveFilter] = useState<{ today: boolean; yesterday: boolean; cash: boolean; account: boolean; cans: string }>({ today: false, yesterday: false, cash: false, account: false, cans: '' });
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
@@ -124,35 +131,101 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
 
 
   const filteredDeliveryRequests = useMemo(() => {
-    if (!searchTerm) {
+    const trimmed = searchTerm.trim();
+    if (!trimmed) {
       return processedRequests;
     }
-    
+
+    // If numeric input, match strictly by integer id
+    if (/^\d+$/.test(trimmed)) {
+      const idNum = Number(trimmed);
+      return processedRequests.filter(req => (req as any).customerIntId === idNum);
+    }
+
     // Fuzzy search implementation
     return processedRequests.filter(request => {
-      const searchLower = searchTerm.toLowerCase().trim();
-      
-      // Fuzzy search on customer name
+      const searchLower = trimmed.toLowerCase();
       const matchesCustomerName = fuzzySearch(request.customerName, searchLower);
-      
-      // Fuzzy search on address
       const matchesAddress = fuzzySearch(request.address, searchLower);
-      
-      // Exact match on status
       const statusDisplay = request.status === 'pending' ? 'pending' : request.status;
       const matchesStatus = statusDisplay.toLowerCase().includes(searchLower);
-      
-      // Exact match on priority
       const matchesPriority = request.priority.toLowerCase().includes(searchLower);
-      
       return matchesCustomerName || matchesAddress || matchesStatus || matchesPriority;
     });
   }, [processedRequests, searchTerm]);
 
-  const customersForNewRequest = useMemo(() => {
-    if (!searchTerm.trim()) return [];
+  // Apply panel filters after search filtering
+  const fullyFilteredRequests = useMemo(() => {
+    const list = filteredDeliveryRequests;
+    const { today, yesterday, cash, account, cans } = activeFilter;
 
-    const searchLower = searchTerm.toLowerCase().trim();
+    const hasDateFilter = today || yesterday;
+    const hasPaymentFilter = cash || account;
+    const cansFilterVal = cans && /^\d{1,2}$/.test(cans) ? Number(cans) : null;
+
+    if (!hasDateFilter && !hasPaymentFilter && cansFilterVal == null) return list;
+
+    // Helper to check day
+    const isSameDay = (date: Date, ref: Date) => {
+      return (
+        date.getFullYear() === ref.getFullYear() &&
+        date.getMonth() === ref.getMonth() &&
+        date.getDate() === ref.getDate()
+      );
+    };
+
+    const todayRef = new Date();
+    todayRef.setHours(0, 0, 0, 0);
+    const yesterdayRef = new Date(todayRef);
+    yesterdayRef.setDate(yesterdayRef.getDate() - 1);
+
+    return list.filter(req => {
+      // Date filter: apply only to delivered history
+      if (hasDateFilter) {
+        if (req.status !== 'delivered') return false;
+        const deliveredTime = (req as any).deliveredAt || (req as any).completedAt;
+        if (!deliveredTime) return false;
+        const d = new Date(deliveredTime);
+        d.setHours(0, 0, 0, 0);
+        const matchToday = today && isSameDay(d, todayRef);
+        const matchYesterday = yesterday && isSameDay(d, yesterdayRef);
+        if (!matchToday && !matchYesterday) return false;
+      }
+
+      // Payment filter
+      if (hasPaymentFilter) {
+        const pt = ((req as any).paymentType || '').toString().toLowerCase();
+        const isCash = pt === 'cash';
+        const isAccount = pt === 'account';
+        if (cash && !isCash) return false;
+        if (account && !isAccount) return false;
+      }
+
+      // Cans filter (exact match)
+      if (cansFilterVal != null) {
+        if (Number(req.cans) !== cansFilterVal) return false;
+      }
+
+      return true;
+    });
+  }, [filteredDeliveryRequests, activeFilter]);
+
+  const customersForNewRequest = useMemo(() => {
+    const trimmed = searchTerm.trim();
+    // If numeric input, match by exact customer id
+    if (trimmed && /^\d+$/.test(trimmed)) {
+      const idNum = Number(trimmed);
+      const customersWithActiveRequests = new Set(
+        deliveryRequests
+          .filter(req => ['pending', 'pending_confirmation', 'processing'].includes(req.status))
+          .map(req => req.customerId)
+      );
+      return allCustomers.filter(c => (c as any).id === idNum && !customersWithActiveRequests.has(c._id || (c as any).customerId || ''));
+    }
+
+    if (!trimmed) return [];
+
+    const searchLower = trimmed.toLowerCase();
     const customersWithActiveRequests = new Set(
       deliveryRequests
         .filter(req => ['pending', 'pending_confirmation', 'processing'].includes(req.status))
@@ -166,7 +239,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
         const matchesAddress = fuzzySearch(customer.address, searchLower);
         const hasNoActiveRequest = !customersWithActiveRequests.has(customer._id || customer.customerId || '');
         return (matchesName || matchesPhone || matchesAddress) && hasNoActiveRequest;
-      }); // removed limit to show all matches
+      });
   }, [allCustomers, deliveryRequests, searchTerm]);
 
   const handleCreateRequest = (customer: Customer) => {
@@ -231,20 +304,80 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
   return (
     <div className="mt-4 space-y-6">
       <div className="relative mb-4">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-        <Input
-          type="search"
-          placeholder="Search requests or find customers for new request..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === '\\') {
-              e.preventDefault();
-              (e.currentTarget as HTMLInputElement).blur();
-            }
-          }}
-          className="pl-10 w-full "
-        />
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Search by id, name, phone, or address..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value.replace(/\s+/g, ''))}
+              onKeyDown={(e) => {
+                if (e.key === '\\') {
+                  e.preventDefault();
+                  (e.currentTarget as HTMLInputElement).blur();
+                }
+              }}
+              className="pl-10 w-full"
+            />
+          </div>
+          <Popover open={isFilterOpen} onOpenChange={setIsFilterOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="icon" title="Filters">
+                <ListFilter className="h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-80">
+              <div className="space-y-4">
+                <div>
+                  <Label className="mb-2 block">Date</Label>
+                  <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-2">
+                      <Checkbox id="flt-today" checked={filterDraft.today} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, today: !!v }))} />
+                      <Label htmlFor="flt-today">Today</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Checkbox id="flt-yesterday" checked={filterDraft.yesterday} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, yesterday: !!v }))} />
+                      <Label htmlFor="flt-yesterday">Yesterday</Label>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <Label className="mb-2 block">Payment Type</Label>
+                  <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-2">
+                      <Checkbox id="flt-cash" checked={filterDraft.cash} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, cash: !!v }))} />
+                      <Label htmlFor="flt-cash">Cash</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Checkbox id="flt-account" checked={filterDraft.account} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, account: !!v }))} />
+                      <Label htmlFor="flt-account">Account</Label>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <Label className="mb-2 block">Cans (optional)</Label>
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={2}
+                    placeholder="e.g., 12"
+                    value={filterDraft.cans}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D+/g, '').slice(0, 2);
+                      setFilterDraft(prev => ({ ...prev, cans: digits }));
+                    }}
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => { setFilterDraft({ today: false, yesterday: false, cash: false, account: false, cans: '' }); }}>Clear</Button>
+                  <Button onClick={() => { setActiveFilter(filterDraft); setIsFilterOpen(false); }}>Apply</Button>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
 
       {/* Customer suggestions for new request on TOP */}
@@ -257,7 +390,9 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                       <Card key={customer._id || customer.customerId || `customer-${Math.random()}`} className="shadow-sm hover:shadow-md transition-shadow">
                           <CardContent className="p-4 flex justify-between items-center">
                               <div>
-                                  <p className={cn("font-medium", /[ء-ي]/.test(customer.name) ? 'font-sindhi rtl' : 'ltr')}>{customer.name}</p>
+                                  <p className={cn("font-medium", /[ء-ي]/.test(customer.name) ? 'font-sindhi rtl' : 'ltr')}>
+                                    {(customer as any).id ? `${(customer as any).id} - ${customer.name}` : customer.name}
+                                  </p>
                                   <p className="text-xs text-muted-foreground">{customer.address}</p>
                               </div>
                               <Button size="sm" onClick={() => handleCreateRequest(customer)}>
@@ -271,19 +406,18 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
           </div>
       )}
 
-      {filteredDeliveryRequests.length === 0 && !searchTerm && (
+      {fullyFilteredRequests.length === 0 && !searchTerm && (
          <p className="text-muted-foreground mt-4 text-center">No delivery requests. Use search to find customers for new requests.</p>
       )}
-      {filteredDeliveryRequests.length === 0 && searchTerm && customersForNewRequest.length === 0 && (
+      {fullyFilteredRequests.length === 0 && searchTerm && customersForNewRequest.length === 0 && (
          <p className="text-muted-foreground mt-4 text-center">No requests or customers found matching "{searchTerm}".</p>
       )}
 
-      {filteredDeliveryRequests.length > 0 && (
+      {fullyFilteredRequests.length > 0 && (
         <div className="border rounded-lg overflow-hidden max-h-[500px] overflow-y-auto table-container">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-16 text-center">Id</TableHead>
                 <TableHead>Customer</TableHead>
                 <TableHead className="text-center">Cans</TableHead>
                 <TableHead>Requested</TableHead>
@@ -295,7 +429,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredDeliveryRequests.map((request, index) => {
+              {fullyFilteredRequests.map((request, index) => {
                 const isSindhiName = /[ء-ي]/.test(request.customerName);
                 const nameClasses = cn(isSindhiName ? 'font-sindhi rtl' : 'ltr');
                 const isCancelled = request.status === 'cancelled';
@@ -312,7 +446,6 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
 
                 return (
                   <TableRow key={request._id || request.requestId || `req-${Math.random()}`} className={rowClasses}>
-                    <TableCell className="text-center">{intId ?? '-'}</TableCell>
                     <TableCell className={cn(nameClasses, isCancelled && 'line-through')}>
                         {intId ? `${intId} - ${request.customerName}` : request.customerName}
                     </TableCell>

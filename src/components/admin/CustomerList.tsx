@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 import { Button } from '@/components/ui/button'; // Added Button
+import { Badge } from '@/components/ui/badge';
 
 interface CustomerListProps {
   onEditCustomer?: (customer: Customer) => void; // Optional for now, will be used by AdminDashboardPage
@@ -168,10 +169,10 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[40px]">Id</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Phone</TableHead>
                 <TableHead>Address</TableHead>
+                <TableHead>Payment Type</TableHead>
                 <TableHead className="text-center">Default Cans</TableHead>
                 <TableHead className="text-center">Price/Can</TableHead>
                 <TableHead className="text-right">Edit</TableHead>
@@ -187,10 +188,16 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
                     className="cursor-pointer hover:bg-muted/50"
                     onClick={() => onEditCustomer && onEditCustomer(customer)}
                   >
-                    <TableCell>{(customer as any).id ?? (idx + 1)}</TableCell>
                     <TableCell className={nameClasses}>{(customer as any).id ? `${(customer as any).id} - ${customer.name}` : customer.name}</TableCell>
                     <TableCell>{customer.phone || '-'}</TableCell>
                     <TableCell className="whitespace-normal break-words max-w-xs">{customer.address}</TableCell>
+                    <TableCell>
+                      {(() => {
+                        const pt = ((customer as any).paymentType || '').toString().toLowerCase();
+                        const label = pt === 'account' ? 'Account' : 'Cash';
+                        return <Badge variant="outline" className="capitalize">{label}</Badge>;
+                      })()}
+                    </TableCell>
                     <TableCell className="text-center">{customer.defaultCans}</TableCell>
                     <TableCell className="text-center">{customer.pricePerCan ? `Rs. ${customer.pricePerCan}` : '-'}</TableCell>
                     <TableCell className="text-right">
