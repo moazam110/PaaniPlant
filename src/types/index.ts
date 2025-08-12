@@ -9,6 +9,7 @@ export interface AdminUser {
 
 export interface Customer {
   _id?: string; // MongoDB ObjectId
+  id: number; // Integer primary key
   customerId?: string; // For backward compatibility
   name: string;
   phone?: string;
@@ -24,7 +25,8 @@ export interface Customer {
 export interface DeliveryRequest {
   _id?: string; // MongoDB ObjectId
   requestId?: string; // For backward compatibility
-  customerId: string; // Link to Customer document
+  customerId: string; // ObjectId string
+  customerIntId?: number; // Integer primary key snapshot
   customerName: string; // Denormalized for easier display
   address: string; // Denormalized for easier display
   cans: number;

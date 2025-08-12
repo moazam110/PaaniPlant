@@ -36,8 +36,16 @@ db.on('disconnected', () => {
   console.log('MongoDB disconnected');
 });
 
-// Mongoose Customer schema/model
+// Counter collection for auto-incrementing integers
+const counterSchema = new mongoose.Schema({
+  key: { type: String, unique: true, required: true },
+  seq: { type: Number, default: 0 },
+});
+const Counter = mongoose.model('Counter', counterSchema);
+
+// Customers
 const customerSchema = new mongoose.Schema({
+  id: { type: Number, unique: true, index: true, required: true }, // integer primary key
   name: { type: String, required: true },
   phone: { type: String, default: '' },
   address: { type: String, required: true },
@@ -45,16 +53,16 @@ const customerSchema = new mongoose.Schema({
   pricePerCan: { type: Number, required: true, min: 0, max: 999 },
   notes: { type: String, default: '' },
   paymentType: { type: String, enum: ['cash','account'], default: 'cash' },
-  serialNumber: { type: Number, index: true },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });
 
 const Customer = mongoose.model('Customer', customerSchema);
 
-// Mongoose DeliveryRequest schema/model
+// Delivery requests
 const deliveryRequestSchema = new mongoose.Schema({
-  customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', required: true },
+  customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', required: true }, // ObjectId reference
+  customerIntId: { type: Number, index: true }, // integer primary id snapshot
   customerName: { type: String, required: true },
   address: { type: String, required: true },
   cans: { type: Number, required: true },
@@ -67,7 +75,7 @@ const deliveryRequestSchema = new mongoose.Schema({
   completedAt: { type: Date },
   createdBy: { type: String, default: '' },
   internalNotes: { type: String, default: '' },
-  // denormalized fields for fast rendering
+  // denormalized for fast rendering
   pricePerCan: { type: Number },
   paymentType: { type: String, enum: ['cash','account'] },
 });
@@ -138,8 +146,7 @@ app.post('/api/auth/register', (req, res) => {
 app.get('/api/customers', async (req, res) => {
   try {
     console.log('Fetching customers from database...');
-    // Prefer sorting by serialNumber desc if present; fallback to createdAt desc
-    const customers = await Customer.find().sort({ serialNumber: -1, createdAt: -1 });
+    const customers = await Customer.find().sort({ id: -1, createdAt: -1 });
     console.log(`Found ${customers.length} customers`);
     res.json(customers);
   } catch (err) {
@@ -151,67 +158,43 @@ app.get('/api/customers', async (req, res) => {
 app.post('/api/customers', async (req, res) => {
   try {
     console.log('=== CREATING NEW CUSTOMER ===');
-    console.log('Received customer data:', JSON.stringify(req.body, null, 2));
-    
-    // Validate required fields
+    // Validate required
     if (!req.body.name || !req.body.address) {
-      console.log('Validation failed: Missing required fields');
-      return res.status(400).json({ 
-        error: 'Missing required fields', 
-        details: 'Name and address are required' 
-      });
+      return res.status(400).json({ error: 'Missing required fields', details: 'Name and address are required' });
     }
-
-    // Validate pricePerCan
+    // Validate price
     const pricePerCan = Number(req.body.pricePerCan);
     if (req.body.pricePerCan === undefined || req.body.pricePerCan === null || isNaN(pricePerCan) || pricePerCan < 0 || pricePerCan > 999) {
-      console.log('Validation failed: Invalid price per can');
-      return res.status(400).json({ 
-        error: 'Invalid price per can', 
-        details: 'Price per can is required and must be between 0 and 999' 
-      });
+      return res.status(400).json({ error: 'Invalid price per can', details: 'Price per can is required and must be between 0 and 999' });
     }
 
-    // Determine next serial number
-    let nextSerial = 1;
-    const lastCustomer = await Customer.findOne({}).sort({ serialNumber: -1 });
-    if (lastCustomer && typeof lastCustomer.serialNumber === 'number') {
-      nextSerial = lastCustomer.serialNumber + 1;
-    } else {
-      const count = await Customer.countDocuments();
-      nextSerial = count + 1;
-    }
+    // Generate next integer id atomically
+    const counter = await Counter.findOneAndUpdate(
+      { key: 'customers' },
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true }
+    );
+    const nextId = counter.seq;
 
     const customerData = {
+      id: nextId,
       name: req.body.name.trim(),
       phone: req.body.phone || '',
       address: req.body.address.trim(),
       defaultCans: Number(req.body.defaultCans) || 1,
-      pricePerCan: Number(req.body.pricePerCan),
+      pricePerCan,
       notes: req.body.notes || '',
       paymentType: req.body.paymentType === 'account' ? 'account' : 'cash',
-      serialNumber: nextSerial,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    console.log('Sanitized customer data:', JSON.stringify(customerData, null, 2));
-    console.log('Creating Mongoose document...');
-
     const customer = new Customer(customerData);
-    console.log('Saving to MongoDB...');
-    
     const savedCustomer = await customer.save();
-    
-    console.log('Customer saved successfully with ID:', savedCustomer._id);
-    console.log('Saved customer:', JSON.stringify(savedCustomer, null, 2));
-    
     res.status(201).json(savedCustomer);
   } catch (err) {
     console.error('=== ERROR CREATING CUSTOMER ===');
     console.error('Error details:', err);
-    console.error('Error message:', err.message);
-    console.error('Error stack:', err.stack);
     res.status(400).json({ error: 'Failed to add customer', details: err.message });
   }
 });
@@ -279,20 +262,24 @@ app.get('/api/delivery-requests', async (req, res) => {
 app.post('/api/delivery-requests', async (req, res) => {
   try {
     console.log('Creating delivery request:', req.body);
-    // If price/payment not sent, derive from customer
+    // Derive missing denormalized fields from customer
     let pricePerCan = req.body.pricePerCan;
     let paymentType = req.body.paymentType;
-    if ((pricePerCan === undefined || paymentType === undefined) && req.body.customerId) {
+    let customerIntId = req.body.customerIntId;
+    if ((!pricePerCan || !paymentType || !customerIntId) && req.body.customerId) {
       const cust = await Customer.findById(req.body.customerId);
       if (cust) {
-        if (pricePerCan === undefined) pricePerCan = cust.pricePerCan;
-        if (paymentType === undefined) paymentType = cust.paymentType;
+        if (!pricePerCan) pricePerCan = cust.pricePerCan;
+        if (!paymentType) paymentType = cust.paymentType;
+        if (!customerIntId) customerIntId = cust.id;
       }
     }
+
     const request = new DeliveryRequest({
       ...req.body,
       pricePerCan,
       paymentType,
+      customerIntId,
     });
     const savedRequest = await request.save();
     console.log('Delivery request saved:', savedRequest);
@@ -346,15 +333,22 @@ app.put('/api/delivery-requests/:id/status', async (req, res) => {
 
 app.put('/api/delivery-requests/:id', async (req, res) => {
   try {
-    console.log(`Updating delivery request ${req.params.id}:`, req.body);
+    const body = { ...req.body };
+    // If customerId is provided (changing target), refresh denormalized fields
+    if (body.customerId) {
+      const cust = await Customer.findById(body.customerId);
+      if (cust) {
+        if (body.pricePerCan == null) body.pricePerCan = cust.pricePerCan;
+        if (body.paymentType == null) body.paymentType = cust.paymentType;
+        if (body.customerIntId == null) body.customerIntId = cust.id;
+      }
+    }
     const request = await DeliveryRequest.findByIdAndUpdate(
       req.params.id,
-      { ...req.body, updatedAt: new Date() },
+      { ...body, updatedAt: new Date() },
       { new: true }
     );
-    if (!request) {
-      return res.status(404).json({ error: 'Request not found' });
-    }
+    if (!request) return res.status(404).json({ error: 'Request not found' });
     console.log('Delivery request updated:', request);
     res.json(request);
   } catch (err) {
@@ -642,6 +636,76 @@ app.post('/api/test-customer', async (req, res) => {
   } catch (err) {
     console.error('Error creating test customer:', err);
     res.status(500).json({ error: 'Failed to create test customer', details: err.message });
+  }
+});
+
+// Admin backfill endpoint: set integer id on customers and customerIntId on delivery requests
+app.post('/api/admin/backfill-customer-ids', async (req, res) => {
+  try {
+    // 1) Gather existing used ids and max id
+    const existingIds = new Set(await Customer.distinct('id'));
+    const maxIdDoc = await Customer.find({ id: { $exists: true } }).sort({ id: -1 }).limit(1);
+    let currentMaxId = (maxIdDoc[0] && maxIdDoc[0].id) ? maxIdDoc[0].id : 0;
+
+    // 2) Find customers missing id
+    const customersMissingId = await Customer.find({ $or: [{ id: { $exists: false } }, { id: null }] });
+
+    let updatedCustomers = 0;
+    for (const cust of customersMissingId) {
+      let proposedId = cust.serialNumber; // may be undefined if never had serialNumber
+      if (typeof proposedId !== 'number' || existingIds.has(proposedId)) {
+        // Assign next available unique id
+        do { currentMaxId += 1; } while (existingIds.has(currentMaxId));
+        proposedId = currentMaxId;
+      }
+      // Update document
+      await Customer.updateOne({ _id: cust._id }, { $set: { id: proposedId } });
+      existingIds.add(proposedId);
+      if (proposedId > currentMaxId) currentMaxId = proposedId;
+      updatedCustomers += 1;
+    }
+
+    // 3) Ensure counter is set to max id
+    await Counter.findOneAndUpdate(
+      { key: 'customers' },
+      { $set: { seq: currentMaxId } },
+      { upsert: true, new: true }
+    );
+
+    // 4) Backfill delivery requests with customerIntId where missing
+    const requestsMissingIntId = await DeliveryRequest.find({ $or: [{ customerIntId: { $exists: false } }, { customerIntId: null }] });
+    const uniqueCustomerObjectIds = Array.from(new Set(requestsMissingIntId.map(r => String(r.customerId)).filter(Boolean)));
+
+    // Build map from customer _id -> id
+    const customersMapDocs = await Customer.find({ _id: { $in: uniqueCustomerObjectIds } }, { _id: 1, id: 1, pricePerCan: 1, paymentType: 1 });
+    const idMap = new Map(customersMapDocs.map(doc => [String(doc._id), { id: doc.id, pricePerCan: doc.pricePerCan, paymentType: doc.paymentType }]));
+
+    let updatedRequests = 0;
+    const bulkOps = [];
+    for (const reqDoc of requestsMissingIntId) {
+      const key = String(reqDoc.customerId);
+      const info = idMap.get(key);
+      if (!info) continue;
+      const setFields = { customerIntId: info.id };
+      if (reqDoc.pricePerCan == null && info.pricePerCan != null) setFields.pricePerCan = info.pricePerCan;
+      if (reqDoc.paymentType == null && info.paymentType != null) setFields.paymentType = info.paymentType;
+      bulkOps.push({ updateOne: { filter: { _id: reqDoc._id }, update: { $set: setFields } } });
+      updatedRequests += 1;
+    }
+    if (bulkOps.length > 0) {
+      await DeliveryRequest.bulkWrite(bulkOps);
+    }
+
+    return res.json({
+      success: true,
+      updatedCustomers,
+      maxId: currentMaxId,
+      updatedRequests,
+      message: 'Backfill completed. Counter aligned to max id.'
+    });
+  } catch (err) {
+    console.error('Backfill error:', err);
+    return res.status(500).json({ success: false, error: 'Backfill failed', details: err.message });
   }
 });
 

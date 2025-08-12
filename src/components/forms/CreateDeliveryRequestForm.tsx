@@ -233,7 +233,8 @@ export default function CreateDeliveryRequestForm({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             ...data,
-            customerId: selectedCustomer._id || selectedCustomer.customerId,
+            customerId: selectedCustomer._id || (selectedCustomer as any).customerId,
+            customerIntId: (selectedCustomer as any).id,
             customerName: selectedCustomer.name,
             address: selectedCustomer.address,
             // include denormalized values for table rendering
@@ -422,7 +423,7 @@ export default function CreateDeliveryRequestForm({
                     </span>
                   </div>
                   <p className={cn("font-semibold mt-1", /[ء-ي]/.test(selectedCustomer.name) ? 'font-sindhi rtl' : 'ltr')}>
-                    {selectedCustomer.name}
+                    {(selectedCustomer as any).id ? `${(selectedCustomer as any).id} - ${selectedCustomer.name}` : selectedCustomer.name}
                   </p>
                   <p className="text-sm text-muted-foreground">{selectedCustomer.address}</p>
                 </div>

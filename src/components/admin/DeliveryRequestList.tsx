@@ -171,8 +171,8 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
 
   const handleCreateRequest = (customer: Customer) => {
     onInitiateNewRequest(customer);
-    // Clear search immediately when creating a request
-    setSearchTerm('');
+    // Keep search term and cursor; do not clear automatically
+    // setSearchTerm('');
   };
 
   const getStatusBadgeVariant = (status: DeliveryRequest['status']) => {
@@ -283,7 +283,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-12 text-center">#</TableHead>
+                <TableHead className="w-16 text-center">Id</TableHead>
                 <TableHead>Customer</TableHead>
                 <TableHead className="text-center">Cans</TableHead>
                 <TableHead>Requested</TableHead>
@@ -308,12 +308,13 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
 
                 const pricePerCan = (request as any).pricePerCan;
                 const paymentType = ((request as any).paymentType || '').toString();
+                const intId = (request as any).customerIntId;
 
                 return (
                   <TableRow key={request._id || request.requestId || `req-${Math.random()}`} className={rowClasses}>
-                    <TableCell className="text-center">{index + 1}</TableCell>
+                    <TableCell className="text-center">{intId ?? '-'}</TableCell>
                     <TableCell className={cn(nameClasses, isCancelled && 'line-through')}>
-                        {request.customerName}
+                        {intId ? `${intId} - ${request.customerName}` : request.customerName}
                     </TableCell>
                     <TableCell className={cn("text-center", isCancelled && 'line-through')}>{request.cans}</TableCell>
                     <TableCell className={cn(isCancelled ? 'line-through' : '')}>

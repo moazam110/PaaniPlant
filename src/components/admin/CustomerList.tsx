@@ -45,11 +45,11 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
       }
       
       const data: Customer[] = await response.json();
-      // Ensure descending order by serialNumber (fallback createdAt)
+      // Ensure descending order by id (fallback createdAt)
       const sorted = [...data].sort((a, b) => {
-        const aSN = (a as any).serialNumber ?? 0;
-        const bSN = (b as any).serialNumber ?? 0;
-        if (aSN !== bSN) return bSN - aSN; // higher serial first
+        const aId = (a as any).id ?? 0;
+        const bId = (b as any).id ?? 0;
+        if (aId !== bId) return bId - aId;
         const aTime = a.createdAt ? new Date(a.createdAt as any).getTime() : 0;
         const bTime = b.createdAt ? new Date(b.createdAt as any).getTime() : 0;
         return bTime - aTime;
@@ -168,7 +168,7 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[40px]">#</TableHead>
+                <TableHead className="w-[40px]">Id</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Phone</TableHead>
                 <TableHead>Address</TableHead>
@@ -187,8 +187,8 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
                     className="cursor-pointer hover:bg-muted/50"
                     onClick={() => onEditCustomer && onEditCustomer(customer)}
                   >
-                    <TableCell>{(customer as any).serialNumber ?? (idx + 1)}</TableCell>
-                    <TableCell className={nameClasses}>{customer.name}</TableCell>
+                    <TableCell>{(customer as any).id ?? (idx + 1)}</TableCell>
+                    <TableCell className={nameClasses}>{(customer as any).id ? `${(customer as any).id} - ${customer.name}` : customer.name}</TableCell>
                     <TableCell>{customer.phone || '-'}</TableCell>
                     <TableCell className="whitespace-normal break-words max-w-xs">{customer.address}</TableCell>
                     <TableCell className="text-center">{customer.defaultCans}</TableCell>
