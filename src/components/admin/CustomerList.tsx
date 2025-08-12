@@ -44,8 +44,17 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
-      const data = await response.json();
-      setAllCustomers(data);
+      const data: Customer[] = await response.json();
+      // Ensure descending order by serialNumber (fallback createdAt)
+      const sorted = [...data].sort((a, b) => {
+        const aSN = (a as any).serialNumber ?? 0;
+        const bSN = (b as any).serialNumber ?? 0;
+        if (aSN !== bSN) return bSN - aSN; // higher serial first
+        const aTime = a.createdAt ? new Date(a.createdAt as any).getTime() : 0;
+        const bTime = b.createdAt ? new Date(b.createdAt as any).getTime() : 0;
+        return bTime - aTime;
+      });
+      setAllCustomers(sorted);
       setError(null);
     } catch (err) {
       console.error('Error fetching customers:', err);
@@ -178,7 +187,7 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
                     className="cursor-pointer hover:bg-muted/50"
                     onClick={() => onEditCustomer && onEditCustomer(customer)}
                   >
-                    <TableCell>{idx + 1}</TableCell>
+                    <TableCell>{(customer as any).serialNumber ?? (idx + 1)}</TableCell>
                     <TableCell className={nameClasses}>{customer.name}</TableCell>
                     <TableCell>{customer.phone || '-'}</TableCell>
                     <TableCell className="whitespace-normal break-words max-w-xs">{customer.address}</TableCell>

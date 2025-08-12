@@ -33,6 +33,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 
 interface DeliveryRequestListProps {
@@ -66,12 +67,12 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
-  // Clear search when delivery requests change (indicating a new request was created)
-  useEffect(() => {
-    if (searchTerm.trim()) {
-      setSearchTerm('');
-    }
-  }, [deliveryRequests.length]);
+  // Removed auto-clear: keep user input to avoid retyping when creating multiple city-specific requests
+  // useEffect(() => {
+  //   if (searchTerm.trim()) {
+  //     setSearchTerm('');
+  //   }
+  // }, [deliveryRequests.length]);
 
   useEffect(() => {
     setIsLoadingCustomers(true);
@@ -152,7 +153,6 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
     if (!searchTerm.trim()) return [];
 
     const searchLower = searchTerm.toLowerCase().trim();
-    // Include processing status in active requests check
     const customersWithActiveRequests = new Set(
       deliveryRequests
         .filter(req => ['pending', 'pending_confirmation', 'processing'].includes(req.status))
@@ -161,17 +161,12 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
 
     return allCustomers
       .filter(customer => {
-        // Fuzzy search on customer name, phone, and address
         const matchesName = fuzzySearch(customer.name, searchLower);
         const matchesPhone = customer.phone ? fuzzySearch(customer.phone, searchLower) : false;
         const matchesAddress = fuzzySearch(customer.address, searchLower);
-        
-        // Only show customers without active requests
         const hasNoActiveRequest = !customersWithActiveRequests.has(customer._id || customer.customerId || '');
-        
         return (matchesName || matchesPhone || matchesAddress) && hasNoActiveRequest;
-      })
-      .slice(0, 8); // Show more results for better UX
+      }); // removed limit to show all matches
   }, [allCustomers, deliveryRequests, searchTerm]);
 
   const handleCreateRequest = (customer: Customer) => {
@@ -242,6 +237,12 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
           placeholder="Search requests or find customers for new request..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === '\\') {
+              e.preventDefault();
+              (e.currentTarget as HTMLInputElement).blur();
+            }
+          }}
           className="pl-10 w-full "
         />
       </div>
@@ -250,21 +251,23 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
       {searchTerm && customersForNewRequest.length > 0 && (
           <div className="mb-6">
               <h4 className="text-lg font-semibold mb-3">Create New Request for:</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {customersForNewRequest.map(customer => (
-                  <Card key={customer._id || customer.customerId || `customer-${Math.random()}`} className="shadow-sm hover:shadow-md transition-shadow">
-                      <CardContent className="p-4 flex justify-between items-center">
-                          <div>
-                              <p className={cn("font-medium", /[ء-ي]/.test(customer.name) ? 'font-sindhi rtl' : 'ltr')}>{customer.name}</p>
-                              <p className="text-xs text-muted-foreground">{customer.address}</p>
-                          </div>
-                          <Button size="sm" onClick={() => handleCreateRequest(customer)}>
-                              <PlusCircle className="mr-2 h-4 w-4" /> Create Request
-                          </Button>
-                      </CardContent>
-                  </Card>
-              ))}
-              </div>
+              <ScrollArea className="h-[300px] rounded-md border">
+                <div className="p-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {customersForNewRequest.map(customer => (
+                      <Card key={customer._id || customer.customerId || `customer-${Math.random()}`} className="shadow-sm hover:shadow-md transition-shadow">
+                          <CardContent className="p-4 flex justify-between items-center">
+                              <div>
+                                  <p className={cn("font-medium", /[ء-ي]/.test(customer.name) ? 'font-sindhi rtl' : 'ltr')}>{customer.name}</p>
+                                  <p className="text-xs text-muted-foreground">{customer.address}</p>
+                              </div>
+                              <Button size="sm" onClick={() => handleCreateRequest(customer)}>
+                                  <PlusCircle className="mr-2 h-4 w-4" /> Create Request
+                              </Button>
+                          </CardContent>
+                      </Card>
+                  ))}
+                </div>
+              </ScrollArea>
           </div>
       )}
 
