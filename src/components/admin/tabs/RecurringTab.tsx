@@ -33,6 +33,39 @@ interface RecurringRequest {
   priority: 'normal' | 'urgent';
 }
 
+// Compute the next run time based on recurrence settings
+const computeNextRun = (payload: { type: RecurringType; days?: number[]; date?: string; time: string; }): string => {
+  const now = new Date();
+  const [h, m] = (payload.time || '09:00').split(':').map(n => parseInt(n || '0', 10));
+  if (payload.type === 'one_time' && payload.date) {
+    const d = new Date(payload.date);
+    d.setHours(h, m, 0, 0);
+    return d.toISOString();
+  }
+  if (payload.type === 'daily') {
+    const d = new Date();
+    d.setHours(h, m, 0, 0);
+    if (d <= now) d.setDate(d.getDate() + 1);
+    return d.toISOString();
+  }
+  // weekly
+  const days = (payload.days || []).slice().sort();
+  if (days.length === 0) {
+    const d = new Date(); d.setHours(h, m, 0, 0); if (d <= now) d.setDate(d.getDate() + 7); return d.toISOString();
+  }
+  const today = now.getDay();
+  for (let i = 0; i < 7; i++) {
+    const cand = new Date();
+    cand.setDate(now.getDate() + i);
+    const dow = (today + i) % 7;
+    if (days.includes(dow)) {
+      cand.setHours(h, m, 0, 0);
+      if (cand > now) return cand.toISOString();
+    }
+  }
+  const cand = new Date(); cand.setDate(now.getDate() + 7); cand.setHours(h, m, 0, 0); return cand.toISOString();
+};
+
 export default function RecurringTab() {
   const { toast } = useToast();
   const [isOpen, setIsOpen] = useState(false);
@@ -74,38 +107,6 @@ export default function RecurringTab() {
       }
       const local = loadFromLocal();
       return local;
-    };
-
-    const computeNextRun = (payload: { type: RecurringType; days?: number[]; date?: string; time: string; }): string => {
-      const now = new Date();
-      const [h, m] = (payload.time || '09:00').split(':').map(n => parseInt(n || '0', 10));
-      if (payload.type === 'one_time' && payload.date) {
-        const d = new Date(payload.date);
-        d.setHours(h, m, 0, 0);
-        return d.toISOString();
-      }
-      if (payload.type === 'daily') {
-        const d = new Date();
-        d.setHours(h, m, 0, 0);
-        if (d <= now) d.setDate(d.getDate() + 1);
-        return d.toISOString();
-      }
-      // weekly
-      const days = (payload.days || []).slice().sort();
-      if (days.length === 0) {
-        const d = new Date(); d.setHours(h, m, 0, 0); if (d <= now) d.setDate(d.getDate() + 7); return d.toISOString();
-      }
-      const today = now.getDay();
-      for (let i = 0; i < 7; i++) {
-        const cand = new Date();
-        cand.setDate(now.getDate() + i);
-        const dow = (today + i) % 7;
-        if (days.includes(dow)) {
-          cand.setHours(h, m, 0, 0);
-          if (cand > now) return cand.toISOString();
-        }
-      }
-      const cand = new Date(); cand.setDate(now.getDate() + 7); cand.setHours(h, m, 0, 0); return cand.toISOString();
     };
 
     const fetchAll = async () => {
