@@ -107,52 +107,13 @@ export default function CreateDeliveryRequestForm({
         ...(customerToPreselect as any),
         id: (customerToPreselect as any).id ?? 0,
       } as Customer;
-      // If a customer is preselected, verify they do NOT already have an active request
-      // to prevent duplicate creation via dashboard shortcut
-      setIsLoadingCustomers(true);
-      (async () => {
-        try {
-          const requestsResponse = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS));
-          if (requestsResponse.ok) {
-            const requestsData: DeliveryRequest[] = await requestsResponse.json();
-            const activeCustomerIds = new Set<string>();
-            requestsData
-              .filter(req => ['pending', 'pending_confirmation', 'processing'].includes(req.status))
-              .forEach(req => {
-                if (req.customerId) {
-                  activeCustomerIds.add(String(req.customerId));
-                }
-              });
-
-            const preselectedId = ensured._id || (ensured as any).customerId || '';
-            if (preselectedId && activeCustomerIds.has(String(preselectedId))) {
-              toast({
-                variant: "destructive",
-                title: "Active Request Exists",
-                description: `${ensured.name} already has an active delivery request. Please wait until it's delivered before creating a new one.`,
-              });
-              setSelectedCustomer(null);
-              return;
-            }
-          }
-          setSelectedCustomer(ensured);
-          form.reset({
-            cans: customerToPreselect.defaultCans || 1,
-            orderDetails: "",
-            priority: "normal",
-          });
-        } catch (error) {
-          // If check fails, be conservative and allow selection but submission guard will catch
-          setSelectedCustomer(ensured);
-          form.reset({
-            cans: customerToPreselect.defaultCans || 1,
-            orderDetails: "",
-            priority: "normal",
-          });
-        } finally {
-          setIsLoadingCustomers(false);
-        }
-      })();
+      setSelectedCustomer(ensured);
+      form.reset({
+        cans: customerToPreselect.defaultCans || 1,
+        orderDetails: "",
+        priority: "normal",
+      });
+      setIsLoadingCustomers(false);
     } else {
       const fetchCustomersAndActiveRequests = async () => {
         setIsLoadingCustomers(true);
@@ -218,13 +179,16 @@ export default function CreateDeliveryRequestForm({
       .filter(customer => {
         const searchLower = searchTerm.toLowerCase().trim();
         const nameLower = customer.name.toLowerCase();
+        const custId = customer._id || customer.customerId;
+        // Exclude customers with active requests from search results
+        if (customersWithActiveRequests.has(custId || '')) return false;
         return (
           nameLower.includes(searchLower) ||
           (customer.phone && customer.phone.includes(searchTerm)) ||
           customer.address.toLowerCase().includes(searchLower)
         );
       }); // removed hard limit to show all matches; ScrollArea will handle overflow
-  }, [allCustomers, searchTerm, customerToPreselect, isEditMode]);
+  }, [allCustomers, searchTerm, customerToPreselect, isEditMode, customersWithActiveRequests]);
 
   const handleSelectCustomer = async (customer: Customer) => {
     // Check if customer has active requests
@@ -279,27 +243,6 @@ export default function CreateDeliveryRequestForm({
           throw new Error('Failed to update request');
         }
       } else if (selectedCustomer) {
-        // Final server-side guard against duplicate active requests
-        try {
-          const requestsResponse = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS));
-          if (requestsResponse.ok) {
-            const requestsData: DeliveryRequest[] = await requestsResponse.json();
-            const hasActive = requestsData.some(req =>
-              ['pending', 'pending_confirmation', 'processing'].includes(req.status) &&
-              String(req.customerId) === String(selectedCustomer._id || (selectedCustomer as any).customerId)
-            );
-            if (hasActive) {
-              toast({
-                variant: "destructive",
-                title: "Active Request Exists",
-                description: `${selectedCustomer.name} already has an active delivery request. Please complete it before creating a new one.`,
-              });
-              return;
-            }
-          }
-        } catch (_err) {
-          // If verification fails, proceed cautiously but creation API may still prevent duplicates server-side
-        }
         const response = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
