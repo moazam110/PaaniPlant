@@ -86,7 +86,7 @@ export default function AdminDashboardPage() {
 
   // Ensure activeTab is always valid
   useEffect(() => {
-    const validTabs = ['delivery', 'stats', 'customers'];
+    const validTabs = ['delivery', 'recurring', 'stats', 'customers'];
     if (!validTabs.includes(activeTab)) {
       setActiveTab('delivery');
     }
