@@ -328,7 +328,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
           type="search"
               placeholder="Search by id, name, phone, or address..."
           value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value.replace(/\s+/g, ''))}
+              onChange={(e) => setSearchTerm(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === '\\') {
                   e.preventDefault();
