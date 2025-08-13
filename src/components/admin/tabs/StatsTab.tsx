@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Users, ListChecks, PackageCheck, PackageSearch, IndianRupee } from 'lucide-react';
@@ -20,15 +20,13 @@ export default function StatsTab({
   deliveriesTodayCount,
   totalCansToday
 }: StatsTabProps) {
-  // State for month/year filtering
   const currentDate = new Date();
   const [selectedDay, setSelectedDay] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [selectedYear, setSelectedYear] = useState<string>('');
   const [isMonthlyView, setIsMonthlyView] = useState(false);
   const [isYearView, setIsYearView] = useState(false);
-  
-  // State for filtered metrics
+
   const [filteredMetrics, setFilteredMetrics] = useState({
     deliveries: deliveriesTodayCount,
     totalCans: totalCansToday,
@@ -37,8 +35,7 @@ export default function StatsTab({
     timeLabel: 'Today',
     isLoading: false
   });
-  
-  // Months array for dropdown
+
   const months = [
     { value: '1', label: 'Jan' },
     { value: '2', label: 'Feb' },
@@ -53,167 +50,110 @@ export default function StatsTab({
     { value: '11', label: 'Nov' },
     { value: '12', label: 'Dec' }
   ];
-  
-  // Years array for dropdown (current year + 5 previous years)
+
   const years = Array.from({ length: 6 }, (_, i) => {
     const year = currentDate.getFullYear() - i;
     return { value: String(year), label: String(year) };
   });
 
-  // Fetch filtered metrics when month/year changes
-  const fetchFilteredMetrics = async (month?: string, year?: string, day?: string) => {
-    setFilteredMetrics(prev => ({ ...prev, isLoading: true }));
+  // Abortable, versioned requests to avoid race conditions
+  const abortRef = useRef<AbortController | null>(null);
+  const requestVersionRef = useRef(0);
 
-    try {
-      let metricsUrl = buildApiUrl('api/dashboard/metrics');
-      const params: string[] = [];
-
-      // Normalize inputs: if day present but month/year missing, use current; if month present but no year, use current
-      const now = new Date();
-      const effectiveMonth = day && !month ? String(now.getMonth() + 1) : month;
-      const effectiveYear = (day && !year) || (month && !year) ? String(now.getFullYear()) : year;
-
-      if (effectiveMonth && effectiveYear) {
-        params.push(`month=${effectiveMonth}`, `year=${effectiveYear}`);
-      }
-      if (day) {
-        params.push(`day=${day}`);
-      }
-      if (!effectiveMonth && effectiveYear && !day) {
-        params.push(`year=${effectiveYear}`);
-      }
-      if (params.length) {
-        metricsUrl += `?${params.join('&')}`;
-      }
-
-      console.log('Fetching metrics from:', metricsUrl);
-      const response = await fetch(metricsUrl);
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Received metrics data:', data);
-        setFilteredMetrics({
-          deliveries: data.deliveries || 0,
-          totalCans: data.totalCans || 0,
-          totalAmountGenerated: data.totalAmountGenerated || 0,
-          totalCashAmountGenerated: data.totalCashAmountGenerated || 0,
-          timeLabel: data.timeLabel || 'Today',
-          isLoading: false
-        });
-        setIsMonthlyView(!!data.isMonthlyView);
-        setIsYearView(!!data.isYearView);
-      } else {
-        console.error('Failed to fetch filtered metrics');
-        setFilteredMetrics(prev => ({ ...prev, isLoading: false }));
-      }
-    } catch (error) {
-      console.error('Error fetching filtered metrics:', error);
-      setFilteredMetrics(prev => ({ ...prev, isLoading: false }));
-    }
-  };
-
-  // Helper: fetch for current selection; if none selected, fetch today
-  const fetchForCurrentSelection = () => {
+  const buildAndFetchMetrics = async () => {
+    // compute effective selection
     const now = new Date();
     const todayDay = String(now.getDate());
     const todayMonth = String(now.getMonth() + 1);
     const todayYear = String(now.getFullYear());
-    
-    console.log('Current date:', now.toISOString());
-    console.log('Today values calculated:', { todayDay, todayMonth, todayYear });
-    
-    // Debug: Show what the user's system thinks is "today"
-    console.log('System date:', now.toLocaleDateString());
-    console.log('System timezone:', Intl.DateTimeFormat().resolvedOptions().timeZone);
 
-    console.log('Current selection state:', { selectedDay, selectedMonth, selectedYear });
-    console.log('Today values:', { todayDay, todayMonth, todayYear });
+    const isBlank = !selectedDay && !selectedMonth && !selectedYear;
+    const effectiveDay = isBlank ? todayDay : selectedDay || '';
+    const effectiveMonth = isBlank ? todayMonth : (selectedMonth || (selectedDay ? todayMonth : ''));
+    const effectiveYear = isBlank ? todayYear : (selectedYear || (selectedMonth ? todayYear : ''));
 
-    if (!selectedDay && !selectedMonth && !selectedYear) {
-      // When all selectors are blank, fetch all-time data (no parameters)
-      console.log('Fetching all-time data (no date parameters)');
-      fetchFilteredMetrics();
-    } else if (selectedDay) {
-      // If day selected without month/year, assume current month/year
-      const month = selectedMonth || todayMonth;
-      const year = selectedYear || todayYear;
-      console.log('Fetching day data with params:', { month, year, day: selectedDay });
-      fetchFilteredMetrics(month, year, selectedDay);
-    } else if (selectedMonth) {
-      // If month selected without year, assume current year
-      const year = selectedYear || todayYear;
-      console.log('Fetching month data with params:', { month: selectedMonth, year });
-      fetchFilteredMetrics(selectedMonth, year, undefined);
-    } else if (selectedYear) {
-      console.log('Fetching year data with params:', { year: selectedYear });
-      fetchFilteredMetrics(undefined, selectedYear, undefined);
+    let url = buildApiUrl('api/dashboard/metrics');
+    const params: string[] = [];
+    if (effectiveMonth && effectiveYear) {
+      params.push(`month=${effectiveMonth}`, `year=${effectiveYear}`);
+    }
+    if (effectiveDay) {
+      params.push(`day=${effectiveDay}`);
+    }
+    if (!effectiveMonth && effectiveYear && !effectiveDay) {
+      params.push(`year=${effectiveYear}`);
+    }
+    if (params.length) {
+      url += `?${params.join('&')}`;
+    }
+
+    // set view flags locally based on selection
+    const nextIsMonthlyView = !!(effectiveMonth && effectiveYear && !effectiveDay);
+    const nextIsYearView = !!(!effectiveMonth && effectiveYear && !effectiveDay);
+
+    // abort previous
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const myVersion = ++requestVersionRef.current;
+    setFilteredMetrics(prev => ({ ...prev, isLoading: true }));
+
+    try {
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      // Ignore if a newer request finished
+      if (myVersion !== requestVersionRef.current) return;
+
+      setFilteredMetrics({
+        deliveries: data.deliveries || 0,
+        totalCans: data.totalCans || 0,
+        totalAmountGenerated: data.totalAmountGenerated || 0,
+        totalCashAmountGenerated: data.totalCashAmountGenerated || 0,
+        timeLabel: data.timeLabel || (isBlank ? 'Today' : ''),
+        isLoading: false
+      });
+      setIsMonthlyView(nextIsMonthlyView);
+      setIsYearView(nextIsYearView);
+    } catch (e) {
+      if ((e as any)?.name === 'AbortError') return;
+      // Ignore errors but stop loading state
+      setFilteredMetrics(prev => ({ ...prev, isLoading: false }));
     }
   };
 
   const handleDayChange = (day: string) => {
     setSelectedDay(day);
-    // After any change, fetch according to current selection
-    setTimeout(fetchForCurrentSelection, 0);
   };
 
   const handleMonthChange = (month: string) => {
     setSelectedMonth(month);
-    setTimeout(fetchForCurrentSelection, 0);
   };
 
   const handleYearChange = (year: string) => {
     setSelectedYear(year);
-    setTimeout(fetchForCurrentSelection, 0);
   };
 
-
+  // Trigger fetch whenever selection changes
+  useEffect(() => {
+    buildAndFetchMetrics();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDay, selectedMonth, selectedYear]);
 
   // Initialize with today's data (while showing blank selectors)
   useEffect(() => {
-    fetchForCurrentSelection();
+    buildAndFetchMetrics();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <div className="p-4 space-y-6">
-      {/* Date Warning - Alert user if system date seems wrong */}
-      {(() => {
-        const now = new Date();
-        const month = now.getMonth() + 1;
-        if (month === 1) {
-          return (
-            <div className="p-3 bg-yellow-100 border border-yellow-400 text-yellow-800 rounded-md">
-              <div className="flex items-center gap-2">
-                <span className="text-lg">⚠️</span>
-                <div>
-                  <p className="font-medium">System Date Issue Detected</p>
-                  <p className="text-sm">Your system is showing January {now.getDate()}, {now.getFullYear()} but the data shows deliveries for August 13, 2025.</p>
-                  <p className="text-sm mt-1">To see today's data, manually select: <strong>Date: 13, Month: Aug, Year: 2025</strong></p>
-                </div>
-              </div>
-            </div>
-          );
-        }
-        return null;
-      })()}
-      
       {/* Day/Month/Year Selectors */}
       <div className="flex items-center gap-4">
         <div className="flex gap-3">
-          {/* Debug info - show what date is being used by default */}
-          <div className="text-xs text-muted-foreground">
-            Default: {(() => {
-              const now = new Date();
-              return `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`;
-            })()}
-            {(() => {
-              const now = new Date();
-              const month = now.getMonth() + 1;
-              if (month === 1) {
-                return ' ⚠️ Check if system date is correct (showing January)';
-              }
-              return '';
-            })()}
-          </div>
           <div className="w-28">
             <Select value={selectedDay} onValueChange={handleDayChange}>
               <SelectTrigger>
@@ -270,7 +210,6 @@ export default function StatsTab({
         const isBlankSelection = !selectedDay && !selectedMonth && !selectedYear;
         const isTodaySelected = isBlankSelection || (selectedDay === todayDay && selectedMonth === todayMonth && selectedYear === todayYear);
 
-        // Monthly View: only four KPIs
         if (isMonthlyView) {
           return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -335,9 +274,7 @@ export default function StatsTab({
           );
         }
 
-        // Day/Year View or All-Time View
         if ((isTodaySelected && !isYearView) || (!selectedDay && !selectedMonth && !selectedYear)) {
-          // Today or All-Time: keep all KPIs
           return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <Card className="glass-card">
@@ -431,7 +368,6 @@ export default function StatsTab({
           );
         }
 
-        // Non-today date or year view: only four KPIs
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card className="glass-card">
