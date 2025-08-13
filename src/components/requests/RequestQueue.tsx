@@ -62,20 +62,7 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
         return timeB - timeA; // Newest completed first
     });
 
-  // Today's cancelled to append at end of processing
-  const cancelledLast24h = requests
-    .filter(req => req.status === 'cancelled')
-    .filter(req => {
-      const now = Date.now();
-      const boundary = now - 24 * 60 * 60 * 1000;
-      const t = (req.cancelledAt ? new Date(req.cancelledAt) : new Date(req.completedAt || req.requestedAt)).getTime();
-      return !isNaN(t) && t >= boundary && t <= now;
-    })
-    .sort((a, b) => {
-      const timeA = a.completedAt instanceof Date ? a.completedAt.getTime() : (typeof a.completedAt === 'number' ? a.completedAt : 0);
-      const timeB = b.completedAt instanceof Date ? b.completedAt.getTime() : (typeof b.completedAt === 'number' ? b.completedAt : 0);
-      return timeA - timeB; // chronological order after processing
-    });
+  // Canceled requests are excluded entirely
 
   return (
     <div className="p-2 md:p-3 space-y-2">
@@ -89,7 +76,7 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
           </AccordionTrigger>
           <AccordionContent>
             {pendingRequests.length > 0 ? (
-              <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 py-1">
+              <div className="grid gap-1 md:grid-cols-3 lg:grid-cols-4 py-1">
                 {pendingRequests.map(request => (
                   <RequestCard 
                     key={request._id || request.requestId || Math.random()} 
@@ -113,8 +100,8 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
             </div>
           </AccordionTrigger>
           <AccordionContent>
-            {(processingRequests.length > 0) ? (
-              <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 py-1">
+            {processingRequests.length > 0 ? (
+              <div className="grid gap-1 md:grid-cols-3 lg:grid-cols-4 py-1">
                 {processingRequests.map(request => (
                   <RequestCard 
                     key={request._id || request.requestId || Math.random()} 
@@ -139,7 +126,7 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
           </AccordionTrigger>
           <AccordionContent>
             {deliveredRequests.length > 0 ? (
-              <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 py-1">
+              <div className="grid gap-1 md:grid-cols-3 lg:grid-cols-4 py-1">
                 {deliveredRequests.map(request => {
                   const key = String(request._id || request.requestId || Math.random());
                   const intId = (request as any).customerIntId;
@@ -149,7 +136,7 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
                     <div key={key} className="border rounded-lg">
                       <button
                         type="button"
-                        className="w-full text-left px-2 py-1.5 hover:bg-muted/50 whitespace-nowrap overflow-hidden text-ellipsis"
+                        className="w-full text-left px-2 py-1 hover:bg-muted/50 whitespace-nowrap overflow-hidden text-ellipsis text-sm"
                         onClick={() => toggleDelivered(key)}
                         aria-expanded={isOpen}
                         title={title}
@@ -168,35 +155,9 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
                     </div>
                   );
                 })}
-                {/* Append cancelled items (last 24h) at the end as single-line entries */}
-                {cancelledLast24h.map(request => {
-                  const key = String(request._id || request.requestId || Math.random());
-                  const intId = (request as any).customerIntId;
-                  const title = intId ? `${intId} - ${request.customerName}` : request.customerName;
-                  return (
-                    <div key={key} className="border rounded-lg px-2 py-1 text-sm text-red-600 whitespace-nowrap overflow-hidden text-ellipsis">
-                      {title}
-                    </div>
-                  );
-                })}
               </div>
             ) : (
-              cancelledLast24h.length > 0 ? (
-                <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 py-1">
-                  {cancelledLast24h.map(request => {
-                    const key = String(request._id || request.requestId || Math.random());
-                    const intId = (request as any).customerIntId;
-                    const title = intId ? `${intId} - ${request.customerName}` : request.customerName;
-                    return (
-                      <div key={key} className="border rounded-lg px-2 py-1 text-sm text-red-600 whitespace-nowrap overflow-hidden text-ellipsis">
-                        {title}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="text-center text-muted-foreground py-2">No completed delivery requests yet.</p>
-              )
+              <p className="text-center text-muted-foreground py-2">No completed delivery requests yet.</p>
             )}
           </AccordionContent>
         </AccordionItem>

@@ -28,7 +28,7 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
   const isCancelled = request.status === 'cancelled';
 
   const cardClasses = cn(
-    'shadow-lg transition-all duration-300 ease-in-out',
+    'shadow-md transition-all duration-300 ease-in-out',
     isDelivered ? 'opacity-70 border-green-500 bg-green-50' : '',
     isProcessing ? 'border-yellow-400 bg-yellow-50' : '',
     isCancelled ? 'opacity-70 border-red-500 bg-red-50' : '',
@@ -46,8 +46,8 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
       <CardHeader className="py-2">
         <div className="flex items-center justify-between">
           <div className="flex flex-col gap-1">
-            <CardTitle className={customerNameClasses}>
-              <span>{intId ? `${intId} - ${request.customerName}` : request.customerName}</span>
+            <CardTitle className={cn(customerNameClasses, 'text-base')}>
+              <span className="text-sm">{intId ? `${intId} - ${request.customerName}` : request.customerName}</span>
               {typeof pricePerCan === 'number' && pricePerCan >= 100 && (
                 <span aria-label="Premium" className="inline-flex ml-2 align-middle">
                   <Star className="h-3 w-3 text-yellow-500" />
@@ -79,7 +79,7 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
       <CardContent className="py-2">
         <div className="mb-2">
           <div className="flex items-center justify-between mb-1">
-            <p className="text-2xl font-bold text-primary">{request.cans} cans</p>
+            <p className="text-xl font-bold text-primary">{request.cans} cans</p>
             {request.priority === 'urgent' && !isDelivered && (
               <Badge variant="destructive" className="text-xs">
                 <AlertTriangle className="h-3 w-3 mr-1" />
@@ -87,7 +87,7 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
               </Badge>
             )}
           </div>
-          <p className="text-sm text-muted-foreground">{request.address}</p>
+          <p className="text-xs text-muted-foreground">{request.address}</p>
         </div>
         
         {request.orderDetails && (

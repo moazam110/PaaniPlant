@@ -351,7 +351,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
               <div className="space-y-4">
                 <div>
                   <Label className="mb-2 block">Date</Label>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
                     <div className="flex items-center gap-2">
                       <Checkbox id="flt-today" checked={filterDraft.today} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, today: !!v }))} />
                       <Label htmlFor="flt-today">Today</Label>
@@ -360,16 +360,13 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                       <Checkbox id="flt-yesterday" checked={filterDraft.yesterday} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, yesterday: !!v }))} />
                       <Label htmlFor="flt-yesterday">Yesterday</Label>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Label htmlFor="flt-date" className="whitespace-nowrap">Date</Label>
-                      <Input
-                        id="flt-date"
-                        type="date"
-                        value={filterDraft.date}
-                        onChange={(e) => setFilterDraft(prev => ({ ...prev, date: e.target.value }))}
-                        className="w-36"
-                      />
-                    </div>
+                    <Input
+                      id="flt-date"
+                      type="date"
+                      value={filterDraft.date}
+                      onChange={(e) => setFilterDraft(prev => ({ ...prev, date: e.target.value }))}
+                      className="w-36"
+                    />
                   </div>
                 </div>
                 <div>
