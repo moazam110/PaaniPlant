@@ -62,6 +62,7 @@ export default function CreateDeliveryRequestForm({
   const [customersWithActiveRequests, setCustomersWithActiveRequests] = useState<Set<string>>(new Set());
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const holdIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const initialHoldTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isHoldingRef = useRef<boolean>(false);
   const holdStopCleanupRef = useRef<() => void>(() => {});
 
@@ -300,6 +301,10 @@ export default function CreateDeliveryRequestForm({
       clearInterval(holdIntervalRef.current);
       holdIntervalRef.current = null;
     }
+    if (initialHoldTimeoutRef.current) {
+      clearTimeout(initialHoldTimeoutRef.current);
+      initialHoldTimeoutRef.current = null;
+    }
     if (holdStopCleanupRef.current) {
       holdStopCleanupRef.current();
       holdStopCleanupRef.current = () => {};
@@ -310,8 +315,15 @@ export default function CreateDeliveryRequestForm({
   const startHold = (callback: () => void) => {
     if (isHoldingRef.current) return;
     isHoldingRef.current = true;
+    // Single tap: apply one step immediately
     callback();
-    holdIntervalRef.current = setInterval(callback, 100);
+    // Hold-to-repeat: start repeating only after a 1s delay
+    initialHoldTimeoutRef.current = setTimeout(() => {
+      // Ensure user is still holding
+      if (isHoldingRef.current) {
+        holdIntervalRef.current = setInterval(callback, 100);
+      }
+    }, 1000);
     const stop = () => stopHold();
     document.addEventListener('mouseup', stop);
     document.addEventListener('touchend', stop as any, { passive: true });
