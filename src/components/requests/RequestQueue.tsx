@@ -63,20 +63,18 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
     });
 
   // Today's cancelled to append at end of processing
-  const cancelledToday = requests
+  const cancelledLast24h = requests
     .filter(req => req.status === 'cancelled')
     .filter(req => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const completionDate = req.cancelledAt ? new Date(req.cancelledAt) : new Date(req.completedAt || req.requestedAt);
-      return completionDate && completionDate >= today && completionDate < tomorrow;
+      const now = Date.now();
+      const boundary = now - 24 * 60 * 60 * 1000;
+      const t = (req.cancelledAt ? new Date(req.cancelledAt) : new Date(req.completedAt || req.requestedAt)).getTime();
+      return !isNaN(t) && t >= boundary && t <= now;
     })
     .sort((a, b) => {
       const timeA = a.completedAt instanceof Date ? a.completedAt.getTime() : (typeof a.completedAt === 'number' ? a.completedAt : 0);
       const timeB = b.completedAt instanceof Date ? b.completedAt.getTime() : (typeof b.completedAt === 'number' ? b.completedAt : 0);
-      return timeA - timeB; // append in chronological order after processing
+      return timeA - timeB; // chronological order after processing
     });
 
   return (
@@ -115,17 +113,9 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
             </div>
           </AccordionTrigger>
           <AccordionContent>
-            {processingRequests.length > 0 ? (
+            {(processingRequests.length > 0) ? (
               <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 py-1">
                 {processingRequests.map(request => (
-                  <RequestCard 
-                    key={request._id || request.requestId || Math.random()} 
-                    request={request} 
-                    onMarkAsDone={onMarkAsDone} 
-                    {...(onCancel && { onCancel })}
-                  />
-                ))}
-                {cancelledToday.map(request => (
                   <RequestCard 
                     key={request._id || request.requestId || Math.random()} 
                     request={request} 
@@ -178,9 +168,35 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
                     </div>
                   );
                 })}
+                {/* Append cancelled items (last 24h) at the end as single-line entries */}
+                {cancelledLast24h.map(request => {
+                  const key = String(request._id || request.requestId || Math.random());
+                  const intId = (request as any).customerIntId;
+                  const title = intId ? `${intId} - ${request.customerName}` : request.customerName;
+                  return (
+                    <div key={key} className="border rounded-lg px-2 py-1 text-sm text-red-600 whitespace-nowrap overflow-hidden text-ellipsis">
+                      {title}
+                    </div>
+                  );
+                })}
               </div>
             ) : (
-              <p className="text-center text-muted-foreground py-2">No completed delivery requests yet.</p>
+              cancelledLast24h.length > 0 ? (
+                <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 py-1">
+                  {cancelledLast24h.map(request => {
+                    const key = String(request._id || request.requestId || Math.random());
+                    const intId = (request as any).customerIntId;
+                    const title = intId ? `${intId} - ${request.customerName}` : request.customerName;
+                    return (
+                      <div key={key} className="border rounded-lg px-2 py-1 text-sm text-red-600 whitespace-nowrap overflow-hidden text-ellipsis">
+                        {title}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-center text-muted-foreground py-2">No completed delivery requests yet.</p>
+              )
             )}
           </AccordionContent>
         </AccordionItem>

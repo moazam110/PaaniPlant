@@ -69,8 +69,8 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
   const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [filterDraft, setFilterDraft] = useState<{ today: boolean; yesterday: boolean; cash: boolean; account: boolean; cans: string; price: string; priceOp: '' | '<' | '=' | '>' }>({ today: false, yesterday: false, cash: false, account: false, cans: '', price: '', priceOp: '' });
-  const [activeFilter, setActiveFilter] = useState<{ today: boolean; yesterday: boolean; cash: boolean; account: boolean; cans: string; price: string; priceOp: '' | '<' | '=' | '>' }>({ today: false, yesterday: false, cash: false, account: false, cans: '', price: '', priceOp: '' });
+  const [filterDraft, setFilterDraft] = useState<{ today: boolean; yesterday: boolean; cash: boolean; account: boolean; cans: string; price: string; priceOp: '<' | '=' | '>' }>({ today: false, yesterday: false, cash: false, account: false, cans: '', price: '', priceOp: '>' });
+  const [activeFilter, setActiveFilter] = useState<{ today: boolean; yesterday: boolean; cash: boolean; account: boolean; cans: string; price: string; priceOp: '<' | '=' | '>' }>({ today: false, yesterday: false, cash: false, account: false, cans: '', price: '', priceOp: '>' });
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
@@ -388,7 +388,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                     <div className="w-24">
                       <Select value={filterDraft.priceOp} onValueChange={(v) => setFilterDraft(prev => ({ ...prev, priceOp: v as any }))}>
                         <SelectTrigger>
-                          <SelectValue placeholder=">=\u2264\u2265" />
+                          <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value=">">Greater</SelectItem>
@@ -412,7 +412,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                   </div>
                 </div>
                 <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => { setFilterDraft({ today: false, yesterday: false, cash: false, account: false, cans: '', price: '', priceOp: '' }); }}>Clear</Button>
+                  <Button variant="outline" onClick={() => { setFilterDraft({ today: false, yesterday: false, cash: false, account: false, cans: '', price: '', priceOp: '>' }); }}>Clear</Button>
                   <Button onClick={() => { setActiveFilter(filterDraft); setIsFilterOpen(false); }}>Apply</Button>
                 </div>
               </div>

@@ -21,6 +21,12 @@ import { Input } from '@/components/ui/input';
 import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 import { Button } from '@/components/ui/button'; // Added Button
 import { Badge } from '@/components/ui/badge';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { Input as TextInput } from '@/components/ui/input';
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
+import { Calendar } from '@/components/ui/calendar';
+import { Label } from '@/components/ui/label';
+import { ListFilter } from 'lucide-react';
 
 interface CustomerListProps {
   onEditCustomer?: (customer: Customer) => void; // Optional for now, will be used by AdminDashboardPage
@@ -35,6 +41,10 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [filterDraft, setFilterDraft] = useState<{ start: string; end: string; cans: string; cansOp: '<' | '=' | '>'; price: string }>({ start: '', end: '', cans: '', cansOp: '<', price: '' });
+  const [activeFilter, setActiveFilter] = useState<{ start: string; end: string; cans: string; cansOp: '<' | '=' | '>'; price: string }>({ start: '', end: '', cans: '', cansOp: '<', price: '' });
+  const [customerCansMap, setCustomerCansMap] = useState<Record<string, number>>({});
 
   const fetchCustomers = async () => {
     setIsLoading(true);
@@ -57,11 +67,33 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
       });
       setAllCustomers(sorted);
       setError(null);
+
+      // Fetch aggregated cans for current activeFilter
+      await fetchAndBuildCansMap(activeFilter.start, activeFilter.end);
     } catch (err) {
       console.error('Error fetching customers:', err);
       setError('Failed to fetch customers.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchAndBuildCansMap = async (start?: string, end?: string) => {
+    try {
+      const url = new URL(buildApiUrl('api/customers/stats-summary'));
+      if (start) url.searchParams.set('start', start);
+      if (end) url.searchParams.set('end', end);
+      const res = await fetch(url.toString());
+      if (!res.ok) return;
+      const json = await res.json();
+      if (!json || !json.data) return;
+      const map: Record<string, number> = {};
+      for (const row of json.data) {
+        map[row.customerObjectId] = row.totalCans;
+      }
+      setCustomerCansMap(map);
+    } catch (e) {
+      console.warn('Failed to fetch stats summary');
     }
   };
 
@@ -116,6 +148,35 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
     });
   }, [allCustomers, searchTerm]);
 
+  // Apply filters to customers using aggregated cans and optional price
+  const filteredAndAggregatedCustomers = useMemo(() => {
+    const list = filteredCustomers; // name/phone/address fuzzy filter applied
+    const { start, end, cans, cansOp, price } = activeFilter;
+    const cansVal = cans && /^\d{1,6}$/.test(cans) ? Number(cans) : null;
+    const priceVal = price && /^\d{1,3}$/.test(price) ? Number(price) : null;
+    const hasCansFilter = cansVal != null && cansOp;
+    const hasPriceFilter = priceVal != null;
+
+    if (!start && !end && !hasCansFilter && !hasPriceFilter) return list;
+
+    return list.filter(c => {
+      // cans filter based on aggregated map
+      if (hasCansFilter) {
+        const total = customerCansMap[c._id || (c as any).customerId || ''] || 0;
+        const op = cansOp || '=';
+        if (op === '<' && !(total < cansVal!)) return false;
+        if (op === '=' && !(total === cansVal!)) return false;
+        if (op === '>' && !(total > cansVal!)) return false;
+      }
+      // price filter (per-can price from customer)
+      if (hasPriceFilter) {
+        const p = c.pricePerCan || 0;
+        if (p !== priceVal) return false;
+      }
+      return true;
+    });
+  }, [filteredCustomers, activeFilter, customerCansMap]);
+
   if (isLoading) {
     return (
       <div className="space-y-3 mt-4">
@@ -158,9 +219,78 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
         <Button onClick={fetchCustomers} variant="outline" size="sm">
           Refresh
         </Button>
+        <Popover open={isFilterOpen} onOpenChange={setIsFilterOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="icon" title="Filters">
+              <ListFilter className="h-4 w-4" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-96">
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="mb-2 block">Start Date (optional)</Label>
+                  <TextInput
+                    type="date"
+                    value={filterDraft.start}
+                    onChange={(e) => setFilterDraft(prev => ({ ...prev, start: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <Label className="mb-2 block">End Date (optional)</Label>
+                  <TextInput
+                    type="date"
+                    value={filterDraft.end}
+                    onChange={(e) => setFilterDraft(prev => ({ ...prev, end: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="mb-2 block">Total Cans (optional)</Label>
+                <div className="flex items-center gap-2">
+                  <div className="w-28">
+                    <Select value={filterDraft.cansOp} onValueChange={(v) => setFilterDraft(prev => ({ ...prev, cansOp: v as any }))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value=">">Greater</SelectItem>
+                        <SelectItem value="=">Equal</SelectItem>
+                        <SelectItem value="<">Less</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <TextInput
+                    placeholder="e.g., 500"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    value={filterDraft.cans}
+                    onChange={(e) => setFilterDraft(prev => ({ ...prev, cans: e.target.value.replace(/\D+/g, '').slice(0, 6) }))}
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="mb-2 block">Price per Can (optional)</Label>
+                <TextInput
+                  placeholder="e.g., 60"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={3}
+                  value={filterDraft.price}
+                  onChange={(e) => setFilterDraft(prev => ({ ...prev, price: e.target.value.replace(/\D+/g, '').slice(0, 3) }))}
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => { setFilterDraft({ start: '', end: '', cans: '', cansOp: '<', price: '' }); }}>Clear</Button>
+                <Button onClick={async () => { setActiveFilter(filterDraft); setIsFilterOpen(false); await fetchAndBuildCansMap(filterDraft.start, filterDraft.end); }}>Apply</Button>
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
 
-      {filteredCustomers.length === 0 ? (
+      {filteredAndAggregatedCustomers.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
           {searchTerm ? 'No customers found matching your search.' : 'No customers found. Add your first customer!'}
         </div>
@@ -179,7 +309,7 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredCustomers.map((customer, idx) => {
+              {filteredAndAggregatedCustomers.map((customer, idx) => {
                 const isSindhiName = /[\u0621-\u064a]/.test(customer.name);
                 const nameClasses = cn(isSindhiName ? 'font-sindhi rtl' : 'ltr');
                 return (

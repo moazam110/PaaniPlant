@@ -250,9 +250,20 @@ app.put('/api/customers/:id', async (req, res) => {
 app.get('/api/delivery-requests', async (req, res) => {
   try {
     console.log('Fetching delivery requests from database...');
-    const requests = await DeliveryRequest.find().sort({ requestedAt: -1 });
-    console.log(`Found ${requests.length} delivery requests`);
-    res.json(requests);
+    const requests = await DeliveryRequest.find().sort({ requestedAt: -1 })
+      .populate('customerId', 'pricePerCan paymentType')
+      .lean();
+    // Backfill denormalized fields for older docs
+    const normalized = requests.map(r => {
+      if (r.pricePerCan == null && r.customerId && r.customerId.pricePerCan != null) {
+        r.pricePerCan = r.customerId.pricePerCan;
+      }
+      if (r.paymentType == null && r.customerId && r.customerId.paymentType != null) {
+        r.paymentType = r.customerId.paymentType;
+      }
+      return r;
+    });
+    res.json(normalized);
   } catch (err) {
     console.error('Error fetching delivery requests:', err);
     res.status(500).json({ error: 'Failed to fetch delivery requests', details: err.message });
@@ -578,6 +589,49 @@ app.get('/api/customers/:id/stats', async (req, res) => {
   } catch (err) {
     console.error('Error fetching customer stats:', err);
     res.status(500).json({ error: 'Failed to fetch customer stats', details: err.message });
+  }
+});
+
+// Aggregate total cans per customer in optional date range
+app.get('/api/customers/stats-summary', async (req, res) => {
+  try {
+    const { start, end } = req.query;
+    let match = { status: 'delivered' };
+
+    // Build optional date range for deliveredAt/completedAt
+    let startDate = null;
+    let endDate = null;
+    if (start) {
+      const d = new Date(start);
+      if (!isNaN(d.getTime())) startDate = d;
+    }
+    if (end) {
+      const d = new Date(end);
+      if (!isNaN(d.getTime())) endDate = d;
+    }
+
+    if (startDate || endDate) {
+      const range = {};
+      if (startDate) range.$gte = startDate;
+      if (endDate) range.$lt = endDate;
+      match.$or = [
+        { deliveredAt: range },
+        { completedAt: range },
+      ];
+    }
+
+    const pipeline = [
+      { $match: match },
+      { $group: { _id: '$customerId', totalCans: { $sum: '$cans' } } },
+    ];
+
+    const results = await DeliveryRequest.aggregate(pipeline);
+    // Map to simple objects
+    const data = results.map(r => ({ customerObjectId: String(r._id), totalCans: r.totalCans }));
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('stats-summary error:', err);
+    res.status(500).json({ success: false, error: 'Failed to aggregate customer stats', details: err.message });
   }
 });
 
