@@ -181,8 +181,8 @@ export default function CreateDeliveryRequestForm({
         const searchLower = searchTerm.toLowerCase().trim();
         const nameLower = customer.name.toLowerCase();
         const custId = customer._id || customer.customerId;
-        // Exclude customers with active requests from search results
-        if (customersWithActiveRequests.has(custId || '')) return false;
+        // Exclude customers with active requests from search results (normalize to string)
+        if (customersWithActiveRequests.has(String(custId || ''))) return false;
         return (
           nameLower.includes(searchLower) ||
           (customer.phone && customer.phone.includes(searchTerm)) ||
@@ -194,7 +194,7 @@ export default function CreateDeliveryRequestForm({
   const handleSelectCustomer = async (customer: Customer) => {
     // Check if customer has active requests
     const customerId = customer._id || customer.customerId;
-    const hasActiveRequest = customersWithActiveRequests.has(customerId || '');
+    const hasActiveRequest = customersWithActiveRequests.has(String(customerId || ''));
     
     if (hasActiveRequest) {
       toast({

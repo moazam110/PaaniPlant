@@ -235,7 +235,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
       const customersWithActiveRequests = new Set(
         deliveryRequests
           .filter(req => ['pending', 'processing'].includes(req.status))
-          .map(req => req.customerId)
+          .map(req => String(req.customerId))
       );
       return allCustomers.filter(c => (c as any).id === idNum && !customersWithActiveRequests.has(c._id || (c as any).customerId || ''));
     }
@@ -246,7 +246,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
     const customersWithActiveRequests = new Set(
       deliveryRequests
         .filter(req => ['pending', 'processing'].includes(req.status))
-        .map(req => req.customerId)
+        .map(req => String(req.customerId))
     );
 
     return allCustomers
@@ -254,7 +254,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
         const matchesName = fuzzySearch(customer.name, searchLower);
         const matchesPhone = customer.phone ? fuzzySearch(customer.phone, searchLower) : false;
         const matchesAddress = fuzzySearch(customer.address, searchLower);
-        const hasNoActiveRequest = !customersWithActiveRequests.has(customer._id || customer.customerId || '');
+        const hasNoActiveRequest = !customersWithActiveRequests.has(String(customer._id || customer.customerId || ''));
         return (matchesName || matchesPhone || matchesAddress) && hasNoActiveRequest;
       });
   }, [allCustomers, deliveryRequests, searchTerm]);
