@@ -329,8 +329,12 @@ export default function StaffPage() {
             </div>
           </div>
         )}
-        <StaffDashboardMetrics requests={deliveryRequests} /> 
-        <RequestQueue requests={deliveryRequests} onMarkAsDone={handleMarkAsDone} />
+        <div className="px-2 py-1">
+          <StaffDashboardMetrics requests={deliveryRequests} /> 
+        </div>
+        <div className="px-2">
+          <RequestQueue requests={deliveryRequests} onMarkAsDone={handleMarkAsDone} />
+        </div>
       </main>
       
       {/* Bottom Sign Out Button */}

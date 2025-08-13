@@ -84,17 +84,23 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
       const url = new URL(buildApiUrl('api/customers/stats-summary'));
       if (start) url.searchParams.set('start', start);
       if (end) url.searchParams.set('end', end);
+      console.log('Fetching customer stats from:', url.toString());
       const res = await fetch(url.toString());
-      if (!res.ok) return;
+      if (!res.ok) {
+        console.warn('Stats summary request failed:', res.status);
+        return;
+      }
       const json = await res.json();
+      console.log('Stats summary response:', json);
       if (!json || !json.data) return;
       const map: Record<string, number> = {};
       for (const row of json.data) {
         map[row.customerObjectId] = row.totalCans;
       }
+      console.log('Built customer cans map:', map);
       setCustomerCansMap(map);
     } catch (e) {
-      console.warn('Failed to fetch stats summary');
+      console.warn('Failed to fetch stats summary:', e);
     }
   };
 
@@ -164,8 +170,10 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
     return list.filter(c => {
       // cans filter based on aggregated map
       if (hasCansFilter) {
-        const total = customerCansMap[c._id || (c as any).customerId || ''] || 0;
+        const customerId = c._id || (c as any).customerId || '';
+        const total = customerCansMap[customerId] || 0;
         const op = cansOp || '=';
+        console.log(`Filtering customer ${c.name} (ID: ${customerId}): total cans = ${total}, filter = ${op} ${cansVal}`);
         if (op === '<' && !(total < cansVal!)) return false;
         if (op === '=' && !(total === cansVal!)) return false;
         if (op === '>' && !(total > cansVal!)) return false;

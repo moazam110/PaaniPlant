@@ -46,8 +46,8 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
       <CardHeader className="py-2">
         <div className="flex items-center justify-between">
           <div className="flex flex-col gap-1">
-            <CardTitle className={cn(customerNameClasses, 'text-base')}>
-              <span className="text-sm">{intId ? `${intId} - ${request.customerName}` : request.customerName}</span>
+            <CardTitle className={cn(customerNameClasses, 'text-lg')}>
+              <span className="text-base font-medium">{intId ? `${intId} - ${request.customerName}` : request.customerName}</span>
               {typeof pricePerCan === 'number' && pricePerCan >= 100 && (
                 <span aria-label="Premium" className="inline-flex ml-2 align-middle">
                   <Star className="h-3 w-3 text-yellow-500" />
@@ -122,19 +122,19 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
           <>
             <Button 
               onClick={() => onMarkAsDone(request._id || request.requestId || '')}
-              className="w-full bg-yellow-400 hover:bg-yellow-300 text-yellow-900 h-8"
+              className="w-full bg-yellow-400 hover:bg-yellow-300 text-yellow-900 h-7 text-xs"
               aria-label={`Mark order for ${request.customerName} as processing`}
             >
-              <CheckCircle2 className="mr-2 h-4 w-4" /> Mark as Processing
+              <CheckCircle2 className="mr-1 h-3 w-3" /> Processing
             </Button>
             {onCancel && (
               <Button 
                 onClick={() => onCancel(request._id || request.requestId || '')}
                 variant="outline"
-                className="w-full border-red-500 text-red-500 hover:bg-red-50 mt-1 h-8"
+                className="w-full border-red-500 text-red-500 hover:bg-red-50 mt-1 h-7 text-xs"
                 aria-label={`Cancel order for ${request.customerName}`}
               >
-                <X className="mr-2 h-4 w-4" /> Cancel Request
+                <X className="mr-1 h-3 w-3" /> Cancel
               </Button>
             )}
           </>
@@ -143,19 +143,19 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
           <>
             <Button 
               onClick={() => onMarkAsDone(request._id || request.requestId || '')}
-              className="w-full bg-green-500 hover:bg-green-400 text-white h-8"
+              className="w-full bg-green-500 hover:bg-green-400 text-white h-7 text-xs"
               aria-label={`Mark order for ${request.customerName} as delivered`}
             >
-              <CheckCircle2 className="mr-2 h-4 w-4" /> Mark as Delivered
+              <CheckCircle2 className="mr-1 h-3 w-3" /> Delivered
             </Button>
             {onCancel && (
               <Button 
                 onClick={() => onCancel(request._id || request.requestId || '')}
                 variant="outline"
-                className="w-full border-red-500 text-red-500 hover:bg-red-50 mt-1 h-8"
+                className="w-full border-red-500 text-red-500 hover:bg-red-50 mt-1 h-7 text-xs"
                 aria-label={`Cancel order for ${request.customerName}`}
               >
-                <X className="mr-2 h-4 w-4" /> Cancel Request
+                <X className="mr-1 h-3 w-3" /> Cancel
               </Button>
             )}
           </>

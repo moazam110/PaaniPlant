@@ -86,9 +86,11 @@ export default function StatsTab({
         metricsUrl += `?${params.join('&')}`;
       }
 
+      console.log('Fetching metrics from:', metricsUrl);
       const response = await fetch(metricsUrl);
       if (response.ok) {
         const data = await response.json();
+        console.log('Received metrics data:', data);
         setFilteredMetrics({
           deliveries: data.deliveries || 0,
           totalCans: data.totalCans || 0,
@@ -112,25 +114,31 @@ export default function StatsTab({
   // Helper: fetch for current selection; if none selected, fetch today
   const fetchForCurrentSelection = () => {
     const now = new Date();
-    const todayDay = String(now.getDate()).padStart(2, '0');
+    const todayDay = String(now.getDate()); // Remove padStart to match backend expectation
     const todayMonth = String(now.getMonth() + 1);
     const todayYear = String(now.getFullYear());
 
+    console.log('Current selection state:', { selectedDay, selectedMonth, selectedYear });
+    console.log('Today values:', { todayDay, todayMonth, todayYear });
+
     if (!selectedDay && !selectedMonth && !selectedYear) {
+      // When all selectors are blank, fetch today's data by passing today's parameters
+      console.log('Fetching today data with params:', { month: todayMonth, year: todayYear, day: todayDay });
       fetchFilteredMetrics(todayMonth, todayYear, todayDay);
     } else if (selectedDay) {
       // If day selected without month/year, assume current month/year
       const month = selectedMonth || todayMonth;
       const year = selectedYear || todayYear;
+      console.log('Fetching day data with params:', { month, year, day: selectedDay });
       fetchFilteredMetrics(month, year, selectedDay);
     } else if (selectedMonth) {
       // If month selected without year, assume current year
       const year = selectedYear || todayYear;
+      console.log('Fetching month data with params:', { month: selectedMonth, year });
       fetchFilteredMetrics(selectedMonth, year, undefined);
     } else if (selectedYear) {
+      console.log('Fetching year data with params:', { year: selectedYear });
       fetchFilteredMetrics(undefined, selectedYear, undefined);
-    } else {
-      fetchFilteredMetrics(todayMonth, todayYear, todayDay);
     }
   };
 

@@ -18,37 +18,34 @@ const StaffDashboardMetrics: React.FC<StaffDashboardMetricsProps> = ({ requests 
   ).length;
 
   return (
-    <div className="grid gap-2 md:grid-cols-3 p-2 md:p-3">
-      <Card className="shadow-md">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
-          <CardTitle className="text-xs font-semibold font-headline">Pending Tasks</CardTitle>
-          <ListTodo className="h-4 w-4 text-muted-foreground" />
+    <div className="grid gap-1 md:grid-cols-3 py-1">
+      <Card className="shadow-sm">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2">
+          <CardTitle className="text-[10px] font-semibold font-headline">Pending</CardTitle>
+          <ListTodo className="h-3 w-3 text-muted-foreground" />
         </CardHeader>
-        <CardContent className="py-1">
-          <div className="text-xl font-bold">{pendingCount}</div>
-          <p className="text-[11px] text-muted-foreground">Waiting to be processed</p>
+        <CardContent className="p-2 pt-0">
+          <div className="text-sm font-bold">{pendingCount}</div>
         </CardContent>
       </Card>
       
-      <Card className="shadow-md bg-yellow-50 border-yellow-200">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
-          <CardTitle className="text-xs font-semibold font-headline text-yellow-700">Processing Tasks</CardTitle>
-          <Clock className="h-4 w-4 text-yellow-600" />
+      <Card className="shadow-sm bg-yellow-50 border-yellow-200">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2">
+          <CardTitle className="text-[10px] font-semibold font-headline text-yellow-700">Processing</CardTitle>
+          <Clock className="h-3 w-3 text-yellow-600" />
         </CardHeader>
-        <CardContent className="py-1">
-          <div className="text-xl font-bold text-yellow-700">{processingCount}</div>
-          <p className="text-[11px] text-yellow-600">Currently being delivered</p>
+        <CardContent className="p-2 pt-0">
+          <div className="text-sm font-bold text-yellow-700">{processingCount}</div>
         </CardContent>
       </Card>
 
-      <Card className="shadow-md bg-destructive/10 border-destructive">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
-          <CardTitle className="text-xs font-semibold font-headline text-destructive">Urgent Tasks</CardTitle>
-          <Hourglass className="h-4 w-4 text-destructive" />
+      <Card className="shadow-sm bg-destructive/10 border-destructive">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2">
+          <CardTitle className="text-[10px] font-semibold font-headline text-destructive">Urgent</CardTitle>
+          <Hourglass className="h-3 w-3 text-destructive" />
         </CardHeader>
-        <CardContent className="py-1">
-          <div className="text-xl font-bold text-destructive">{urgentCount}</div>
-          <p className="text-[11px] text-destructive/80">High priority deliveries</p>
+        <CardContent className="p-2 pt-0">
+          <div className="text-sm font-bold text-destructive">{urgentCount}</div>
         </CardContent>
       </Card>
     </div>
@@ -56,5 +53,3 @@ const StaffDashboardMetrics: React.FC<StaffDashboardMetricsProps> = ({ requests 
 };
 
 export default StaffDashboardMetrics;
-
-    
