@@ -114,17 +114,24 @@ export default function StatsTab({
   // Helper: fetch for current selection; if none selected, fetch today
   const fetchForCurrentSelection = () => {
     const now = new Date();
-    const todayDay = String(now.getDate()); // Remove padStart to match backend expectation
+    const todayDay = String(now.getDate());
     const todayMonth = String(now.getMonth() + 1);
     const todayYear = String(now.getFullYear());
+    
+    console.log('Current date:', now.toISOString());
+    console.log('Today values calculated:', { todayDay, todayMonth, todayYear });
+    
+    // Debug: Show what the user's system thinks is "today"
+    console.log('System date:', now.toLocaleDateString());
+    console.log('System timezone:', Intl.DateTimeFormat().resolvedOptions().timeZone);
 
     console.log('Current selection state:', { selectedDay, selectedMonth, selectedYear });
     console.log('Today values:', { todayDay, todayMonth, todayYear });
 
     if (!selectedDay && !selectedMonth && !selectedYear) {
-      // When all selectors are blank, fetch today's data by passing today's parameters
-      console.log('Fetching today data with params:', { month: todayMonth, year: todayYear, day: todayDay });
-      fetchFilteredMetrics(todayMonth, todayYear, todayDay);
+      // When all selectors are blank, fetch all-time data (no parameters)
+      console.log('Fetching all-time data (no date parameters)');
+      fetchFilteredMetrics();
     } else if (selectedDay) {
       // If day selected without month/year, assume current month/year
       const month = selectedMonth || todayMonth;
@@ -168,9 +175,45 @@ export default function StatsTab({
 
   return (
     <div className="p-4 space-y-6">
+      {/* Date Warning - Alert user if system date seems wrong */}
+      {(() => {
+        const now = new Date();
+        const month = now.getMonth() + 1;
+        if (month === 1) {
+          return (
+            <div className="p-3 bg-yellow-100 border border-yellow-400 text-yellow-800 rounded-md">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">⚠️</span>
+                <div>
+                  <p className="font-medium">System Date Issue Detected</p>
+                  <p className="text-sm">Your system is showing January {now.getDate()}, {now.getFullYear()} but the data shows deliveries for August 13, 2025.</p>
+                  <p className="text-sm mt-1">To see today's data, manually select: <strong>Date: 13, Month: Aug, Year: 2025</strong></p>
+                </div>
+              </div>
+            </div>
+          );
+        }
+        return null;
+      })()}
+      
       {/* Day/Month/Year Selectors */}
       <div className="flex items-center gap-4">
         <div className="flex gap-3">
+          {/* Debug info - show what date is being used by default */}
+          <div className="text-xs text-muted-foreground">
+            Default: {(() => {
+              const now = new Date();
+              return `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`;
+            })()}
+            {(() => {
+              const now = new Date();
+              const month = now.getMonth() + 1;
+              if (month === 1) {
+                return ' ⚠️ Check if system date is correct (showing January)';
+              }
+              return '';
+            })()}
+          </div>
           <div className="w-28">
             <Select value={selectedDay} onValueChange={handleDayChange}>
               <SelectTrigger>
@@ -221,7 +264,7 @@ export default function StatsTab({
       {/* KPI Rendering Rules */}
       {(() => {
         const now = new Date();
-        const todayDay = String(now.getDate()).padStart(2, '0');
+        const todayDay = String(now.getDate());
         const todayMonth = String(now.getMonth() + 1);
         const todayYear = String(now.getFullYear());
         const isBlankSelection = !selectedDay && !selectedMonth && !selectedYear;
@@ -292,9 +335,9 @@ export default function StatsTab({
           );
         }
 
-        // Day/Year View
-        if (isTodaySelected && !isYearView) {
-          // Today: keep all KPIs
+        // Day/Year View or All-Time View
+        if ((isTodaySelected && !isYearView) || (!selectedDay && !selectedMonth && !selectedYear)) {
+          // Today or All-Time: keep all KPIs
           return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <Card className="glass-card">
