@@ -58,8 +58,31 @@ interface CreateDeliveryRequestFormProps {
   editingRequest?: DeliveryRequest | null;
 }
 
-function getIdString(id: unknown): string {
-  return String(id ?? "");
+/** Normalize to string and collapse empties */
+function key(v: unknown): string {
+  return String(v ?? "");
+}
+
+/** Collect ALL plausible ids for a customer (covers _id/ObjectId, customerId, numeric id) */
+function idKeysForCustomer(c?: Partial<Customer> | null): string[] {
+  if (!c) return [];
+  const s = new Set<string>();
+  if ((c as any)._id) s.add(key((c as any)._id));
+  if ((c as any).customerId) s.add(key((c as any).customerId));
+  if ((c as any).id) s.add(key((c as any).id));
+  return Array.from(s).filter(Boolean);
+}
+
+/** Collect ALL plausible ids present on a request payload */
+function idKeysForRequest(r?: Partial<DeliveryRequest> | null): string[] {
+  if (!r) return [];
+  const s = new Set<string>();
+  if ((r as any).customerId) s.add(key((r as any).customerId));
+  if ((r as any).customerIntId) s.add(key((r as any).customerIntId));
+  // some APIs embed customer object; guard just in case
+  if ((r as any).customer?._id) s.add(key((r as any).customer?._id));
+  if ((r as any).customer?.customerId) s.add(key((r as any).customer?.customerId));
+  return Array.from(s).filter(Boolean);
 }
 
 export default function CreateDeliveryRequestForm({
@@ -75,8 +98,11 @@ export default function CreateDeliveryRequestForm({
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(true);
   const [isCancelConfirmationOpen, setIsCancelConfirmationOpen] = useState(false);
+
+  /** Set of ALL ids (string) that currently have active requests */
   const [customersWithActiveRequests, setCustomersWithActiveRequests] = useState<Set<string>>(new Set());
 
+  // UI helpers
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const holdIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const initialHoldTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -84,10 +110,7 @@ export default function CreateDeliveryRequestForm({
   const holdStopCleanupRef = useRef<() => void>(() => {});
 
   const isEditMode = !!editingRequest;
-  const canCancelRequest =
-    isEditMode &&
-    editingRequest &&
-    ACTIVE_STATUSES.has(editingRequest.status);
+  const canCancelRequest = isEditMode && editingRequest && ACTIVE_STATUSES.has(editingRequest.status);
 
   const form = useForm<CreateDeliveryRequestFormValues>({
     resolver: zodResolver(createDeliveryRequestSchema),
@@ -98,10 +121,9 @@ export default function CreateDeliveryRequestForm({
     },
   });
 
-  // Fetch customers + currently-active requests (server truth)
+  // ---- Server fetch (truth) + baseline wiring ----
   useEffect(() => {
     if (editingRequest) {
-      // Pre-fill from the request you’re editing
       const customerForEdit: Customer = {
         _id: (editingRequest as any).customerId as any,
         id: (editingRequest as any).customerIntId ?? 0,
@@ -146,23 +168,21 @@ export default function CreateDeliveryRequestForm({
       try {
         // Customers
         const customersResponse = await fetch(buildApiUrl(API_ENDPOINTS.CUSTOMERS));
-        if (!customersResponse.ok) {
-          throw new Error(`HTTP error! status: ${customersResponse.status}`);
-        }
+        if (!customersResponse.ok) throw new Error(`HTTP error! status: ${customersResponse.status}`);
         const customersData: Customer[] = await customersResponse.json();
         setAllCustomers(customersData);
 
-        // Active requests (server says who is active)
+        // Active requests
         const requestsResponse = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS));
         if (requestsResponse.ok) {
           const requestsData: DeliveryRequest[] = await requestsResponse.json();
-          const activeCustomerIds = new Set<string>();
-          requestsData
-            .filter((req) => ACTIVE_STATUSES.has(req.status))
-            .forEach((req) => {
-              if (req.customerId) activeCustomerIds.add(getIdString(req.customerId));
-            });
-          setCustomersWithActiveRequests(activeCustomerIds);
+          const next = new Set<string>();
+          for (const req of requestsData) {
+            if (ACTIVE_STATUSES.has(req.status)) {
+              idKeysForRequest(req).forEach((k) => next.add(k));
+            }
+          }
+          setCustomersWithActiveRequests(next);
         }
       } catch (error) {
         console.error("Error fetching customers:", error);
@@ -177,7 +197,7 @@ export default function CreateDeliveryRequestForm({
       }
     };
 
-    // Initial fetch + periodic refresh (kept for safety; instant local updates handle immediacy)
+    // Initial fetch (we keep the small polling for cross-device consistency)
     fetchCustomersAndActiveRequests();
     const interval = setInterval(fetchCustomersAndActiveRequests, 5000);
 
@@ -187,15 +207,37 @@ export default function CreateDeliveryRequestForm({
     return () => clearInterval(interval);
   }, [toast, form, customerToPreselect, editingRequest]);
 
-  // Search list (live filtered, excluding locally-known active customers)
+  // ---- Helpers to test / mutate active set (covers all id shapes) ----
+  const isCustomerActive = (customer: Customer): boolean => {
+    const keys = idKeysForCustomer(customer);
+    return keys.some((k) => customersWithActiveRequests.has(k));
+  };
+
+  const addCustomerActive = (customer: Customer) => {
+    const keys = idKeysForCustomer(customer);
+    setCustomersWithActiveRequests((prev) => {
+      const next = new Set(prev);
+      keys.forEach((k) => next.add(k));
+      return next;
+    });
+  };
+
+  const removeCustomerActive = (byKeys: string[]) => {
+    setCustomersWithActiveRequests((prev) => {
+      const next = new Set(prev);
+      byKeys.forEach((k) => next.delete(k));
+      return next;
+    });
+  };
+
+  // ---- Search filtering (immediate, local) ----
   const filteredCustomers = useMemo(() => {
     if (isEditMode || customerToPreselect) return [];
     if (!searchTerm.trim()) return [];
     const term = searchTerm.toLowerCase().trim();
 
     return allCustomers.filter((customer) => {
-      const key = getIdString(customer._id ?? (customer as any).customerId);
-      if (customersWithActiveRequests.has(key)) return false; // core: hide active customers instantly
+      if (isCustomerActive(customer)) return false;
       return (
         customer.name.toLowerCase().includes(term) ||
         (!!customer.phone && customer.phone.includes(searchTerm)) ||
@@ -204,9 +246,9 @@ export default function CreateDeliveryRequestForm({
     });
   }, [allCustomers, searchTerm, customerToPreselect, isEditMode, customersWithActiveRequests]);
 
+  // ---- Select customer (blocks if active) ----
   const handleSelectCustomer = (customer: Customer) => {
-    const key = getIdString(customer._id ?? (customer as any).customerId);
-    if (customersWithActiveRequests.has(key)) {
+    if (isCustomerActive(customer)) {
       toast({
         variant: "destructive",
         title: "Active Request Exists",
@@ -218,6 +260,7 @@ export default function CreateDeliveryRequestForm({
     form.setValue("cans", customer.defaultCans || 1);
   };
 
+  // ---- Submit (optimistic local lock to prevent duplicate) ----
   const onSubmit = async (data: CreateDeliveryRequestFormValues) => {
     if (!selectedCustomer && !isEditMode) {
       toast({
@@ -233,7 +276,6 @@ export default function CreateDeliveryRequestForm({
       let response: Response | undefined;
 
       if (isEditMode && editingRequest) {
-        // Update existing request
         response = await fetch(
           buildApiUrl(`api/delivery-requests/${editingRequest._id || editingRequest.requestId}`),
           {
@@ -257,34 +299,38 @@ export default function CreateDeliveryRequestForm({
           }
         );
       } else if (selectedCustomer) {
-        // Create new request
-        response = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...data,
-            customerId: selectedCustomer._id || (selectedCustomer as any).customerId,
-            customerIntId: (selectedCustomer as any).id,
-            customerName: selectedCustomer.name,
-            address: selectedCustomer.address,
-            pricePerCan: (selectedCustomer as any)?.pricePerCan,
-            paymentType: (selectedCustomer as any)?.paymentType || "cash",
-          }),
-        });
+        // OPTIMISTIC: lock out immediately so the name disappears at once
+        const lockedKeys = idKeysForCustomer(selectedCustomer);
+        addCustomerActive(selectedCustomer);
 
-        if (response.ok) {
-          // 🔒 Instant local lockout: hide this customer from search right away
-          const key = getIdString(selectedCustomer._id ?? (selectedCustomer as any).customerId);
-          setCustomersWithActiveRequests((prev) => {
-            const next = new Set(prev);
-            next.add(key);
-            return next;
+        try {
+          response = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...data,
+              customerId: (selectedCustomer as any)._id || (selectedCustomer as any).customerId,
+              customerIntId: (selectedCustomer as any).id,
+              customerName: selectedCustomer.name,
+              address: selectedCustomer.address,
+              pricePerCan: (selectedCustomer as any)?.pricePerCan,
+              paymentType: (selectedCustomer as any)?.paymentType || "cash",
+            }),
           });
+
+          if (!response.ok) {
+            // rollback if server rejects
+            removeCustomerActive(lockedKeys);
+          }
+        } catch (err) {
+          // network error -> rollback
+          removeCustomerActive(lockedKeys);
+          throw err;
         }
       }
 
       if (response?.ok) {
-        // Reset for next entry (keep searchTerm so list reflects removal immediately)
+        // reset for next entry; keep searchTerm so user continues typing
         form.reset();
         setSelectedCustomer(null);
 
@@ -305,7 +351,7 @@ export default function CreateDeliveryRequestForm({
     }
   };
 
-  // Cancel existing request (instant local unlock so customer reappears)
+  // ---- Cancel (instant local unlock so they reappear) ----
   const handleMarkRequestAsCancelled = async () => {
     if (!editingRequest) return;
     setIsSubmitting(true);
@@ -319,13 +365,16 @@ export default function CreateDeliveryRequestForm({
       if (response.ok) {
         setIsCancelConfirmationOpen(false);
 
-        // 🔓 Instant local unlock
-        const key = getIdString(editingRequest.customerId);
-        setCustomersWithActiveRequests((prev) => {
-          const next = new Set(prev);
-          next.delete(key);
-          return next;
-        });
+        // Unlock immediately using all plausible keys from the editing request
+        const keys = [
+          ...idKeysForRequest(editingRequest),
+          ...idKeysForCustomer({
+            _id: (editingRequest as any).customerId,
+            customerId: (editingRequest as any).customerId,
+            id: (editingRequest as any).customerIntId,
+          } as any),
+        ];
+        removeCustomerActive(keys);
 
         toast({
           title: "Request Cancelled",
@@ -369,7 +418,7 @@ export default function CreateDeliveryRequestForm({
   const startHold = (callback: () => void) => {
     if (isHoldingRef.current) return;
     isHoldingRef.current = true;
-    callback(); // tap once immediately
+    callback(); // immediate single step
     initialHoldTimeoutRef.current = setTimeout(() => {
       if (isHoldingRef.current) {
         holdIntervalRef.current = setInterval(callback, 100);
@@ -391,7 +440,6 @@ export default function CreateDeliveryRequestForm({
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-        {/* Search */}
         {!selectedCustomer && !customerToPreselect && !isEditMode ? (
           <div className="space-y-3">
             <FormLabel htmlFor="customerSearch">Search Customer</FormLabel>
@@ -437,12 +485,11 @@ export default function CreateDeliveryRequestForm({
                       "font-medium",
                       isSindhiName ? "font-sindhi rtl" : "ltr"
                     );
-                    const key = getIdString(customer._id ?? (customer as any).customerId);
-                    const hasActiveRequest = customersWithActiveRequests.has(key);
+                    const hasActiveRequest = isCustomerActive(customer);
 
                     return (
                       <Button
-                        key={customer._id || (customer as any).customerId}
+                        key={(customer as any)._id || (customer as any).customerId || (customer as any).id}
                         type="button"
                         variant="ghost"
                         className={cn(
@@ -526,7 +573,6 @@ export default function CreateDeliveryRequestForm({
           )
         )}
 
-        {/* Form Fields */}
         <fieldset disabled={(!selectedCustomer && !isEditMode) || isSubmitting} className="space-y-6">
           <FormField
             control={form.control}
@@ -642,7 +688,6 @@ export default function CreateDeliveryRequestForm({
           />
         </fieldset>
 
-        {/* Footer actions */}
         <div className="flex flex-col sm:flex-row gap-2 justify-end pt-4 border-t">
           {canCancelRequest && (
             <AlertDialog open={isCancelConfirmationOpen} onOpenChange={setIsCancelConfirmationOpen}>
@@ -689,4 +734,5 @@ export default function CreateDeliveryRequestForm({
     </Form>
   );
 }
+
 
