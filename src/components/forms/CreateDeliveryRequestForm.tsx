@@ -135,10 +135,14 @@ export default function CreateDeliveryRequestForm({
             const activeCustomerIds = new Set<string>();
             
             requestsData
-              .filter(req => ['pending', 'processing'].includes(req.status))
+              .filter(req => ['pending', 'pending_confirmation', 'processing'].includes(req.status))
               .forEach(req => {
-                if (req.customerId) {
-                  activeCustomerIds.add(String(req.customerId));
+                const raw = (req as any).customerId;
+                const normalized = raw && typeof raw === 'object' 
+                  ? String(raw._id ?? raw.id ?? '') 
+                  : String(raw ?? '');
+                if (normalized) {
+                  activeCustomerIds.add(normalized);
                 }
               });
               
@@ -180,21 +184,23 @@ export default function CreateDeliveryRequestForm({
       .filter(customer => {
         const searchLower = searchTerm.toLowerCase().trim();
         const nameLower = customer.name.toLowerCase();
-        const custId = customer._id || customer.customerId;
-        // Exclude customers with active requests from search results (normalize to string)
-        if (customersWithActiveRequests.has(String(custId || ''))) return false;
+        // Do NOT exclude; show but disable selection to match working version UX
         return (
           nameLower.includes(searchLower) ||
           (customer.phone && customer.phone.includes(searchTerm)) ||
           customer.address.toLowerCase().includes(searchLower)
         );
-      }); // removed hard limit to show all matches; ScrollArea will handle overflow
-  }, [allCustomers, searchTerm, customerToPreselect, isEditMode, customersWithActiveRequests]);
+      })
+      .slice(0, 8);
+  }, [allCustomers, searchTerm, customerToPreselect, isEditMode]);
 
   const handleSelectCustomer = async (customer: Customer) => {
     // Check if customer has active requests
-    const customerId = customer._id || customer.customerId;
-    const hasActiveRequest = customersWithActiveRequests.has(String(customerId || ''));
+    const raw = (customer as any)._id || (customer as any).customerId;
+    const normalized = raw && typeof raw === 'object' 
+      ? String(raw._id ?? raw.id ?? '') 
+      : String(raw ?? '');
+    const hasActiveRequest = customersWithActiveRequests.has(normalized || '');
     
     if (hasActiveRequest) {
       toast({
@@ -261,6 +267,26 @@ export default function CreateDeliveryRequestForm({
         
         if (response.ok) {
           // Success notification removed
+          try {
+            // Immediately refresh active request set so search excludes this customer without delay
+            const requestsResponse = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS));
+            if (requestsResponse.ok) {
+              const requestsData: DeliveryRequest[] = await requestsResponse.json();
+              const activeCustomerIds = new Set<string>();
+              requestsData
+                .filter(req => ['pending', 'pending_confirmation', 'processing'].includes(req.status))
+                .forEach(req => {
+                  const raw = (req as any).customerId;
+                  const normalized = raw && typeof raw === 'object'
+                    ? String(raw._id ?? raw.id ?? '')
+                    : String(raw ?? '');
+                  if (normalized) activeCustomerIds.add(normalized);
+                });
+              setCustomersWithActiveRequests(activeCustomerIds);
+            }
+          } catch (e) {
+            // Non-blocking refresh
+          }
         } else {
           throw new Error('Failed to create request');
         }
@@ -268,8 +294,8 @@ export default function CreateDeliveryRequestForm({
 
       form.reset();
       setSelectedCustomer(null);
-      // Keep the search term; do not clear automatically
-      // setSearchTerm('');
+      // Clear search immediately so the selected customer disappears from list
+      setSearchTerm('');
 
       // Do not auto-blur cursor; user can press backslash to blur explicitly
       // const activeElement = document.activeElement as HTMLElement;

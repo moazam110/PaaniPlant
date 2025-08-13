@@ -234,8 +234,13 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
       const idNum = Number(trimmed);
       const customersWithActiveRequests = new Set(
         deliveryRequests
-          .filter(req => ['pending', 'processing'].includes(req.status))
-          .map(req => String(req.customerId))
+          .filter(req => ['pending', 'pending_confirmation', 'processing'].includes(req.status))
+          .map(req => {
+            const raw = (req as any).customerId;
+            return raw && typeof raw === 'object'
+              ? String(raw._id ?? raw.id ?? '')
+              : String(raw ?? '');
+          })
       );
       return allCustomers.filter(c => (c as any).id === idNum && !customersWithActiveRequests.has(c._id || (c as any).customerId || ''));
     }
@@ -245,8 +250,13 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
     const searchLower = trimmed.toLowerCase();
     const customersWithActiveRequests = new Set(
       deliveryRequests
-        .filter(req => ['pending', 'processing'].includes(req.status))
-        .map(req => String(req.customerId))
+        .filter(req => ['pending', 'pending_confirmation', 'processing'].includes(req.status))
+        .map(req => {
+          const raw = (req as any).customerId;
+          return raw && typeof raw === 'object'
+            ? String(raw._id ?? raw.id ?? '')
+            : String(raw ?? '');
+        })
     );
 
     return allCustomers
@@ -254,7 +264,11 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
         const matchesName = fuzzySearch(customer.name, searchLower);
         const matchesPhone = customer.phone ? fuzzySearch(customer.phone, searchLower) : false;
         const matchesAddress = fuzzySearch(customer.address, searchLower);
-        const hasNoActiveRequest = !customersWithActiveRequests.has(String(customer._id || customer.customerId || ''));
+        const rawCust = (customer as any)._id || (customer as any).customerId;
+        const normalizedCust = rawCust && typeof rawCust === 'object'
+          ? String(rawCust._id ?? rawCust.id ?? '')
+          : String(rawCust ?? '');
+        const hasNoActiveRequest = !customersWithActiveRequests.has(normalizedCust || '');
         return (matchesName || matchesPhone || matchesAddress) && hasNoActiveRequest;
       });
   }, [allCustomers, deliveryRequests, searchTerm]);
@@ -262,7 +276,8 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
   const handleCreateRequest = (customer: Customer) => {
     onInitiateNewRequest(customer);
     // Keep search term and cursor; do not clear automatically
-    // setSearchTerm('');
+    // Clear search immediately so the suggestion disappears
+    setSearchTerm('');
   };
 
   const getStatusBadgeVariant = (status: DeliveryRequest['status']) => {

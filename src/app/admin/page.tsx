@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LogOut } from 'lucide-react';
@@ -91,6 +91,20 @@ export default function AdminDashboardPage() {
     }
   }, [activeTab]);
 
+  const refreshDeliveryRequests = useCallback(async () => {
+    try {
+      const res = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS));
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      const data = await res.json();
+      setDeliveryRequests(data || []);
+    } catch (err) {
+      console.error('Error fetching delivery requests:', err);
+      setDeliveryRequests([]);
+    }
+  }, []);
+
   useEffect(() => {
     if (authUser) {
       // Function to fetch dashboard metrics
@@ -114,28 +128,13 @@ export default function AdminDashboardPage() {
         }
       };
 
-      // Function to fetch delivery requests
-      const fetchDeliveryRequests = async () => {
-        try {
-          const res = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS));
-          if (!res.ok) {
-            throw new Error(`HTTP error! status: ${res.status}`);
-          }
-          const data = await res.json();
-          setDeliveryRequests(data || []);
-        } catch (err) {
-          console.error('Error fetching delivery requests:', err);
-          setDeliveryRequests([]);
-        }
-      };
-
       // Initial fetch
       fetchDashboardMetrics();
-      fetchDeliveryRequests();
+      refreshDeliveryRequests();
 
       // Set up real-time updates every 5 seconds
       const metricsInterval = setInterval(fetchDashboardMetrics, 5000);
-      const requestsInterval = setInterval(fetchDeliveryRequests, 3000);
+      const requestsInterval = setInterval(refreshDeliveryRequests, 3000);
 
       // Cleanup intervals on unmount
       return () => {
