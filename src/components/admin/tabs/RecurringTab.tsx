@@ -66,6 +66,41 @@ const computeNextRun = (payload: { type: RecurringType; days?: number[]; date?: 
   const cand = new Date(); cand.setDate(now.getDate() + 7); cand.setHours(h, m, 0, 0); return cand.toISOString();
 };
 
+// Ensure time string is always in 24-hour HH:mm format
+const normalizeTime24 = (raw: string): string => {
+  try {
+    if (!raw) return '09:00';
+    const trimmed = String(raw).trim();
+    // Handle AM/PM variants like "1:05 PM"
+    const ampm = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i);
+    if (ampm) {
+      let hh = parseInt(ampm[1] || '0', 10);
+      const mm = parseInt(ampm[2] || '0', 10);
+      const suffix = (ampm[4] || '').toUpperCase();
+      if (suffix === 'PM' && hh < 12) hh += 12;
+      if (suffix === 'AM' && hh === 12) hh = 0;
+      const h2 = hh.toString().padStart(2, '0');
+      const m2 = mm.toString().padStart(2, '0');
+      return `${h2}:${m2}`;
+    }
+    // Handle HH:mm or HH:mm:ss
+    const parts = trimmed.split(':');
+    if (parts.length >= 2) {
+      let hh = parseInt(parts[0] || '0', 10);
+      let mm = parseInt(parts[1] || '0', 10);
+      if (isNaN(hh)) hh = 0; if (isNaN(mm)) mm = 0;
+      hh = Math.max(0, Math.min(23, hh));
+      mm = Math.max(0, Math.min(59, mm));
+      const h2 = hh.toString().padStart(2, '0');
+      const m2 = mm.toString().padStart(2, '0');
+      return `${h2}:${m2}`;
+    }
+    return '09:00';
+  } catch {
+    return '09:00';
+  }
+};
+
 export default function RecurringTab() {
   const { toast } = useToast();
   const [isOpen, setIsOpen] = useState(false);
@@ -200,7 +235,7 @@ export default function RecurringTab() {
     }
     setIsSubmitting(true);
     try {
-      const body = { ...form };
+      const body = { ...form, time: normalizeTime24(form.time) };
       if (isEditing && editingId) {
         const res = await fetch(buildApiUrl(`${API_ENDPOINTS.RECURRING_REQUESTS}/${editingId}`), {
           method: 'PUT',
@@ -224,7 +259,7 @@ export default function RecurringTab() {
               cans: body.cans,
               days: body.type === 'weekly' ? body.days : [],
               date: body.type === 'one_time' ? body.date : '',
-              time: body.time,
+              time: normalizeTime24(body.time),
               nextRun: computeNextRun(body),
               priority: body.priority,
             };
@@ -256,7 +291,7 @@ export default function RecurringTab() {
             cans: body.cans,
             days: body.type === 'weekly' ? body.days : [],
             date: body.type === 'one_time' ? body.date : '',
-            time: body.time,
+            time: normalizeTime24(body.time),
             nextRun: computeNextRun(body),
             priority: body.priority,
           };

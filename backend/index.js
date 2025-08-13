@@ -315,6 +315,39 @@ const computeNextRun = (payload) => {
   }
 };
 
+// Normalize time to 24-hour HH:mm format
+const normalizeTime24 = (raw) => {
+  try {
+    if (!raw) return '09:00';
+    const trimmed = String(raw).trim();
+    const ampm = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i);
+    if (ampm) {
+      let hh = parseInt(ampm[1] || '0', 10);
+      const mm = parseInt(ampm[2] || '0', 10);
+      const suffix = (ampm[4] || '').toUpperCase();
+      if (suffix === 'PM' && hh < 12) hh += 12;
+      if (suffix === 'AM' && hh === 12) hh = 0;
+      const h2 = String(hh).padStart(2, '0');
+      const m2 = String(mm).padStart(2, '0');
+      return `${h2}:${m2}`;
+    }
+    const parts = trimmed.split(':');
+    if (parts.length >= 2) {
+      let hh = parseInt(parts[0] || '0', 10);
+      let mm = parseInt(parts[1] || '0', 10);
+      if (isNaN(hh)) hh = 0; if (isNaN(mm)) mm = 0;
+      hh = Math.max(0, Math.min(23, hh));
+      mm = Math.max(0, Math.min(59, mm));
+      const h2 = String(hh).padStart(2, '0');
+      const m2 = String(mm).padStart(2, '0');
+      return `${h2}:${m2}`;
+    }
+    return '09:00';
+  } catch {
+    return '09:00';
+  }
+};
+
 // GET all recurring requests
 app.get('/api/recurring-requests', async (req, res) => {
   try {
@@ -330,6 +363,7 @@ app.get('/api/recurring-requests', async (req, res) => {
 app.post('/api/recurring-requests', async (req, res) => {
   try {
     const body = { ...req.body };
+    body.time = normalizeTime24(body.time || '09:00');
     // Normalize from customer
     const cust = await Customer.findById(body.customerId);
     if (!cust) return res.status(400).json({ error: 'Invalid customerId' });
@@ -356,6 +390,7 @@ app.post('/api/recurring-requests', async (req, res) => {
 app.put('/api/recurring-requests/:id', async (req, res) => {
   try {
     const body = { ...req.body };
+    if (body.time != null) body.time = normalizeTime24(body.time || '09:00');
     // If customer changed, refresh denormalized
     if (body.customerId) {
       const cust = await Customer.findById(body.customerId);
@@ -555,14 +590,16 @@ app.put('/api/delivery-requests/:id/cancel', async (req, res) => {
 });
 
 // Simple server-side scheduler to auto-generate delivery requests from recurring rules
-const SCHEDULER_INTERVAL_MS = 60 * 1000; // 1 minute
+const SCHEDULER_INTERVAL_MS = 3 * 60 * 1000; // 3 minutes
 const TRIGGER_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes to avoid duplicates
 
 const tryGenerateFromRecurring = async () => {
   try {
     const now = new Date();
-    // Find all recurring rules with nextRun due in the past (with small tolerance)
-    const dueRules = await RecurringRequest.find({ nextRun: { $lte: now } }).sort({ nextRun: 1 }).lean();
+    // Find all recurring rules with nextRun due in the past (with tolerance covering the scheduler interval)
+    const toleranceMs = SCHEDULER_INTERVAL_MS + 60 * 1000; // extra 1 minute tolerance
+    const windowStart = new Date(now.getTime() - toleranceMs);
+    const dueRules = await RecurringRequest.find({ nextRun: { $lte: now, $gte: windowStart } }).sort({ nextRun: 1 }).lean();
     if (!dueRules.length) return;
 
     for (const rule of dueRules) {
@@ -623,14 +660,20 @@ const tryGenerateFromRecurring = async () => {
   }
 };
 
-// Align execution to the start of each minute for accuracy
+// Align execution to the next 3-minute boundary for accuracy
 const alignAndStartScheduler = () => {
   const now = new Date();
-  const msUntilNextMinute = 60000 - (now.getSeconds() * 1000 + now.getMilliseconds());
+  const secondsIntoMinute = now.getSeconds() + now.getMilliseconds() / 1000;
+  const minutesMod = now.getMinutes() % 3;
+  const minutesToAdd = (3 - minutesMod) % 3 || 3; // if already on boundary, schedule to next boundary
+  const nextBoundary = new Date(now.getTime());
+  nextBoundary.setSeconds(0, 0);
+  nextBoundary.setMinutes(nextBoundary.getMinutes() + minutesToAdd);
+  const delay = Math.max(0, nextBoundary.getTime() - now.getTime());
   setTimeout(() => {
     tryGenerateFromRecurring();
     setInterval(tryGenerateFromRecurring, SCHEDULER_INTERVAL_MS);
-  }, msUntilNextMinute + 50);
+  }, delay + 50);
 };
 alignAndStartScheduler();
 
