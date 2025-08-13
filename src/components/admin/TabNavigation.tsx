@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Truck, BarChart3, Users, UserCheck } from 'lucide-react';
+import { Truck, BarChart3, Users, UserCheck, Repeat } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,7 @@ interface TabNavigationProps {
 
 const tabs = [
   { id: 'delivery', label: 'Delivery', icon: Truck },
+  { id: 'recurring', label: 'Recurring', icon: Repeat },
   { id: 'stats', label: 'Stats', icon: BarChart3 },
   { id: 'customers', label: 'Customers', icon: Users },
   { id: 'staff', label: 'Staff', icon: UserCheck },
@@ -109,11 +110,13 @@ export default function TabNavigation({ activeTab, onTabChange, children }: TabN
         {/* Show delivery content */}
         {activeTab === 'delivery' && childrenArray[0]}
         
-        {/* Show stats content */}
-        {activeTab === 'stats' && childrenArray[1]}
+        {/* Show recurring content (index 1) */}
+        {activeTab === 'recurring' && childrenArray[1]}
+        {/* Show stats content (index 2) */}
+        {activeTab === 'stats' && childrenArray[2]}
         
-        {/* Show customers content */}
-        {activeTab === 'customers' && childrenArray[2]}
+        {/* Show customers content (index 3) */}
+        {activeTab === 'customers' && childrenArray[3]}
         
         {/* Staff tab opens separately, no content */}
       </div>

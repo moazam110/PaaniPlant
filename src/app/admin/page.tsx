@@ -15,6 +15,7 @@ import CustomerList, { CustomerListRef } from '@/components/admin/CustomerList';
 import { buildApiUrl, API_ENDPOINTS, API_BASE_URL } from '@/lib/api';
 import TabNavigation from '@/components/admin/TabNavigation';
 import DeliveryTab from '@/components/admin/tabs/DeliveryTab';
+import RecurringTab from '@/components/admin/tabs/RecurringTab';
 import StatsTab from '@/components/admin/tabs/StatsTab';
 import CustomersTab from '@/components/admin/tabs/CustomersTab';
 
@@ -321,6 +322,7 @@ export default function AdminDashboardPage() {
             onInitiateNewRequest={handleInitiateNewRequest}
             onEditRequest={handleEditRequest}
           />
+          <RecurringTab />
           
           <StatsTab 
             totalCustomers={totalCustomers}

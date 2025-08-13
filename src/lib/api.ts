@@ -41,4 +41,5 @@ export const API_ENDPOINTS = {
   CUSTOMERS: '/api/customers',
   DELIVERY_REQUESTS: '/api/delivery-requests',
   DASHBOARD_METRICS: '/api/dashboard/metrics',
+  RECURRING_REQUESTS: '/api/recurring-requests',
 } as const;
