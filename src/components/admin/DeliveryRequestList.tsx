@@ -276,8 +276,6 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
   const handleCreateRequest = (customer: Customer) => {
     onInitiateNewRequest(customer);
     // Keep search term and cursor; do not clear automatically
-    // Clear search immediately so the suggestion disappears
-    setSearchTerm('');
   };
 
   const getStatusBadgeVariant = (status: DeliveryRequest['status']) => {

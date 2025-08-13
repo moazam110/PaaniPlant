@@ -9,16 +9,35 @@ interface RequestQueueProps {
   requests: DeliveryRequest[];
   onMarkAsDone: (requestId: string) => void;
   onCancel?: (requestId: string) => void;
+  addressSortOrder?: 'asc' | 'desc' | null;
 }
 
-const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onCancel }) => {
+const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onCancel, addressSortOrder }) => {
   const [expandedDelivered, setExpandedDelivered] = useState<Record<string, boolean>>({});
   const toggleDelivered = (key: string) => {
     setExpandedDelivered(prev => ({ ...prev, [key]: !prev[key] }));
   };
+  
+  const compareByAddress = (a: DeliveryRequest, b: DeliveryRequest, order: 'asc' | 'desc') => {
+    const addrA = (a.address || '').toString().toLowerCase();
+    const addrB = (b.address || '').toString().toLowerCase();
+    const dir = order === 'asc' ? 1 : -1;
+    if (addrA < addrB) return -1 * dir;
+    if (addrA > addrB) return 1 * dir;
+    // Tie-breaker: urgent first
+    if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
+    if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
+    // Final tie-breaker: time oldest first
+    const timeA = a.requestedAt instanceof Date ? a.requestedAt.getTime() : (typeof a.requestedAt === 'number' ? a.requestedAt : 0);
+    const timeB = b.requestedAt instanceof Date ? b.requestedAt.getTime() : (typeof b.requestedAt === 'number' ? b.requestedAt : 0);
+    return timeA - timeB;
+  };
   const pendingRequests = requests
     .filter(req => req.status === 'pending' || req.status === 'pending_confirmation')
     .sort((a, b) => {
+      if (addressSortOrder) {
+        return compareByAddress(a, b, addressSortOrder);
+      }
       if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
       if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
       // Ensure dates are properly compared; assuming they are Date objects or numbers
@@ -30,6 +49,9 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
   const processingRequests = requests
     .filter(req => req.status === 'processing')
     .sort((a, b) => {
+      if (addressSortOrder) {
+        return compareByAddress(a, b, addressSortOrder);
+      }
       if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
       if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
       // Sort by when they started processing (requestedAt for now, could be a processingStartedAt field)

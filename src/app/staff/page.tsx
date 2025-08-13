@@ -2,6 +2,8 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
+import { Button as UIButton } from '@/components/ui/button';
+import { ArrowDownAZ, ArrowUpAZ } from 'lucide-react';
 import type { DeliveryRequest } from '@/types';
 import Header from '@/components/shared/Header';
 import StaffDashboardMetrics from '@/components/dashboard/StaffDashboardMetrics';
@@ -17,6 +19,7 @@ import { LogOut } from 'lucide-react';
 
 export default function StaffPage() {
   const [deliveryRequests, setDeliveryRequests] = useState<DeliveryRequest[]>([]);
+  const [addressSortOrder, setAddressSortOrder] = useState<'asc' | 'desc' | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isBackendConnected, setIsBackendConnected] = useState(false);
   const [previousRequestCount, setPreviousRequestCount] = useState(0);
@@ -330,10 +333,33 @@ export default function StaffPage() {
           </div>
         )}
         <div className="px-2 py-1">
-          <StaffDashboardMetrics requests={deliveryRequests} /> 
+          <div className="flex items-center justify-between">
+            <StaffDashboardMetrics requests={deliveryRequests} />
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Sort by address:</span>
+              <UIButton
+                type="button"
+                variant={addressSortOrder === 'asc' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setAddressSortOrder(prev => (prev === 'asc' ? null : 'asc'))}
+                title="Ascending"
+              >
+                <ArrowUpAZ className="h-4 w-4 mr-1" /> Asc
+              </UIButton>
+              <UIButton
+                type="button"
+                variant={addressSortOrder === 'desc' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setAddressSortOrder(prev => (prev === 'desc' ? null : 'desc'))}
+                title="Descending"
+              >
+                <ArrowDownAZ className="h-4 w-4 mr-1" /> Desc
+              </UIButton>
+            </div>
+          </div>
         </div>
         <div className="px-2">
-          <RequestQueue requests={deliveryRequests} onMarkAsDone={handleMarkAsDone} />
+          <RequestQueue requests={deliveryRequests} onMarkAsDone={handleMarkAsDone} addressSortOrder={addressSortOrder} />
         </div>
       </main>
       

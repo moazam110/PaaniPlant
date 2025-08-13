@@ -266,27 +266,36 @@ export default function CreateDeliveryRequestForm({
         });
         
         if (response.ok) {
-          // Success notification removed
-          try {
-            // Immediately refresh active request set so search excludes this customer without delay
-            const requestsResponse = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS));
-            if (requestsResponse.ok) {
-              const requestsData: DeliveryRequest[] = await requestsResponse.json();
-              const activeCustomerIds = new Set<string>();
-              requestsData
-                .filter(req => ['pending', 'pending_confirmation', 'processing'].includes(req.status))
-                .forEach(req => {
-                  const raw = (req as any).customerId;
-                  const normalized = raw && typeof raw === 'object'
-                    ? String(raw._id ?? raw.id ?? '')
-                    : String(raw ?? '');
-                  if (normalized) activeCustomerIds.add(normalized);
-                });
-              setCustomersWithActiveRequests(activeCustomerIds);
-            }
-          } catch (e) {
-            // Non-blocking refresh
+          // Success: optimistically mark this customer as active immediately
+          const raw = (selectedCustomer as any)._id || (selectedCustomer as any).customerId;
+          const normalized = raw && typeof raw === 'object'
+            ? String(raw._id ?? raw.id ?? '')
+            : String(raw ?? '');
+          if (normalized) {
+            setCustomersWithActiveRequests(prev => {
+              const next = new Set(prev);
+              next.add(normalized);
+              return next;
+            });
           }
+          // Fire-and-forget refresh in background (do not await)
+          (async () => {
+            try {
+              const requestsResponse = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS));
+              if (requestsResponse.ok) {
+                const requestsData: DeliveryRequest[] = await requestsResponse.json();
+                const activeCustomerIds = new Set<string>();
+                requestsData
+                  .filter(req => ['pending', 'pending_confirmation', 'processing'].includes(req.status))
+                  .forEach(req => {
+                    const r = (req as any).customerId;
+                    const n = r && typeof r === 'object' ? String(r._id ?? r.id ?? '') : String(r ?? '');
+                    if (n) activeCustomerIds.add(n);
+                  });
+                setCustomersWithActiveRequests(activeCustomerIds);
+              }
+            } catch {}
+          })();
         } else {
           throw new Error('Failed to create request');
         }
@@ -294,8 +303,7 @@ export default function CreateDeliveryRequestForm({
 
       form.reset();
       setSelectedCustomer(null);
-      // Clear search immediately so the selected customer disappears from list
-      setSearchTerm('');
+      // Keep the search term so multiple city-specific requests are easy
 
       // Do not auto-blur cursor; user can press backslash to blur explicitly
       // const activeElement = document.activeElement as HTMLElement;
