@@ -159,8 +159,9 @@ export default function RecurringTab() {
       filterType.weekly ? ['weekly'] : [],
       filterType.one_time ? ['one_time'] : [],
     );
+    const typesActive = allowTypes.length > 0;
     const prelim = recurringRequests.filter(r => {
-      if (!allowTypes.includes(r.type)) return false;
+      if (typesActive && !allowTypes.includes(r.type)) return false;
       if (!s) return true;
       const idName = r.customerIntId ? `${r.customerIntId} - ${r.customerName}` : r.customerName;
       return idName.toLowerCase().includes(s);
@@ -360,7 +361,7 @@ export default function RecurringTab() {
             const idName = r.customerIntId ? `${r.customerIntId} - ${r.customerName}` : r.customerName;
             const typeLabel = r.type === 'daily' ? 'Daily' : r.type === 'weekly' ? 'Weekly' : 'One-Time';
             const daysOrDate = r.type === 'daily' ? 'Every Day' : r.type === 'weekly' ? (r.days || []).map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ') : (r.date ? new Date(r.date).toLocaleDateString() : '-');
-            const nextLabel = r.nextRun ? new Date(r.nextRun).toLocaleString(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
+            const nextLabel = r.nextRun ? new Date(r.nextRun).toLocaleString(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '-';
             return (
               <Card key={r._id || `${idName}-${r.time}`} className="h-full flex flex-col">
                 <CardHeader className="py-3">
@@ -429,7 +430,7 @@ export default function RecurringTab() {
               const typeLabel = r.type === 'daily' ? 'Daily' : r.type === 'weekly' ? 'Weekly' : 'One-Time';
               const daysOrDate = r.type === 'daily' ? 'Every Day' : r.type === 'weekly' ? (r.days || []).map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ') : (r.date ? new Date(r.date).toLocaleDateString() : '-');
               const timeLabel = r.time;
-              const nextLabel = r.nextRun ? new Date(r.nextRun).toLocaleString(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
+              const nextLabel = r.nextRun ? new Date(r.nextRun).toLocaleString(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '-';
               return (
                 <TableRow key={r._id || idName}>
                   <TableCell>{idName}</TableCell>

@@ -100,6 +100,9 @@ const recurringRequestSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 });
 const RecurringRequest = mongoose.model('RecurringRequest', recurringRequestSchema);
+// Helpful indexes for scheduler performance
+recurringRequestSchema.index({ nextRun: 1 });
+recurringRequestSchema.index({ customerId: 1 });
 
 // File upload setup
 const upload = multer({ dest: 'uploads/' });
@@ -272,9 +275,12 @@ const computeNextRun = (payload) => {
     const now = new Date();
     const [hours, minutes] = String(payload.time || '09:00').split(':').map(s => parseInt(s || '0', 10));
     if (payload.type === 'one_time' && payload.date) {
-      const d = new Date(payload.date);
-      d.setHours(hours, minutes, 0, 0);
-      return d;
+      // Parse yyyy-mm-dd as local date to avoid timezone shifts
+      const parts = String(payload.date).split('-').map(x => parseInt(x, 10));
+      const year = parts[0];
+      const monthZeroBased = (parts[1] || 1) - 1;
+      const day = parts[2] || 1;
+      return new Date(year, monthZeroBased, day, hours, minutes, 0, 0);
     }
     if (payload.type === 'daily') {
       const d = new Date();
@@ -617,9 +623,16 @@ const tryGenerateFromRecurring = async () => {
   }
 };
 
-setInterval(tryGenerateFromRecurring, SCHEDULER_INTERVAL_MS);
-// Run once on startup to catch any overdue jobs
-tryGenerateFromRecurring();
+// Align execution to the start of each minute for accuracy
+const alignAndStartScheduler = () => {
+  const now = new Date();
+  const msUntilNextMinute = 60000 - (now.getSeconds() * 1000 + now.getMilliseconds());
+  setTimeout(() => {
+    tryGenerateFromRecurring();
+    setInterval(tryGenerateFromRecurring, SCHEDULER_INTERVAL_MS);
+  }, msUntilNextMinute + 50);
+};
+alignAndStartScheduler();
 
 // Dashboard metrics endpoint
 app.get('/api/dashboard/metrics', async (req, res) => {
