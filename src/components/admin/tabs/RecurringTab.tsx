@@ -8,9 +8,12 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 import type { Customer } from '@/types';
-import { ArrowUpAZ, ArrowDownAZ, PlusCircle, Pencil, Trash2, CalendarClock } from 'lucide-react';
+import { ArrowUpAZ, ArrowDownAZ, PlusCircle, Pencil, Trash2, CalendarClock, ListFilter } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 type RecurringType = 'daily' | 'weekly' | 'one_time';
@@ -40,6 +43,8 @@ export default function RecurringTab() {
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<{ daily: boolean; weekly: boolean; one_time: boolean }>({ daily: true, weekly: true, one_time: true });
   const [addressSortOrder, setAddressSortOrder] = useState<'asc' | 'desc' | null>(null);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [filterDraft, setFilterDraft] = useState<{ daily: boolean; weekly: boolean; one_time: boolean; addrOrder: 'asc' | 'desc' | null }>({ daily: true, weekly: true, one_time: true, addrOrder: null });
 
   // Form state
   const [form, setForm] = useState<{ customerId: string; type: RecurringType; days: number[]; date: string; time: string; priority: 'normal' | 'urgent'; cans: number }>(
@@ -51,6 +56,58 @@ export default function RecurringTab() {
 
   useEffect(() => {
     let isActive = true;
+    const loadFromLocal = (): RecurringRequest[] => {
+      try {
+        const raw = localStorage.getItem('paani_recurring_requests');
+        if (!raw) return [];
+        const arr = JSON.parse(raw);
+        return Array.isArray(arr) ? arr : [];
+      } catch { return []; }
+    };
+    const saveToLocal = (arr: RecurringRequest[]) => {
+      try { localStorage.setItem('paani_recurring_requests', JSON.stringify(arr)); } catch {}
+    };
+    const ensureLocalSync = (serverData: RecurringRequest[] | null) => {
+      if (serverData && serverData.length) {
+        saveToLocal(serverData);
+        return serverData;
+      }
+      const local = loadFromLocal();
+      return local;
+    };
+
+    const computeNextRun = (payload: { type: RecurringType; days?: number[]; date?: string; time: string; }): string => {
+      const now = new Date();
+      const [h, m] = (payload.time || '09:00').split(':').map(n => parseInt(n || '0', 10));
+      if (payload.type === 'one_time' && payload.date) {
+        const d = new Date(payload.date);
+        d.setHours(h, m, 0, 0);
+        return d.toISOString();
+      }
+      if (payload.type === 'daily') {
+        const d = new Date();
+        d.setHours(h, m, 0, 0);
+        if (d <= now) d.setDate(d.getDate() + 1);
+        return d.toISOString();
+      }
+      // weekly
+      const days = (payload.days || []).slice().sort();
+      if (days.length === 0) {
+        const d = new Date(); d.setHours(h, m, 0, 0); if (d <= now) d.setDate(d.getDate() + 7); return d.toISOString();
+      }
+      const today = now.getDay();
+      for (let i = 0; i < 7; i++) {
+        const cand = new Date();
+        cand.setDate(now.getDate() + i);
+        const dow = (today + i) % 7;
+        if (days.includes(dow)) {
+          cand.setHours(h, m, 0, 0);
+          if (cand > now) return cand.toISOString();
+        }
+      }
+      const cand = new Date(); cand.setDate(now.getDate() + 7); cand.setHours(h, m, 0, 0); return cand.toISOString();
+    };
+
     const fetchAll = async () => {
       setIsLoading(true);
       setError(null);
@@ -64,13 +121,17 @@ export default function RecurringTab() {
           if (isActive) setAllCustomers(c);
         }
         if (recRes.ok) {
-          const r = await recRes.json();
-          if (isActive) setRecurringRequests(r);
+          const r = (await recRes.json()) as RecurringRequest[];
+          const synced = ensureLocalSync(r);
+          if (isActive) setRecurringRequests(synced);
         } else {
-          if (isActive) setError('Failed to fetch recurring requests');
+          const local = ensureLocalSync(null);
+          if (isActive) setRecurringRequests(local);
         }
       } catch (e) {
-        if (isActive) setError('Failed to load data');
+        const local = ensureLocalSync(null);
+        if (isActive) setRecurringRequests(local);
+        if (isActive) setError('Failed to load data (using offline storage)');
       } finally {
         if (isActive) setIsLoading(false);
       }
@@ -144,9 +205,32 @@ export default function RecurringTab() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        if (!res.ok) throw new Error('Failed to update recurring');
-        const updated = await res.json();
-        setRecurringRequests(prev => prev.map(r => (r._id === editingId ? updated : r)));
+        if (res.ok) {
+          const updated = await res.json();
+          setRecurringRequests(prev => prev.map(r => (r._id === editingId ? updated : r)));
+        } else {
+          // Offline/local fallback update
+          setRecurringRequests(prev => {
+            const cust = customersOptions.find(o => o.value === body.customerId);
+            const updated: RecurringRequest = {
+              _id: editingId,
+              customerId: String(body.customerId),
+              customerIntId: cust?.intId,
+              customerName: cust?.name || '',
+              address: cust?.address || '',
+              type: body.type,
+              cans: body.cans,
+              days: body.type === 'weekly' ? body.days : [],
+              date: body.type === 'one_time' ? body.date : '',
+              time: body.time,
+              nextRun: computeNextRun(body),
+              priority: body.priority,
+            };
+            const next = prev.map(r => (r._id === editingId ? updated : r));
+            try { localStorage.setItem('paani_recurring_requests', JSON.stringify(next)); } catch {}
+            return next;
+          });
+        }
         toast({ title: 'Updated', description: 'Recurring request updated successfully.' });
       } else {
         const res = await fetch(buildApiUrl(API_ENDPOINTS.RECURRING_REQUESTS), {
@@ -154,9 +238,32 @@ export default function RecurringTab() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        if (!res.ok) throw new Error('Failed to create recurring');
-        const created = await res.json();
-        setRecurringRequests(prev => [created, ...prev]);
+        if (res.ok) {
+          const created = await res.json();
+          setRecurringRequests(prev => [created, ...prev]);
+        } else {
+          // Offline/local fallback create
+          const cust = customersOptions.find(o => o.value === body.customerId);
+          const fallback: RecurringRequest = {
+            _id: `local_${Date.now()}`,
+            customerId: String(body.customerId),
+            customerIntId: cust?.intId,
+            customerName: cust?.name || '',
+            address: cust?.address || '',
+            type: body.type,
+            cans: body.cans,
+            days: body.type === 'weekly' ? body.days : [],
+            date: body.type === 'one_time' ? body.date : '',
+            time: body.time,
+            nextRun: computeNextRun(body),
+            priority: body.priority,
+          };
+          setRecurringRequests(prev => {
+            const next = [fallback, ...prev];
+            try { localStorage.setItem('paani_recurring_requests', JSON.stringify(next)); } catch {}
+            return next;
+          });
+        }
         toast({ title: 'Created', description: 'Recurring request created successfully.' });
       }
       setIsOpen(false);
@@ -178,7 +285,13 @@ export default function RecurringTab() {
         setRecurringRequests(prev => prev.filter(r => r._id !== id));
         toast({ title: 'Deleted', description: 'Recurring request removed.' });
       } else {
-        toast({ variant: 'destructive', title: 'Delete failed', description: 'Could not delete recurring request.' });
+        // Offline/local fallback delete
+        setRecurringRequests(prev => {
+          const next = prev.filter(r => r._id !== id);
+          try { localStorage.setItem('paani_recurring_requests', JSON.stringify(next)); } catch {}
+          return next;
+        });
+        toast({ title: 'Deleted (local)', description: 'Recurring request removed locally.' });
       }
     } catch {}
   };
@@ -190,34 +303,105 @@ export default function RecurringTab() {
       )}
       <div className="flex flex-col sm:flex-row gap-2 items-center justify-between">
         <Button onClick={() => setIsOpen(true)}><PlusCircle className="h-4 w-4 mr-2" /> Create Recurring Request</Button>
-        <div className="flex-1 flex flex-col sm:flex-row gap-2 items-center justify-end">
+        <div className="flex-1 flex items-center justify-end gap-2">
           <Input placeholder="Search id-name..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full sm:w-64" />
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Checkbox id="flt-daily" checked={filterType.daily} onCheckedChange={(v) => setFilterType(p => ({ ...p, daily: !!v }))} />
-              <Label htmlFor="flt-daily">Daily</Label>
-            </div>
-            <div className="flex items-center gap-2">
-              <Checkbox id="flt-weekly" checked={filterType.weekly} onCheckedChange={(v) => setFilterType(p => ({ ...p, weekly: !!v }))} />
-              <Label htmlFor="flt-weekly">Weekly</Label>
-            </div>
-            <div className="flex items-center gap-2">
-              <Checkbox id="flt-onetime" checked={filterType.one_time} onCheckedChange={(v) => setFilterType(p => ({ ...p, one_time: !!v }))} />
-              <Label htmlFor="flt-onetime">One-Time</Label>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button type="button" variant={addressSortOrder === 'asc' ? 'default' : 'outline'} size="sm" onClick={() => setAddressSortOrder(prev => (prev === 'asc' ? null : 'asc'))}>
-                <ArrowUpAZ className="h-4 w-4 mr-1" /> Asc
-              </Button>
-              <Button type="button" variant={addressSortOrder === 'desc' ? 'default' : 'outline'} size="sm" onClick={() => setAddressSortOrder(prev => (prev === 'desc' ? null : 'desc'))}>
-                <ArrowDownAZ className="h-4 w-4 mr-1" /> Desc
-              </Button>
-            </div>
-          </div>
+          <Popover open={isFilterOpen} onOpenChange={setIsFilterOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="icon" title="Filters"><ListFilter className="h-4 w-4" /></Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-80">
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex items-center gap-2">
+                    <Checkbox id="rflt-daily" checked={filterDraft.daily} onCheckedChange={(v) => setFilterDraft(p => ({ ...p, daily: !!v }))} />
+                    <Label htmlFor="rflt-daily">Daily</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox id="rflt-weekly" checked={filterDraft.weekly} onCheckedChange={(v) => setFilterDraft(p => ({ ...p, weekly: !!v }))} />
+                    <Label htmlFor="rflt-weekly">Weekly</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox id="rflt-onetime" checked={filterDraft.one_time} onCheckedChange={(v) => setFilterDraft(p => ({ ...p, one_time: !!v }))} />
+                    <Label htmlFor="rflt-onetime">One-Time</Label>
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="mb-2 block">Address Sort</Label>
+                  <div className="flex items-center gap-2">
+                    <Button type="button" variant={filterDraft.addrOrder === 'asc' ? 'default' : 'outline'} size="sm" onClick={() => setFilterDraft(prev => ({ ...prev, addrOrder: prev.addrOrder === 'asc' ? null : 'asc' }))}>
+                      <ArrowUpAZ className="h-4 w-4 mr-1" /> Asc
+                    </Button>
+                    <Button type="button" variant={filterDraft.addrOrder === 'desc' ? 'default' : 'outline'} size="sm" onClick={() => setFilterDraft(prev => ({ ...prev, addrOrder: prev.addrOrder === 'desc' ? null : 'desc' }))}>
+                      <ArrowDownAZ className="h-4 w-4 mr-1" /> Desc
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setFilterDraft({ daily: true, weekly: true, one_time: true, addrOrder: null })}>Clear</Button>
+                  <Button onClick={() => { setFilterType({ daily: filterDraft.daily, weekly: filterDraft.weekly, one_time: filterDraft.one_time }); setAddressSortOrder(filterDraft.addrOrder); setIsFilterOpen(false); }}>Apply</Button>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 
-      <div className="rounded-md border overflow-x-auto">
+      {/* Mobile cards */}
+      <div className="md:hidden grid gap-2">
+        {isLoading ? (
+          <div className="p-3 text-center text-muted-foreground text-sm border rounded">Loading recurring requests...</div>
+        ) : filtered.length === 0 ? (
+          <div className="p-3 text-center text-muted-foreground text-sm border rounded">No recurring requests found.</div>
+        ) : (
+          filtered.map((r) => {
+            const idName = r.customerIntId ? `${r.customerIntId} - ${r.customerName}` : r.customerName;
+            const typeLabel = r.type === 'daily' ? 'Daily' : r.type === 'weekly' ? 'Weekly' : 'One-Time';
+            const daysOrDate = r.type === 'daily' ? 'Every Day' : r.type === 'weekly' ? (r.days || []).map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ') : (r.date ? new Date(r.date).toLocaleDateString() : '-');
+            const nextLabel = r.nextRun ? new Date(r.nextRun).toLocaleString(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
+            return (
+              <Card key={r._id || `${idName}-${r.time}`} className="h-full flex flex-col">
+                <CardHeader className="py-3">
+                  <CardTitle className="text-base font-semibold">{idName}</CardTitle>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    <Badge variant="outline" className="text-xs">{typeLabel}</Badge>
+                    <Badge variant="outline" className="text-xs capitalize">{r.priority}</Badge>
+                    <Badge variant="outline" className="text-xs">{r.cans} cans</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="py-2 flex-1 text-sm">
+                  <div className="space-y-1">
+                    <div><span className="text-muted-foreground">Days/Date:</span> {daysOrDate}</div>
+                    <div><span className="text-muted-foreground">Time:</span> {r.time}</div>
+                    <div><span className="text-muted-foreground">Next:</span> {nextLabel}</div>
+                  </div>
+                </CardContent>
+                <CardFooter className="mt-auto pt-0 gap-2">
+                  <Button size="sm" variant="outline" className="flex-1" onClick={() => {
+                    setIsEditing(true);
+                    setEditingId(r._id || null);
+                    setForm({
+                      customerId: String(r.customerId),
+                      type: r.type,
+                      days: r.days || [],
+                      date: r.date || '',
+                      time: r.time,
+                      priority: r.priority,
+                      cans: r.cans || 1,
+                    });
+                    setIsOpen(true);
+                  }}>Edit</Button>
+                  <Button size="sm" variant="destructive" className="flex-1" onClick={() => r._id && deleteRecurring(r._id)}>Delete</Button>
+                </CardFooter>
+              </Card>
+            );
+          })
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden md:block rounded-md border overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
