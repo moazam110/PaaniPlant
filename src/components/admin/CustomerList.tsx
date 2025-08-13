@@ -57,6 +57,7 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
       }
       
       const data: Customer[] = await response.json();
+      console.log('Fetched customers:', data.length);
       // Ensure descending order by id (fallback createdAt)
       const sorted = [...data].sort((a, b) => {
         const aId = (a as any).id ?? 0;
@@ -164,19 +165,38 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
     const hasCansFilter = cansVal != null && cansOp;
     const hasPriceFilter = priceVal != null;
     const hasPtFilter = ptCash || ptAccount;
+    const hasDateFilter = start || end;
 
-    if (!start && !end && !hasCansFilter && !hasPriceFilter && !hasPtFilter) return list;
+    console.log('Filter state:', { start, end, cans, cansOp, price, priceOp, ptCash, ptAccount });
+    console.log('Filter booleans:', { hasCansFilter, hasPriceFilter, hasPtFilter, hasDateFilter });
+    console.log('Customer cans map size:', Object.keys(customerCansMap).length);
+    console.log('Customer cans map sample:', Object.entries(customerCansMap).slice(0, 3));
 
-    return list.filter(c => {
+    if (!hasDateFilter && !hasCansFilter && !hasPriceFilter && !hasPtFilter) {
+      console.log('No filters active, returning all customers');
+      return list;
+    }
+
+    const filtered = list.filter(c => {
       // cans filter based on aggregated map
       if (hasCansFilter) {
         const customerId = c._id || (c as any).customerId || '';
         const total = customerCansMap[customerId] || 0;
         const op = cansOp || '=';
         console.log(`Filtering customer ${c.name} (ID: ${customerId}): total cans = ${total}, filter = ${op} ${cansVal}`);
-        if (op === '<' && !(total < cansVal!)) return false;
-        if (op === '=' && !(total === cansVal!)) return false;
-        if (op === '>' && !(total > cansVal!)) return false;
+        if (op === '<' && !(total < cansVal!)) {
+          console.log(`  Rejected: ${total} is not < ${cansVal}`);
+          return false;
+        }
+        if (op === '=' && !(total === cansVal!)) {
+          console.log(`  Rejected: ${total} is not = ${cansVal}`);
+          return false;
+        }
+        if (op === '>' && !(total > cansVal!)) {
+          console.log(`  Rejected: ${total} is not > ${cansVal}`);
+          return false;
+        }
+        console.log(`  Accepted: ${total} ${op} ${cansVal}`);
       }
       // price filter (per-can price from customer)
       if (hasPriceFilter) {
@@ -194,6 +214,9 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
       }
       return true;
     });
+
+    console.log(`Filtered ${list.length} customers down to ${filtered.length}`);
+    return filtered;
   }, [filteredCustomers, activeFilter, customerCansMap]);
 
   if (isLoading) {
@@ -329,7 +352,13 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
               </div>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => { setFilterDraft({ start: '', end: '', cans: '', cansOp: '<', price: '', priceOp: '=', ptCash: false, ptAccount: false }); }}>Clear</Button>
-                <Button onClick={async () => { setActiveFilter(filterDraft); setIsFilterOpen(false); await fetchAndBuildCansMap(filterDraft.start, filterDraft.end); }}>Apply</Button>
+                <Button onClick={async () => { 
+                  console.log('Apply button clicked with filter:', filterDraft);
+                  setActiveFilter(filterDraft); 
+                  setIsFilterOpen(false); 
+                  console.log('Fetching cans map for date range:', filterDraft.start, 'to', filterDraft.end);
+                  await fetchAndBuildCansMap(filterDraft.start, filterDraft.end); 
+                }}>Apply</Button>
               </div>
             </div>
           </PopoverContent>

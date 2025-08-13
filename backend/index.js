@@ -416,6 +416,7 @@ app.get('/api/dashboard/metrics', async (req, res) => {
     const month = req.query.month;
     const year = req.query.year;
     const day = req.query.day;
+    console.log('Dashboard metrics request params:', { day, month, year });
 
     const totalCustomers = await Customer.countDocuments();
     const pendingRequests = await DeliveryRequest.countDocuments({ 
@@ -440,6 +441,8 @@ app.get('/api/dashboard/metrics', async (req, res) => {
         startDate = new Date(yearNum, monthNum - 1, dayNum);
         endDate = new Date(yearNum, monthNum - 1, dayNum + 1);
         timeLabel = startDate.toLocaleDateString('en-GB');
+        console.log(`Specific day query: ${dayNum}/${monthNum}/${yearNum}`);
+        console.log(`Date range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
       }
     } else if (month && year) {
       const monthNum = parseInt(month);
@@ -477,15 +480,59 @@ app.get('/api/dashboard/metrics', async (req, res) => {
       dateQuery = {};
     }
 
+    console.log('Date filter setup:', { startDate, endDate, timeLabel });
+    console.log('Date query:', JSON.stringify(dateQuery, null, 2));
+
     const deliveries = await DeliveryRequest.find({
       status: 'delivered',
       ...dateQuery
     }).populate('customerId', 'pricePerCan paymentType');
 
+    console.log(`Found ${deliveries.length} delivered requests for query`);
+
+    // Additional debugging: check all delivered requests today
+    if (day && month && year) {
+      const allTodayDelivered = await DeliveryRequest.find({ status: 'delivered' });
+      const todayStart = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+      const todayEnd = new Date(parseInt(year), parseInt(month) - 1, parseInt(day) + 1);
+      
+      console.log(`Total delivered requests in DB: ${allTodayDelivered.length}`);
+      console.log(`Looking for deliveries between ${todayStart.toISOString()} and ${todayEnd.toISOString()}`);
+      
+      const matchingByDeliveredAt = allTodayDelivered.filter(d => {
+        if (!d.deliveredAt) return false;
+        const deliveredDate = new Date(d.deliveredAt);
+        return deliveredDate >= todayStart && deliveredDate < todayEnd;
+      });
+      
+      const matchingByCompletedAt = allTodayDelivered.filter(d => {
+        if (!d.completedAt) return false;
+        const completedDate = new Date(d.completedAt);
+        return completedDate >= todayStart && completedDate < todayEnd;
+      });
+      
+      console.log(`Matching by deliveredAt: ${matchingByDeliveredAt.length}`);
+      console.log(`Matching by completedAt: ${matchingByCompletedAt.length}`);
+      
+      // Sample of recent deliveries
+      const recentDeliveries = allTodayDelivered.slice(0, 5);
+      console.log('Sample deliveries:', recentDeliveries.map(d => ({
+        id: d._id,
+        status: d.status,
+        deliveredAt: d.deliveredAt,
+        completedAt: d.completedAt,
+        cans: d.cans,
+        paymentType: d.paymentType
+      })));
+    }
+
     const totalCans = deliveries.reduce((sum, req) => sum + req.cans, 0);
 
     let totalAmountGenerated = 0;
     let totalCashAmountGenerated = 0;
+    let cashDeliveries = 0;
+    let accountDeliveries = 0;
+    
     for (const delivery of deliveries) {
       const unitPrice = (delivery.pricePerCan != null)
         ? delivery.pricePerCan
@@ -495,8 +542,27 @@ app.get('/api/dashboard/metrics', async (req, res) => {
         : (delivery.customerId && delivery.customerId.paymentType) ? delivery.customerId.paymentType : undefined;
       const amount = delivery.cans * (unitPrice || 0);
       totalAmountGenerated += amount;
-      if (payType === 'cash') totalCashAmountGenerated += amount;
+      
+      if (payType === 'cash') {
+        totalCashAmountGenerated += amount;
+        cashDeliveries++;
+      } else if (payType === 'account') {
+        accountDeliveries++;
+      }
+      
+      // Debug each delivery
+      if (deliveries.length <= 10) {
+        console.log(`Delivery: ${delivery._id}, cans: ${delivery.cans}, payType: ${payType}, price: ${unitPrice}, amount: ${amount}`);
+      }
     }
+    
+    console.log('Payment breakdown:', { 
+      totalDeliveries: deliveries.length,
+      cashDeliveries, 
+      accountDeliveries, 
+      totalCashAmountGenerated,
+      totalAmountGenerated 
+    });
 
     const metrics = {
       totalCustomers,
@@ -596,6 +662,7 @@ app.get('/api/customers/:id/stats', async (req, res) => {
 app.get('/api/customers/stats-summary', async (req, res) => {
   try {
     const { start, end } = req.query;
+    console.log('Stats summary request:', { start, end });
     let match = { status: 'delivered' };
 
     // Build optional date range for deliveredAt/completedAt
@@ -620,14 +687,22 @@ app.get('/api/customers/stats-summary', async (req, res) => {
       ];
     }
 
+    console.log('MongoDB match query:', JSON.stringify(match, null, 2));
+
     const pipeline = [
       { $match: match },
       { $group: { _id: '$customerId', totalCans: { $sum: '$cans' } } },
     ];
 
+    console.log('Aggregation pipeline:', JSON.stringify(pipeline, null, 2));
+
     const results = await DeliveryRequest.aggregate(pipeline);
+    console.log('Aggregation results count:', results.length);
+    console.log('First 3 results:', results.slice(0, 3));
+    
     // Map to simple objects
     const data = results.map(r => ({ customerObjectId: String(r._id), totalCans: r.totalCans }));
+    console.log('Mapped data count:', data.length);
     res.json({ success: true, data });
   } catch (err) {
     console.error('stats-summary error:', err);

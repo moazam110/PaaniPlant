@@ -178,9 +178,10 @@ export default function StatsTab({
               </SelectTrigger>
               <SelectContent>
                 {Array.from({ length: 31 }, (_, i) => {
-                  const day = (i + 1).toString().padStart(2, '0');
+                  const day = (i + 1).toString();
+                  const dayDisplay = day.padStart(2, '0');
                   return (
-                    <SelectItem key={day} value={day}>{day}</SelectItem>
+                    <SelectItem key={day} value={day}>{dayDisplay}</SelectItem>
                   );
                 })}
               </SelectContent>
