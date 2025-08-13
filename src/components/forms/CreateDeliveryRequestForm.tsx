@@ -129,21 +129,24 @@ export default function CreateDeliveryRequestForm({
           setAllCustomers(customersData);
 
           // Fetch active requests to prevent duplicates
-          const requestsResponse = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS));
-          if (requestsResponse.ok) {
+            // Fetch active requests to prevent duplicates
+            const requestsResponse = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS));
+            if (requestsResponse.ok) {
             const requestsData: DeliveryRequest[] = await requestsResponse.json();
             const activeCustomerIds = new Set<string>();
-            
-            requestsData
-              .filter(req => ['pending', 'processing'].includes(req.status))
+
+            // FIXED: added 'pending_confirmation' to statuses
+              requestsData
+              .filter(req => ['pending', 'pending_confirmation', 'processing'].includes(req.status))
               .forEach(req => {
-                if (req.customerId) {
-                  activeCustomerIds.add(String(req.customerId));
+              if (req.customerId) {
+                activeCustomerIds.add(String(req.customerId));
                 }
-              });
-              
-            setCustomersWithActiveRequests(activeCustomerIds);
-          }
+               });
+
+  setCustomersWithActiveRequests(activeCustomerIds);
+}
+
         } catch (error) {
           console.error("Error fetching customers:", error);
           toast({
