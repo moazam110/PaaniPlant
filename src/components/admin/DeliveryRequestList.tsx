@@ -69,8 +69,8 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
   const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [filterDraft, setFilterDraft] = useState<{ today: boolean; yesterday: boolean; cash: boolean; account: boolean; cans: string; price: string; priceOp: '<' | '=' | '>' }>({ today: false, yesterday: false, cash: false, account: false, cans: '', price: '', priceOp: '>' });
-  const [activeFilter, setActiveFilter] = useState<{ today: boolean; yesterday: boolean; cash: boolean; account: boolean; cans: string; price: string; priceOp: '<' | '=' | '>' }>({ today: false, yesterday: false, cash: false, account: false, cans: '', price: '', priceOp: '>' });
+  const [filterDraft, setFilterDraft] = useState<{ today: boolean; yesterday: boolean; date: string; cash: boolean; account: boolean; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>' }>({ today: false, yesterday: false, date: '', cash: false, account: false, cans: '', cansOp: '=', price: '', priceOp: '>' });
+  const [activeFilter, setActiveFilter] = useState<{ today: boolean; yesterday: boolean; date: string; cash: boolean; account: boolean; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>' }>({ today: false, yesterday: false, date: '', cash: false, account: false, cans: '', cansOp: '=', price: '', priceOp: '>' });
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
@@ -158,14 +158,15 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
   // Apply panel filters after search filtering
   const fullyFilteredRequests = useMemo(() => {
     const list = filteredDeliveryRequests;
-    const { today, yesterday, cash, account, cans, price, priceOp } = activeFilter;
+    const { today, yesterday, date, cash, account, cans, cansOp, price, priceOp } = activeFilter;
 
     const hasDateFilter = today || yesterday;
     const hasPaymentFilter = cash || account;
     const cansFilterVal = cans && /^\d{1,2}$/.test(cans) ? Number(cans) : null;
     const priceFilterVal = price && /^\d{1,3}$/.test(price) ? Number(price) : null;
 
-    if (!hasDateFilter && !hasPaymentFilter && cansFilterVal == null && priceFilterVal == null) return list;
+    const hasSpecificDate = !!date;
+    if (!hasDateFilter && !hasSpecificDate && !hasPaymentFilter && cansFilterVal == null && priceFilterVal == null) return list;
 
     // Helper to check day
     const isSameDay = (date: Date, ref: Date) => {
@@ -180,10 +181,12 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
     todayRef.setHours(0, 0, 0, 0);
     const yesterdayRef = new Date(todayRef);
     yesterdayRef.setDate(yesterdayRef.getDate() - 1);
+    const specificRef = hasSpecificDate ? new Date(date) : null;
+    if (specificRef) specificRef.setHours(0, 0, 0, 0);
 
     return list.filter(req => {
       // Date filter: apply only to delivered history
-      if (hasDateFilter) {
+      if (hasDateFilter || hasSpecificDate) {
         if (req.status !== 'delivered') return false;
         const deliveredTime = (req as any).deliveredAt || (req as any).completedAt;
         if (!deliveredTime) return false;
@@ -191,7 +194,8 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
         d.setHours(0, 0, 0, 0);
         const matchToday = today && isSameDay(d, todayRef);
         const matchYesterday = yesterday && isSameDay(d, yesterdayRef);
-        if (!matchToday && !matchYesterday) return false;
+        const matchSpecific = hasSpecificDate && specificRef ? isSameDay(d, specificRef) : false;
+        if (!(matchToday || matchYesterday || matchSpecific)) return false;
       }
 
       // Payment filter
@@ -203,9 +207,13 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
         if (account && !isAccount) return false;
       }
 
-      // Cans filter (exact match)
+      // Cans filter with operator
       if (cansFilterVal != null) {
-        if (Number(req.cans) !== cansFilterVal) return false;
+        const current = Number(req.cans);
+        const op = cansOp || '=';
+        if (op === '<' && !(current < cansFilterVal)) return false;
+        if (op === '=' && !(current === cansFilterVal)) return false;
+        if (op === '>' && !(current > cansFilterVal)) return false;
       }
 
       // Price filter
@@ -343,7 +351,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
               <div className="space-y-4">
                 <div>
                   <Label className="mb-2 block">Date</Label>
-                  <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-3">
                     <div className="flex items-center gap-2">
                       <Checkbox id="flt-today" checked={filterDraft.today} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, today: !!v }))} />
                       <Label htmlFor="flt-today">Today</Label>
@@ -351,6 +359,16 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                     <div className="flex items-center gap-2">
                       <Checkbox id="flt-yesterday" checked={filterDraft.yesterday} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, yesterday: !!v }))} />
                       <Label htmlFor="flt-yesterday">Yesterday</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="flt-date" className="whitespace-nowrap">Date</Label>
+                      <Input
+                        id="flt-date"
+                        type="date"
+                        value={filterDraft.date}
+                        onChange={(e) => setFilterDraft(prev => ({ ...prev, date: e.target.value }))}
+                        className="w-36"
+                      />
                     </div>
                   </div>
                 </div>
@@ -369,18 +387,32 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                 </div>
                 <div>
                   <Label className="mb-2 block">Cans (optional)</Label>
-                  <Input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    maxLength={2}
-                    placeholder="e.g., 12"
-                    value={filterDraft.cans}
-                    onChange={(e) => {
-                      const digits = e.target.value.replace(/\D+/g, '').slice(0, 2);
-                      setFilterDraft(prev => ({ ...prev, cans: digits }));
-                    }}
-                  />
+                  <div className="flex items-center gap-2">
+                    <div className="w-24">
+                      <Select value={filterDraft.cansOp} onValueChange={(v) => setFilterDraft(prev => ({ ...prev, cansOp: v as any }))}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value=">">Greater</SelectItem>
+                          <SelectItem value="=">Equal</SelectItem>
+                          <SelectItem value="<">Less</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={2}
+                      placeholder="e.g., 12"
+                      value={filterDraft.cans}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D+/g, '').slice(0, 2);
+                        setFilterDraft(prev => ({ ...prev, cans: digits }));
+                      }}
+                    />
+                  </div>
                 </div>
                 <div>
                   <Label className="mb-2 block">Price (optional)</Label>
@@ -412,7 +444,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                   </div>
                 </div>
                 <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => { setFilterDraft({ today: false, yesterday: false, cash: false, account: false, cans: '', price: '', priceOp: '>' }); }}>Clear</Button>
+                  <Button variant="outline" onClick={() => { setFilterDraft({ today: false, yesterday: false, date: '', cash: false, account: false, cans: '', cansOp: '=', price: '', priceOp: '>', }); }}>Clear</Button>
                   <Button onClick={() => { setActiveFilter(filterDraft); setIsFilterOpen(false); }}>Apply</Button>
                 </div>
               </div>

@@ -27,6 +27,7 @@ import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@
 import { Calendar } from '@/components/ui/calendar';
 import { Label } from '@/components/ui/label';
 import { ListFilter } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface CustomerListProps {
   onEditCustomer?: (customer: Customer) => void; // Optional for now, will be used by AdminDashboardPage
@@ -42,8 +43,8 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [filterDraft, setFilterDraft] = useState<{ start: string; end: string; cans: string; cansOp: '<' | '=' | '>'; price: string }>({ start: '', end: '', cans: '', cansOp: '<', price: '' });
-  const [activeFilter, setActiveFilter] = useState<{ start: string; end: string; cans: string; cansOp: '<' | '=' | '>'; price: string }>({ start: '', end: '', cans: '', cansOp: '<', price: '' });
+  const [filterDraft, setFilterDraft] = useState<{ start: string; end: string; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>'; ptCash: boolean; ptAccount: boolean }>({ start: '', end: '', cans: '', cansOp: '<', price: '', priceOp: '=', ptCash: false, ptAccount: false });
+  const [activeFilter, setActiveFilter] = useState<{ start: string; end: string; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>'; ptCash: boolean; ptAccount: boolean }>({ start: '', end: '', cans: '', cansOp: '<', price: '', priceOp: '=', ptCash: false, ptAccount: false });
   const [customerCansMap, setCustomerCansMap] = useState<Record<string, number>>({});
 
   const fetchCustomers = async () => {
@@ -151,13 +152,14 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
   // Apply filters to customers using aggregated cans and optional price
   const filteredAndAggregatedCustomers = useMemo(() => {
     const list = filteredCustomers; // name/phone/address fuzzy filter applied
-    const { start, end, cans, cansOp, price } = activeFilter;
+    const { start, end, cans, cansOp, price, priceOp, ptCash, ptAccount } = activeFilter;
     const cansVal = cans && /^\d{1,6}$/.test(cans) ? Number(cans) : null;
     const priceVal = price && /^\d{1,3}$/.test(price) ? Number(price) : null;
     const hasCansFilter = cansVal != null && cansOp;
     const hasPriceFilter = priceVal != null;
+    const hasPtFilter = ptCash || ptAccount;
 
-    if (!start && !end && !hasCansFilter && !hasPriceFilter) return list;
+    if (!start && !end && !hasCansFilter && !hasPriceFilter && !hasPtFilter) return list;
 
     return list.filter(c => {
       // cans filter based on aggregated map
@@ -171,7 +173,16 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
       // price filter (per-can price from customer)
       if (hasPriceFilter) {
         const p = c.pricePerCan || 0;
-        if (p !== priceVal) return false;
+        const op = priceOp || '=';
+        if (op === '<' && !(p < priceVal!)) return false;
+        if (op === '=' && !(p === priceVal!)) return false;
+        if (op === '>' && !(p > priceVal!)) return false;
+      }
+      // payment type filter
+      if (hasPtFilter) {
+        const pt = ((c as any).paymentType || '').toString().toLowerCase();
+        if (ptCash && pt !== 'cash') return false;
+        if (ptAccount && pt !== 'account') return false;
       }
       return true;
     });
@@ -271,18 +282,45 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
                 </div>
               </div>
               <div>
+                <Label className="mb-2 block">Payment Type (optional)</Label>
+                <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-2">
+                    <Checkbox id="pt-cash" checked={filterDraft.ptCash} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, ptCash: !!v }))} />
+                    <Label htmlFor="pt-cash">Cash</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox id="pt-account" checked={filterDraft.ptAccount} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, ptAccount: !!v }))} />
+                    <Label htmlFor="pt-account">Account</Label>
+                  </div>
+                </div>
+              </div>
+              <div>
                 <Label className="mb-2 block">Price per Can (optional)</Label>
-                <TextInput
-                  placeholder="e.g., 60"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  maxLength={3}
-                  value={filterDraft.price}
-                  onChange={(e) => setFilterDraft(prev => ({ ...prev, price: e.target.value.replace(/\D+/g, '').slice(0, 3) }))}
-                />
+                <div className="flex items-center gap-2">
+                  <div className="w-28">
+                    <Select value={filterDraft.priceOp} onValueChange={(v) => setFilterDraft(prev => ({ ...prev, priceOp: v as any }))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value=">">Greater</SelectItem>
+                        <SelectItem value="=">Equal</SelectItem>
+                        <SelectItem value="<">Less</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <TextInput
+                    placeholder="e.g., 60"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={3}
+                    value={filterDraft.price}
+                    onChange={(e) => setFilterDraft(prev => ({ ...prev, price: e.target.value.replace(/\D+/g, '').slice(0, 3) }))}
+                  />
+                </div>
               </div>
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => { setFilterDraft({ start: '', end: '', cans: '', cansOp: '<', price: '' }); }}>Clear</Button>
+                <Button variant="outline" onClick={() => { setFilterDraft({ start: '', end: '', cans: '', cansOp: '<', price: '', priceOp: '=', ptCash: false, ptAccount: false }); }}>Clear</Button>
                 <Button onClick={async () => { setActiveFilter(filterDraft); setIsFilterOpen(false); await fetchAndBuildCansMap(filterDraft.start, filterDraft.end); }}>Apply</Button>
               </div>
             </div>

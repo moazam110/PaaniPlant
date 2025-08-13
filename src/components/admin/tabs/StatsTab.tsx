@@ -63,23 +63,29 @@ export default function StatsTab({
   // Fetch filtered metrics when month/year changes
   const fetchFilteredMetrics = async (month?: string, year?: string, day?: string) => {
     setFilteredMetrics(prev => ({ ...prev, isLoading: true }));
-    
+
     try {
       let metricsUrl = buildApiUrl('api/dashboard/metrics');
       const params: string[] = [];
-      if (month && year) {
-        params.push(`month=${month}`, `year=${year}`);
+
+      // Normalize inputs: if day present but month/year missing, use current; if month present but no year, use current
+      const now = new Date();
+      const effectiveMonth = day && !month ? String(now.getMonth() + 1) : month;
+      const effectiveYear = (day && !year) || (month && !year) ? String(now.getFullYear()) : year;
+
+      if (effectiveMonth && effectiveYear) {
+        params.push(`month=${effectiveMonth}`, `year=${effectiveYear}`);
       }
       if (day) {
         params.push(`day=${day}`);
       }
-      if (!month && year && !day) {
-        params.push(`year=${year}`);
+      if (!effectiveMonth && effectiveYear && !day) {
+        params.push(`year=${effectiveYear}`);
       }
       if (params.length) {
         metricsUrl += `?${params.join('&')}`;
       }
-      
+
       const response = await fetch(metricsUrl);
       if (response.ok) {
         const data = await response.json();
@@ -105,19 +111,25 @@ export default function StatsTab({
 
   // Helper: fetch for current selection; if none selected, fetch today
   const fetchForCurrentSelection = () => {
-    const todayDay = String(currentDate.getDate()).padStart(2, '0');
-    const todayMonth = String(currentDate.getMonth() + 1);
-    const todayYear = String(currentDate.getFullYear());
+    const now = new Date();
+    const todayDay = String(now.getDate()).padStart(2, '0');
+    const todayMonth = String(now.getMonth() + 1);
+    const todayYear = String(now.getFullYear());
+
     if (!selectedDay && !selectedMonth && !selectedYear) {
       fetchFilteredMetrics(todayMonth, todayYear, todayDay);
     } else if (selectedDay) {
-      fetchFilteredMetrics(selectedMonth || undefined, selectedYear || undefined, selectedDay);
-    } else if (selectedMonth && selectedYear) {
-      fetchFilteredMetrics(selectedMonth, selectedYear, undefined);
+      // If day selected without month/year, assume current month/year
+      const month = selectedMonth || todayMonth;
+      const year = selectedYear || todayYear;
+      fetchFilteredMetrics(month, year, selectedDay);
+    } else if (selectedMonth) {
+      // If month selected without year, assume current year
+      const year = selectedYear || todayYear;
+      fetchFilteredMetrics(selectedMonth, year, undefined);
     } else if (selectedYear) {
       fetchFilteredMetrics(undefined, selectedYear, undefined);
     } else {
-      // Fallback to today
       fetchFilteredMetrics(todayMonth, todayYear, todayDay);
     }
   };
