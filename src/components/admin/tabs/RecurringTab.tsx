@@ -35,6 +35,8 @@ export default function RecurringTab() {
   const [isOpen, setIsOpen] = useState(false);
   const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
   const [recurringRequests, setRecurringRequests] = useState<RecurringRequest[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<{ daily: boolean; weekly: boolean; one_time: boolean }>({ daily: true, weekly: true, one_time: true });
   const [addressSortOrder, setAddressSortOrder] = useState<'asc' | 'desc' | null>(null);
@@ -48,17 +50,34 @@ export default function RecurringTab() {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
-    // Fetch customers and recurring
-    (async () => {
+    let isActive = true;
+    const fetchAll = async () => {
+      setIsLoading(true);
+      setError(null);
       try {
         const [custRes, recRes] = await Promise.all([
           fetch(buildApiUrl(API_ENDPOINTS.CUSTOMERS)),
           fetch(buildApiUrl(API_ENDPOINTS.RECURRING_REQUESTS)),
         ]);
-        if (custRes.ok) setAllCustomers(await custRes.json());
-        if (recRes.ok) setRecurringRequests(await recRes.json());
-      } catch (e) {}
-    })();
+        if (custRes.ok) {
+          const c = await custRes.json();
+          if (isActive) setAllCustomers(c);
+        }
+        if (recRes.ok) {
+          const r = await recRes.json();
+          if (isActive) setRecurringRequests(r);
+        } else {
+          if (isActive) setError('Failed to fetch recurring requests');
+        }
+      } catch (e) {
+        if (isActive) setError('Failed to load data');
+      } finally {
+        if (isActive) setIsLoading(false);
+      }
+    };
+    fetchAll();
+    const interval = setInterval(fetchAll, 10000);
+    return () => { isActive = false; clearInterval(interval); };
   }, []);
 
   const customersOptions = useMemo(() => {
@@ -166,6 +185,9 @@ export default function RecurringTab() {
 
   return (
     <div className="p-3 space-y-3">
+      {error && (
+        <div className="p-2 text-sm rounded bg-red-100 text-red-700 border border-red-200">{error}</div>
+      )}
       <div className="flex flex-col sm:flex-row gap-2 items-center justify-between">
         <Button onClick={() => setIsOpen(true)}><PlusCircle className="h-4 w-4 mr-2" /> Create Recurring Request</Button>
         <div className="flex-1 flex flex-col sm:flex-row gap-2 items-center justify-end">
@@ -209,7 +231,15 @@ export default function RecurringTab() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.map((r) => {
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-6 text-muted-foreground">Loading recurring requests...</TableCell>
+              </TableRow>
+            ) : filtered.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-6 text-muted-foreground">No recurring requests found.</TableCell>
+              </TableRow>
+            ) : filtered.map((r) => {
               const idName = r.customerIntId ? `${r.customerIntId} - ${r.customerName}` : r.customerName;
               const typeLabel = r.type === 'daily' ? 'Daily' : r.type === 'weekly' ? 'Weekly' : 'One-Time';
               const daysOrDate = r.type === 'daily' ? 'Every Day' : r.type === 'weekly' ? (r.days || []).map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ') : (r.date ? new Date(r.date).toLocaleDateString() : '-');
