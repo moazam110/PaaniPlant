@@ -234,7 +234,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
       const idNum = Number(trimmed);
       const customersWithActiveRequests = new Set(
         deliveryRequests
-          .filter(req => ['pending', 'pending_confirmation', 'processing'].includes(req.status))
+          .filter(req => ['pending', 'processing'].includes(req.status))
           .map(req => req.customerId)
       );
       return allCustomers.filter(c => (c as any).id === idNum && !customersWithActiveRequests.has(c._id || (c as any).customerId || ''));
@@ -245,7 +245,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
     const searchLower = trimmed.toLowerCase();
     const customersWithActiveRequests = new Set(
       deliveryRequests
-        .filter(req => ['pending', 'pending_confirmation', 'processing'].includes(req.status))
+        .filter(req => ['pending', 'processing'].includes(req.status))
         .map(req => req.customerId)
     );
 

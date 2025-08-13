@@ -135,7 +135,7 @@ export default function CreateDeliveryRequestForm({
             const activeCustomerIds = new Set<string>();
             
             requestsData
-              .filter(req => ['pending', 'pending_confirmation', 'processing'].includes(req.status))
+              .filter(req => ['pending', 'processing'].includes(req.status))
               .forEach(req => {
                 if (req.customerId) {
                   activeCustomerIds.add(String(req.customerId));
