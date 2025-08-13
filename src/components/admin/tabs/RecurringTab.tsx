@@ -11,6 +11,7 @@ import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@
 import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 import type { Customer } from '@/types';
 import { ArrowUpAZ, ArrowDownAZ, PlusCircle, Pencil, Trash2, CalendarClock } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 type RecurringType = 'daily' | 'weekly' | 'one_time';
 
@@ -30,6 +31,7 @@ interface RecurringRequest {
 }
 
 export default function RecurringTab() {
+  const { toast } = useToast();
   const [isOpen, setIsOpen] = useState(false);
   const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
   const [recurringRequests, setRecurringRequests] = useState<RecurringRequest[]>([]);
@@ -42,6 +44,8 @@ export default function RecurringTab() {
     { customerId: '', type: 'daily', days: [], date: '', time: '09:00', priority: 'normal', cans: 1 }
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
     // Fetch customers and recurring
@@ -97,20 +101,51 @@ export default function RecurringTab() {
 
   const createRecurring = async () => {
     if (!form.customerId) return;
+    // Client-side validation
+    if (form.type === 'weekly' && (!form.days || form.days.length === 0)) {
+      toast({ variant: 'destructive', title: 'Missing days', description: 'Please select at least one day for weekly recurrence.' });
+      return;
+    }
+    if (form.type === 'one_time' && !form.date) {
+      toast({ variant: 'destructive', title: 'Missing date', description: 'Please pick a date for one-time recurrence.' });
+      return;
+    }
+    // Duplicate prevention (same customer + same type)
+    const duplicate = recurringRequests.some(r => String(r.customerId) === String(form.customerId) && r.type === form.type && (!isEditing || r._id !== editingId));
+    if (duplicate) {
+      toast({ variant: 'destructive', title: 'Duplicate recurring request', description: 'A recurring request with the same customer and type already exists.' });
+      return;
+    }
     setIsSubmitting(true);
     try {
       const body = { ...form };
-      const res = await fetch(buildApiUrl(API_ENDPOINTS.RECURRING_REQUESTS), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error('Failed to create recurring');
-      const created = await res.json();
-      setRecurringRequests(prev => [created, ...prev]);
+      if (isEditing && editingId) {
+        const res = await fetch(buildApiUrl(`${API_ENDPOINTS.RECURRING_REQUESTS}/${editingId}`), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error('Failed to update recurring');
+        const updated = await res.json();
+        setRecurringRequests(prev => prev.map(r => (r._id === editingId ? updated : r)));
+        toast({ title: 'Updated', description: 'Recurring request updated successfully.' });
+      } else {
+        const res = await fetch(buildApiUrl(API_ENDPOINTS.RECURRING_REQUESTS), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error('Failed to create recurring');
+        const created = await res.json();
+        setRecurringRequests(prev => [created, ...prev]);
+        toast({ title: 'Created', description: 'Recurring request created successfully.' });
+      }
       setIsOpen(false);
+      setIsEditing(false);
+      setEditingId(null);
       resetForm();
     } catch (e) {
+      toast({ variant: 'destructive', title: 'Action failed', description: e instanceof Error ? e.message : 'Could not save recurring request.' });
     } finally {
       setIsSubmitting(false);
     }
@@ -118,8 +153,14 @@ export default function RecurringTab() {
 
   const deleteRecurring = async (id: string) => {
     try {
+      if (!confirm('Delete this recurring request?')) return;
       const res = await fetch(buildApiUrl(`${API_ENDPOINTS.RECURRING_REQUESTS}/${id}`), { method: 'DELETE' });
-      if (res.ok) setRecurringRequests(prev => prev.filter(r => r._id !== id));
+      if (res.ok) {
+        setRecurringRequests(prev => prev.filter(r => r._id !== id));
+        toast({ title: 'Deleted', description: 'Recurring request removed.' });
+      } else {
+        toast({ variant: 'destructive', title: 'Delete failed', description: 'Could not delete recurring request.' });
+      }
     } catch {}
   };
 
@@ -183,7 +224,20 @@ export default function RecurringTab() {
                   <TableCell>{timeLabel}</TableCell>
                   <TableCell>{nextLabel}</TableCell>
                   <TableCell className="text-right">
-                    <Button size="sm" variant="ghost"><Pencil className="h-4 w-4" /></Button>
+                    <Button size="sm" variant="ghost" onClick={() => {
+                      setIsEditing(true);
+                      setEditingId(r._id || null);
+                      setForm({
+                        customerId: String(r.customerId),
+                        type: r.type,
+                        days: r.days || [],
+                        date: r.date || '',
+                        time: r.time,
+                        priority: r.priority,
+                        cans: r.cans || 1,
+                      });
+                      setIsOpen(true);
+                    }}><Pencil className="h-4 w-4" /></Button>
                     <Button size="sm" variant="ghost" onClick={() => r._id && deleteRecurring(r._id)} className="text-red-600"><Trash2 className="h-4 w-4" /></Button>
                   </TableCell>
                 </TableRow>
@@ -194,10 +248,10 @@ export default function RecurringTab() {
       </div>
 
       {/* Create Recurring Dialog */}
-      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <Dialog open={isOpen} onOpenChange={(open) => { setIsOpen(open); if (!open) { setIsEditing(false); setEditingId(null); resetForm(); } }}>
         <DialogContent className="sm:max-w-[520px]">
           <DialogHeader>
-            <DialogTitle>Create Recurring Request</DialogTitle>
+            <DialogTitle>{isEditing ? 'Edit Recurring Request' : 'Create Recurring Request'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
@@ -270,8 +324,8 @@ export default function RecurringTab() {
               </div>
             </div>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => { resetForm(); setIsOpen(false); }}>Cancel</Button>
-              <Button disabled={isSubmitting} onClick={createRecurring}><CalendarClock className="h-4 w-4 mr-1" /> Create</Button>
+              <Button variant="outline" onClick={() => { resetForm(); setIsEditing(false); setEditingId(null); setIsOpen(false); }}>Cancel</Button>
+              <Button disabled={isSubmitting} onClick={createRecurring}><CalendarClock className="h-4 w-4 mr-1" /> {isEditing ? 'Update' : 'Create'}</Button>
             </div>
           </div>
         </DialogContent>
