@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/table";
 // Removed Avatar imports to save space
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Pencil, Star } from 'lucide-react';
+import { Search, Pencil, Star, ArrowUpAZ, ArrowDownAZ } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
@@ -46,6 +46,7 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
   const [filterDraft, setFilterDraft] = useState<{ start: string; end: string; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>'; ptCash: boolean; ptAccount: boolean }>({ start: '', end: '', cans: '', cansOp: '<', price: '', priceOp: '=', ptCash: false, ptAccount: false });
   const [activeFilter, setActiveFilter] = useState<{ start: string; end: string; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>'; ptCash: boolean; ptAccount: boolean }>({ start: '', end: '', cans: '', cansOp: '<', price: '', priceOp: '=', ptCash: false, ptAccount: false });
   const [customerCansMap, setCustomerCansMap] = useState<Record<string, number>>({});
+  const [addressSortOrder, setAddressSortOrder] = useState<'asc' | 'desc' | null>(null);
 
   const fetchCustomers = async () => {
     setIsLoading(true);
@@ -172,7 +173,7 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
     console.log('Customer cans map size:', Object.keys(customerCansMap).length);
     console.log('Customer cans map sample:', Object.entries(customerCansMap).slice(0, 3));
 
-    if (!hasDateFilter && !hasCansFilter && !hasPriceFilter && !hasPtFilter) {
+    if (!hasDateFilter && !hasCansFilter && !hasPriceFilter && !hasPtFilter && !addressSortOrder) {
       console.log('No filters active, returning all customers');
       return list;
     }
@@ -216,8 +217,19 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
     });
 
     console.log(`Filtered ${list.length} customers down to ${filtered.length}`);
-    return filtered;
-  }, [filteredCustomers, activeFilter, customerCansMap]);
+    if (!addressSortOrder) return filtered;
+    const dir = addressSortOrder === 'asc' ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const aAddr = (a.address || '').toString().toLowerCase();
+      const bAddr = (b.address || '').toString().toLowerCase();
+      if (aAddr < bAddr) return -1 * dir;
+      if (aAddr > bAddr) return 1 * dir;
+      // tie-breaker by createdAt newest first to keep list stable
+      const ta = a.createdAt ? new Date(a.createdAt as any).getTime() : 0;
+      const tb = b.createdAt ? new Date(b.createdAt as any).getTime() : 0;
+      return tb - ta;
+    });
+  }, [filteredCustomers, activeFilter, customerCansMap, addressSortOrder]);
 
   if (isLoading) {
     return (
@@ -348,6 +360,29 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
                     value={filterDraft.price}
                     onChange={(e) => setFilterDraft(prev => ({ ...prev, price: e.target.value.replace(/\D+/g, '').slice(0, 3) }))}
                   />
+                </div>
+              </div>
+              <div>
+                <Label className="mb-2 block">Address Sort</Label>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant={addressSortOrder === 'asc' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setAddressSortOrder(prev => (prev === 'asc' ? null : 'asc'))}
+                    title="Ascending"
+                  >
+                    <ArrowUpAZ className="h-4 w-4 mr-1" /> Asc
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={addressSortOrder === 'desc' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setAddressSortOrder(prev => (prev === 'desc' ? null : 'desc'))}
+                    title="Descending"
+                  >
+                    <ArrowDownAZ className="h-4 w-4 mr-1" /> Desc
+                  </Button>
                 </div>
               </div>
               <div className="flex justify-end gap-2">

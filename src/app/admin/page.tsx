@@ -355,7 +355,7 @@ export default function AdminDashboardPage() {
                 <DialogContent className="sm:max-w-[525px] flex flex-col max-h-[calc(100vh-4rem)] glass-card">
                     <div className="flex-grow overflow-y-auto pr-2 py-2">
                         <CreateDeliveryRequestForm 
-                            onSuccess={closeRequestDialog}
+                            onSuccess={() => { refreshDeliveryRequests(); closeRequestDialog(); }}
                             onCloseDialog={closeRequestDialog} 
                             customerToPreselect={customerToPreselectForRequest}
                             editingRequest={editingRequestData}

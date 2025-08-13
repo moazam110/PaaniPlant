@@ -42,7 +42,7 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
   );
 
   return (
-    <Card className={cn(cardClasses, 'py-1')}>
+    <Card className={cn(cardClasses, 'py-1 h-full flex flex-col')}>
       <CardHeader className="py-2">
         <div className="flex items-center justify-between">
           <div className="flex flex-col gap-1">
@@ -76,7 +76,7 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
         {isDelivered && (<Badge className="mt-1 w-fit bg-green-500 text-white text-[10px] py-0.5 px-2">Delivered</Badge>)}
         {isCancelled && (<Badge className="mt-1 w-fit bg-red-500 text-white text-[10px] py-0.5 px-2">Cancelled</Badge>)}
       </CardHeader>
-      <CardContent className="py-2">
+      <CardContent className="py-2 flex-1">
         <div className="mb-2">
           <div className="flex items-center justify-between mb-1">
             <p className="text-xl font-bold text-primary">{request.cans} cans</p>
@@ -117,7 +117,7 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
           </div>
         )}
       </CardContent>
-      <CardFooter className="py-2">
+      <CardFooter className="py-2 mt-auto">
         {isPending && (
           <>
             <Button 

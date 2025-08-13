@@ -16,7 +16,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, AlertTriangle, PlusCircle, Pencil, CheckCircle, XCircle, Ban, Star } from 'lucide-react';
+import { Search, AlertTriangle, PlusCircle, Pencil, CheckCircle, XCircle, Ban, Star, ArrowUpAZ, ArrowDownAZ } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 import { format } from 'date-fns';
@@ -71,6 +71,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filterDraft, setFilterDraft] = useState<{ today: boolean; date: string; cash: boolean; account: boolean; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>' }>({ today: false, date: '', cash: false, account: false, cans: '', cansOp: '=', price: '', priceOp: '>' });
   const [activeFilter, setActiveFilter] = useState<{ today: boolean; date: string; cash: boolean; account: boolean; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>' }>({ today: false, date: '', cash: false, account: false, cans: '', cansOp: '=', price: '', priceOp: '>' });
+  const [addressSortOrder, setAddressSortOrder] = useState<'asc' | 'desc' | null>(null);
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
@@ -182,7 +183,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
     const specificRef = hasSpecificDate ? new Date(date) : null;
     if (specificRef) specificRef.setHours(0, 0, 0, 0);
 
-    return list.filter(req => {
+    const filtered = list.filter(req => {
       // Date filter: apply only to delivered history
       if (hasDateFilter || hasSpecificDate) {
         if (req.status !== 'delivered') return false;
@@ -225,7 +226,25 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
 
       return true;
     });
-  }, [filteredDeliveryRequests, activeFilter]);
+
+    if (!addressSortOrder) return filtered;
+    const dir = addressSortOrder === 'asc' ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const aAddr = (a.address || '').toString().toLowerCase();
+      const bAddr = (b.address || '').toString().toLowerCase();
+      if (aAddr < bAddr) return -1 * dir;
+      if (aAddr > bAddr) return 1 * dir;
+      // tie-breaker: urgent first within same address for active requests
+      if ((a.status === 'pending' || a.status === 'processing') && (b.status === 'pending' || b.status === 'processing')) {
+        if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
+        if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
+      }
+      // final tie-breaker by requestedAt oldest first
+      const ta = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
+      const tb = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
+      return ta - tb;
+    });
+  }, [filteredDeliveryRequests, activeFilter, addressSortOrder]);
 
   const customersForNewRequest = useMemo(() => {
     const trimmed = searchTerm.trim();
@@ -444,6 +463,29 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                         setFilterDraft(prev => ({ ...prev, price: digits }));
                       }}
                     />
+                  </div>
+                </div>
+                <div>
+                  <Label className="mb-2 block">Address Sort</Label>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant={addressSortOrder === 'asc' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setAddressSortOrder(prev => (prev === 'asc' ? null : 'asc'))}
+                      title="Ascending"
+                    >
+                      <ArrowUpAZ className="h-4 w-4 mr-1" /> Asc
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={addressSortOrder === 'desc' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setAddressSortOrder(prev => (prev === 'desc' ? null : 'desc'))}
+                      title="Descending"
+                    >
+                      <ArrowDownAZ className="h-4 w-4 mr-1" /> Desc
+                    </Button>
                   </div>
                 </div>
                 <div className="flex justify-end gap-2">
