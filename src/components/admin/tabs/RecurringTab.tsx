@@ -16,7 +16,7 @@ import type { Customer } from '@/types';
 import { ArrowUpAZ, ArrowDownAZ, PlusCircle, Pencil, Trash2, CalendarClock, ListFilter } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
-type RecurringType = 'daily' | 'weekly' | 'one_time';
+type RecurringType = 'daily' | 'weekly' | 'one_time' | 'alternating_days';
 
 interface RecurringRequest {
   _id?: string;
@@ -50,6 +50,12 @@ const computeNextRun = (payload: { type: RecurringType; days?: number[]; date?: 
     const d = new Date();
     d.setHours(h, m, 0, 0);
     if (d <= now) d.setDate(d.getDate() + 1);
+    return d.toISOString();
+  }
+  if (payload.type === 'alternating_days') {
+    const d = new Date();
+    d.setHours(h, m, 0, 0);
+    if (d <= now) d.setDate(d.getDate() + 2); // Every other day
     return d.toISOString();
   }
   // weekly
@@ -113,10 +119,10 @@ export default function RecurringTab() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [filterType, setFilterType] = useState<{ daily: boolean; weekly: boolean; one_time: boolean }>({ daily: true, weekly: true, one_time: true });
+  const [filterType, setFilterType] = useState<{ daily: boolean; weekly: boolean; one_time: boolean; alternating_days: boolean }>({ daily: true, weekly: true, one_time: true, alternating_days: true });
   const [addressSortOrder, setAddressSortOrder] = useState<'asc' | 'desc' | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [filterDraft, setFilterDraft] = useState<{ daily: boolean; weekly: boolean; one_time: boolean; addrOrder: 'asc' | 'desc' | null }>({ daily: true, weekly: true, one_time: true, addrOrder: null });
+  const [filterDraft, setFilterDraft] = useState<{ daily: boolean; weekly: boolean; one_time: boolean; alternating_days: boolean; addrOrder: 'asc' | 'desc' | null }>({ daily: true, weekly: true, one_time: true, alternating_days: true, addrOrder: null });
 
   // Form state
   const [form, setForm] = useState<{ customerId: string; type: RecurringType; days: number[]; date: string; time: string; priority: 'normal' | 'urgent'; cans: number }>(
@@ -203,6 +209,7 @@ export default function RecurringTab() {
       filterType.daily ? ['daily'] : [],
       filterType.weekly ? ['weekly'] : [],
       filterType.one_time ? ['one_time'] : [],
+      filterType.alternating_days ? ['alternating_days'] : [],
     );
     const typesActive = allowTypes.length > 0;
     const prelim = recurringRequests.filter(r => {
@@ -424,6 +431,11 @@ export default function RecurringTab() {
                   }
                   if (found) nextRun = found.toISOString();
                 }
+              } else if (r.type === 'alternating_days') {
+                const n = new Date(prev);
+                n.setDate(prev.getDate() + 2); // Every other day
+                n.setHours(hours, minutes, 0, 0);
+                nextRun = n.toISOString();
               }
             }
             const updRes = await fetch(buildApiUrl(`${API_ENDPOINTS.RECURRING_REQUESTS}/${r._id}`), {
@@ -474,6 +486,10 @@ export default function RecurringTab() {
                     <Checkbox id="rflt-onetime" checked={filterDraft.one_time} onCheckedChange={(v) => setFilterDraft(p => ({ ...p, one_time: !!v }))} />
                     <Label htmlFor="rflt-onetime">One-Time</Label>
                   </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox id="rflt-alternating" checked={filterDraft.alternating_days} onCheckedChange={(v) => setFilterDraft(p => ({ ...p, alternating_days: !!v }))} />
+                    <Label htmlFor="rflt-alternating">Alternating Days</Label>
+                  </div>
                 </div>
 
                 <div>
@@ -489,8 +505,8 @@ export default function RecurringTab() {
                 </div>
 
                 <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setFilterDraft({ daily: true, weekly: true, one_time: true, addrOrder: null })}>Clear</Button>
-                  <Button onClick={() => { setFilterType({ daily: filterDraft.daily, weekly: filterDraft.weekly, one_time: filterDraft.one_time }); setAddressSortOrder(filterDraft.addrOrder); setIsFilterOpen(false); }}>Apply</Button>
+                  <Button variant="outline" onClick={() => setFilterDraft({ daily: true, weekly: true, one_time: true, alternating_days: true, addrOrder: null })}>Clear</Button>
+                  <Button onClick={() => { setFilterType({ daily: filterDraft.daily, weekly: filterDraft.weekly, one_time: filterDraft.one_time, alternating_days: filterDraft.alternating_days }); setAddressSortOrder(filterDraft.addrOrder); setIsFilterOpen(false); }}>Apply</Button>
                 </div>
               </div>
             </PopoverContent>
@@ -507,8 +523,8 @@ export default function RecurringTab() {
         ) : (
           filtered.map((r) => {
             const idName = r.customerIntId ? `${r.customerIntId} - ${r.customerName}` : r.customerName;
-            const typeLabel = r.type === 'daily' ? 'Daily' : r.type === 'weekly' ? 'Weekly' : 'One-Time';
-            const daysOrDate = r.type === 'daily' ? 'Every Day' : r.type === 'weekly' ? (r.days || []).map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ') : (r.date ? new Date(r.date).toLocaleDateString() : '-');
+            const typeLabel = r.type === 'daily' ? 'Daily' : r.type === 'weekly' ? 'Weekly' : r.type === 'alternating_days' ? 'Alternating Days' : 'One-Time';
+            const daysOrDate = r.type === 'daily' ? 'Every Day' : r.type === 'weekly' ? (r.days || []).map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ') : r.type === 'alternating_days' ? 'Every Other Day' : (r.date ? new Date(r.date).toLocaleDateString() : '-');
             const nextLabel = r.nextRun ? `${new Date(r.nextRun).toLocaleDateString(undefined, { month: 'short', day: '2-digit' })} ${r.time}` : '-';
             return (
               <Card key={r._id || `${idName}-${r.time}`} className="h-full flex flex-col">
@@ -575,8 +591,8 @@ export default function RecurringTab() {
               </TableRow>
             ) : filtered.map((r) => {
               const idName = r.customerIntId ? `${r.customerIntId} - ${r.customerName}` : r.customerName;
-              const typeLabel = r.type === 'daily' ? 'Daily' : r.type === 'weekly' ? 'Weekly' : 'One-Time';
-              const daysOrDate = r.type === 'daily' ? 'Every Day' : r.type === 'weekly' ? (r.days || []).map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ') : (r.date ? new Date(r.date).toLocaleDateString() : '-');
+              const typeLabel = r.type === 'daily' ? 'Daily' : r.type === 'weekly' ? 'Weekly' : r.type === 'alternating_days' ? 'Alternating Days' : 'One-Time';
+              const daysOrDate = r.type === 'daily' ? 'Every Day' : r.type === 'weekly' ? (r.days || []).map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ') : r.type === 'alternating_days' ? 'Every Other Day' : (r.date ? new Date(r.date).toLocaleDateString() : '-');
               const timeLabel = r.time;
               const nextLabel = r.nextRun ? `${new Date(r.nextRun).toLocaleDateString(undefined, { month: 'short', day: '2-digit' })} ${r.time}` : '-';
               return (
@@ -640,6 +656,7 @@ export default function RecurringTab() {
                     <SelectItem value="daily">Daily</SelectItem>
                     <SelectItem value="weekly">Weekly</SelectItem>
                     <SelectItem value="one_time">One-Time</SelectItem>
+                    <SelectItem value="alternating_days">Alternating Days</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -702,6 +719,12 @@ export default function RecurringTab() {
               <div>
                 <Label>Date</Label>
                 <Input type="date" value={form.date} onChange={(e) => setForm(prev => ({ ...prev, date: e.target.value }))} />
+              </div>
+            )}
+            {form.type === 'alternating_days' && (
+              <div>
+                <Label>Next Run</Label>
+                <p className="text-sm text-muted-foreground">This recurring request will run every other day.</p>
               </div>
             )}
             <div className="grid grid-cols-2 gap-3">

@@ -88,7 +88,7 @@ const recurringRequestSchema = new mongoose.Schema({
   customerIntId: { type: Number, index: true },
   customerName: { type: String, required: true },
   address: { type: String, required: true },
-  type: { type: String, enum: ['daily', 'weekly', 'one_time'], required: true },
+  type: { type: String, enum: ['daily', 'weekly', 'one_time', 'alternating_days'], required: true },
   cans: { type: Number, required: true },
   days: { type: [Number], default: [] }, // 0-6 Sun-Sat
   date: { type: String, default: '' }, // ISO date string for one-time (yyyy-mm-dd)
@@ -290,6 +290,12 @@ const computeNextRun = (payload) => {
       if (d <= now) d.setDate(d.getDate() + 1);
       return d;
     }
+    if (payload.type === 'alternating_days') {
+      const d = new Date();
+      d.setHours(hours, minutes, 0, 0);
+      if (d <= now) d.setDate(d.getDate() + 2); // Every other day
+      return d;
+    }
     // weekly
     const days = Array.isArray(payload.days) ? [...payload.days].sort() : [];
     if (days.length === 0) {
@@ -338,6 +344,12 @@ const computeNextRunWithOffset = (payload, baseNow = new Date()) => {
       if (local <= nowLocal) local.setDate(local.getDate() + 1);
       return new Date(local.getTime() - offsetMs);
     }
+    if (payload.type === 'alternating_days') {
+      const local = new Date(nowLocal);
+      local.setHours(h, m, 0, 0);
+      if (local <= nowLocal) local.setDate(local.getDate() + 2); // Every other day
+      return new Date(local.getTime() - offsetMs);
+    }
     // weekly
     const days = Array.isArray(payload.days) ? payload.days.slice().sort() : [];
     if (days.length === 0) {
@@ -377,6 +389,12 @@ const computeNextAfterPrev = (rule) => {
     if (type === 'daily') {
       const next = new Date(prev);
       next.setDate(prev.getDate() + 1);
+      next.setHours(hours, minutes, 0, 0);
+      return next;
+    }
+    if (type === 'alternating_days') {
+      const next = new Date(prev);
+      next.setDate(prev.getDate() + 2); // Every other day
       next.setHours(hours, minutes, 0, 0);
       return next;
     }
