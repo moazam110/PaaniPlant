@@ -317,6 +317,54 @@ const computeNextRun = (payload) => {
   }
 };
 
+// Business/local timezone handling
+const BUSINESS_TZ_OFFSET_MINUTES = Number(process.env.BUSINESS_TZ_OFFSET_MINUTES || '300'); // default +05:00
+
+// Compute next run interpreting payload.time as local business time (offset minutes from UTC)
+const computeNextRunWithOffset = (payload, baseNow = new Date()) => {
+  try {
+    const offsetMs = BUSINESS_TZ_OFFSET_MINUTES * 60 * 1000;
+    const nowUtc = baseNow;
+    const nowLocal = new Date(nowUtc.getTime() + offsetMs);
+    const [h, m] = String(payload.time || '09:00').split(':').map(n => parseInt(n || '0', 10));
+    if (payload.type === 'one_time' && payload.date) {
+      const parts = String(payload.date).split('-').map(x => parseInt(x, 10));
+      const local = new Date(parts[0], (parts[1] || 1) - 1, (parts[2] || 1), h, m, 0, 0);
+      return new Date(local.getTime() - offsetMs);
+    }
+    if (payload.type === 'daily') {
+      const local = new Date(nowLocal);
+      local.setHours(h, m, 0, 0);
+      if (local <= nowLocal) local.setDate(local.getDate() + 1);
+      return new Date(local.getTime() - offsetMs);
+    }
+    // weekly
+    const days = Array.isArray(payload.days) ? payload.days.slice().sort() : [];
+    if (days.length === 0) {
+      const local = new Date(nowLocal);
+      local.setHours(h, m, 0, 0);
+      if (local <= nowLocal) local.setDate(local.getDate() + 7);
+      return new Date(local.getTime() - offsetMs);
+    }
+    const today = nowLocal.getDay();
+    for (let i = 0; i < 7; i++) {
+      const cand = new Date(nowLocal);
+      cand.setDate(nowLocal.getDate() + i);
+      const dow = (today + i) % 7;
+      if (days.includes(dow)) {
+        cand.setHours(h, m, 0, 0);
+        if (cand > nowLocal) return new Date(cand.getTime() - offsetMs);
+      }
+    }
+    const fallback = new Date(nowLocal);
+    fallback.setDate(nowLocal.getDate() + 7);
+    fallback.setHours(h, m, 0, 0);
+    return new Date(fallback.getTime() - offsetMs);
+  } catch {
+    return computeNextRun(payload);
+  }
+};
+
 // Compute the next run strictly based on the previous nextRun timestamp to preserve exact time-of-day
 const computeNextAfterPrev = (rule) => {
   try {
@@ -422,7 +470,7 @@ app.post('/api/recurring-requests', async (req, res) => {
     if (!body.address) body.address = cust.address;
     if (body.customerIntId == null) body.customerIntId = cust.id;
     // Compute nextRun if not provided
-    const next = body.nextRun ? new Date(body.nextRun) : computeNextRun(body);
+    const next = body.nextRun ? new Date(body.nextRun) : computeNextRunWithOffset(body);
     const rec = new RecurringRequest({
       ...body,
       nextRun: next,
@@ -454,7 +502,7 @@ app.put('/api/recurring-requests/:id', async (req, res) => {
     const scheduleFields = ['type','days','date','time'];
     const shouldRecompute = scheduleFields.some(k => Object.prototype.hasOwnProperty.call(body, k));
     if (shouldRecompute || !body.nextRun) {
-      body.nextRun = computeNextRun({ ...body });
+      body.nextRun = computeNextRunWithOffset({ ...body });
     }
     body.updatedAt = new Date();
     const updated = await RecurringRequest.findByIdAndUpdate(req.params.id, body, { new: true });
@@ -707,7 +755,7 @@ const tryGenerateFromRecurring = async () => {
       if (rule.type === 'one_time') {
         await RecurringRequest.deleteOne({ _id: rule._id });
       } else {
-        const next = computeNextAfterPrev(rule);
+        const next = computeNextAfterPrev({ ...rule, nextRun: new Date(rule.nextRun) });
         await RecurringRequest.updateOne({ _id: rule._id }, { $set: { nextRun: next, updatedAt: new Date(), lastTriggeredAt: new Date() } });
       }
     }
