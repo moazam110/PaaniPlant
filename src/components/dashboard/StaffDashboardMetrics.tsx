@@ -9,9 +9,13 @@ interface StaffDashboardMetricsProps {
 }
 
 const StaffDashboardMetrics: React.FC<StaffDashboardMetricsProps> = ({ requests }) => {
-  // Count active tasks (pending + processing)
-  const pendingCount = requests.filter(req => req.status === 'pending' || req.status === 'pending_confirmation').length;
-  const processingCount = requests.filter(req => req.status === 'processing').length;
+  // Count active tasks (pending + processing) - exclude cancelled
+  const pendingCount = requests.filter(req => 
+    (req.status === 'pending' || req.status === 'pending_confirmation')
+  ).length;
+  const processingCount = requests.filter(req => 
+    req.status === 'processing'
+  ).length;
   const urgentCount = requests.filter(req => 
     req.priority === 'urgent' && 
     (req.status === 'pending' || req.status === 'pending_confirmation' || req.status === 'processing')

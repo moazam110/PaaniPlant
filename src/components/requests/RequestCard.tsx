@@ -114,6 +114,12 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
           <div className="flex items-center text-xs text-red-600">
             <X className="h-4 w-4 mr-2" />
             Cancelled: {format(new Date(request.cancelledAt), 'MMM d, yyyy HH:mm')}
+            {request.cancelledBy && (
+              <span className="ml-2 text-muted-foreground">by {request.cancelledBy}</span>
+            )}
+            {request.cancellationReason && (
+              <span className="ml-2 text-muted-foreground">({request.cancellationReason})</span>
+            )}
           </div>
         )}
       </CardContent>
@@ -127,16 +133,6 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
             >
               <CheckCircle2 className="mr-1 h-3 w-3" /> Processing
             </Button>
-            {onCancel && (
-              <Button 
-                onClick={() => onCancel(request._id || request.requestId || '')}
-                variant="outline"
-                className="w-full border-red-500 text-red-500 hover:bg-red-50 mt-1 h-7 text-xs"
-                aria-label={`Cancel order for ${request.customerName}`}
-              >
-                <X className="mr-1 h-3 w-3" /> Cancel
-              </Button>
-            )}
           </>
         )}
         {isProcessing && (
@@ -148,16 +144,6 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
             >
               <CheckCircle2 className="mr-1 h-3 w-3" /> Delivered
             </Button>
-            {onCancel && (
-              <Button 
-                onClick={() => onCancel(request._id || request.requestId || '')}
-                variant="outline"
-                className="w-full border-red-500 text-red-500 hover:bg-red-50 mt-1 h-7 text-xs"
-                aria-label={`Cancel order for ${request.customerName}`}
-              >
-                <X className="mr-1 h-3 w-3" /> Cancel
-              </Button>
-            )}
           </>
         )}
         {isDelivered && (

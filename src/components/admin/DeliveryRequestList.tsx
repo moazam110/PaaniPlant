@@ -16,7 +16,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, AlertTriangle, PlusCircle, Pencil, CheckCircle, XCircle, Ban, Star, ArrowUpAZ, ArrowDownAZ } from 'lucide-react';
+import { Search, AlertTriangle, PlusCircle, Pencil, CheckCircle, XCircle, Ban, Star, ArrowUpAZ, ArrowDownAZ, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 import { format } from 'date-fns';
@@ -39,6 +39,14 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ListFilter } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 
 interface DeliveryRequestListProps {
@@ -75,6 +83,12 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
+
+  // Cancellation state
+  const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
+  const [cancellingRequest, setCancellingRequest] = useState<DeliveryRequest | null>(null);
+  const [cancellationReason, setCancellationReason] = useState<string>('customer_request');
+  const [cancellationNotes, setCancellationNotes] = useState<string>('');
 
   // Removed auto-clear: keep user input to avoid retyping when creating multiple city-specific requests
   // useEffect(() => {
@@ -295,6 +309,62 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
   const handleCreateRequest = (customer: Customer) => {
     onInitiateNewRequest(customer);
     // Keep search term and cursor; do not clear automatically
+  };
+
+  const handleCancelRequest = async () => {
+    if (!cancellingRequest) return;
+
+    try {
+      const response = await fetch(buildApiUrl(`api/delivery-requests/${cancellingRequest._id || cancellingRequest.requestId}/cancel`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reason: cancellationReason,
+          notes: cancellationNotes,
+          cancelledBy: 'admin'
+        }),
+      });
+
+      if (response.ok) {
+        const cancelledRequest = await response.json();
+        setDeliveryRequests(prev => prev.map(req =>
+          (req._id || req.requestId) === (cancellingRequest._id || cancellingRequest.requestId) 
+            ? { ...req, ...cancelledRequest } 
+            : req
+        ));
+        toast({
+          title: "Request Cancelled",
+          description: "The delivery request has been cancelled successfully.",
+        });
+        setIsCancelDialogOpen(false);
+        setCancellingRequest(null);
+        setCancellationReason('customer_request');
+        setCancellationNotes('');
+      } else {
+        throw new Error('Failed to cancel request');
+      }
+    } catch (error) {
+      console.error("Error cancelling request:", error);
+      toast({
+        variant: "destructive",
+        title: "Cancellation Failed",
+        description: "Could not cancel the request. Please try again.",
+      });
+    }
+  };
+
+  const openCancelDialog = (request: DeliveryRequest) => {
+    // Only allow cancellation of pending or processing requests
+    if (request.status !== 'pending' && request.status !== 'pending_confirmation' && request.status !== 'processing') {
+      toast({
+        variant: "destructive",
+        title: "Cannot Cancel",
+        description: "Only pending or processing requests can be cancelled.",
+      });
+      return;
+    }
+    setCancellingRequest(request);
+    setIsCancelDialogOpen(true);
   };
 
   const getStatusBadgeVariant = (status: DeliveryRequest['status']) => {
@@ -600,6 +670,17 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
+                      {(request.status === 'pending' || request.status === 'pending_confirmation' || request.status === 'processing') && (
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          title="Cancel Request" 
+                          onClick={() => openCancelDialog(request)}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 );
@@ -608,6 +689,60 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
           </Table>
         </div>
       )}
+
+      {/* Cancellation Dialog */}
+      <Dialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Cancel Delivery Request</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {cancellingRequest && (
+              <div className="p-3 bg-muted/50 rounded-md">
+                <p className="font-medium">{cancellingRequest.customerName}</p>
+                <p className="text-sm text-muted-foreground">
+                  {cancellingRequest.cans} cans • {cancellingRequest.address}
+                </p>
+              </div>
+            )}
+            
+            <div>
+              <Label htmlFor="cancellation-reason">Cancellation Reason</Label>
+              <Select value={cancellationReason} onValueChange={setCancellationReason}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="customer_request">Customer Request</SelectItem>
+                  <SelectItem value="out_of_stock">Out of Stock</SelectItem>
+                  <SelectItem value="delivery_issue">Delivery Issue</SelectItem>
+                  <SelectItem value="weather">Weather</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="cancellation-notes">Additional Notes (Optional)</Label>
+              <Textarea
+                id="cancellation-notes"
+                placeholder="Provide additional details about the cancellation..."
+                value={cancellationNotes}
+                onChange={(e) => setCancellationNotes(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCancelDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleCancelRequest}>
+              Confirm Cancellation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

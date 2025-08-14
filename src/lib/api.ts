@@ -40,6 +40,10 @@ export const API_ENDPOINTS = {
   HEALTH: '/api/health',
   CUSTOMERS: '/api/customers',
   DELIVERY_REQUESTS: '/api/delivery-requests',
-  DASHBOARD_METRICS: '/api/dashboard/metrics',
   RECURRING_REQUESTS: '/api/recurring-requests',
+  DASHBOARD_METRICS: '/api/dashboard/metrics',
+  AUTH_LOGIN: '/api/auth/login',
+  AUTH_REGISTER: '/api/auth/register',
+  NOTIFICATIONS: '/api/notifications',
+  UPLOAD: '/api/upload',
 } as const;

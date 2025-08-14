@@ -33,7 +33,7 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
     return timeA - timeB;
   };
   const pendingRequests = requests
-    .filter(req => req.status === 'pending' || req.status === 'pending_confirmation')
+    .filter(req => (req.status === 'pending' || req.status === 'pending_confirmation'))
     .sort((a, b) => {
       if (addressSortOrder) {
         return compareByAddress(a, b, addressSortOrder);
@@ -62,10 +62,10 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
 
   const deliveredRequests = requests
     .filter(req => {
-      // Include delivered requests only
+      // Include delivered requests only (exclude cancelled)
       if (req.status !== 'delivered') return false;
       
-      // Show delivered/cancelled requests from current date only (24 hours)
+      // Show delivered requests from current date only (24 hours)
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);

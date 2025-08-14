@@ -61,8 +61,8 @@ const Customer = mongoose.model('Customer', customerSchema);
 
 // Delivery requests
 const deliveryRequestSchema = new mongoose.Schema({
-  customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', required: true }, // ObjectId reference
-  customerIntId: { type: Number, index: true }, // integer primary id snapshot
+  customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', required: true },
+  customerIntId: { type: Number, index: true },
   customerName: { type: String, required: true },
   address: { type: String, required: true },
   cans: { type: Number, required: true },
@@ -73,11 +73,14 @@ const deliveryRequestSchema = new mongoose.Schema({
   scheduledFor: { type: Date },
   deliveredAt: { type: Date },
   completedAt: { type: Date },
+  cancelledAt: { type: Date },
+  cancelledBy: { type: String, enum: ['admin', 'staff', 'customer', 'system'] },
+  cancellationReason: { type: String, enum: ['customer_request', 'out_of_stock', 'delivery_issue', 'weather', 'other'] },
+  cancellationNotes: { type: String },
   createdBy: { type: String, default: '' },
   internalNotes: { type: String, default: '' },
-  // denormalized for fast rendering
   pricePerCan: { type: Number },
-  paymentType: { type: String, enum: ['cash','account'] },
+  paymentType: { type: String, enum: ['cash', 'account'] },
 });
 
 const DeliveryRequest = mongoose.model('DeliveryRequest', deliveryRequestSchema);
@@ -667,44 +670,50 @@ app.put('/api/delivery-requests/:id', async (req, res) => {
   }
 });
 
-// Cancel delivery request endpoint
-app.put('/api/delivery-requests/:id/cancel', async (req, res) => {
+// DELETE delivery request
+app.delete('/api/delivery-requests/:id', async (req, res) => {
   try {
-    console.log(`Cancelling delivery request ${req.params.id}`);
+    const request = await DeliveryRequest.findByIdAndDelete(req.params.id);
+    if (!request) return res.status(404).json({ error: 'Delivery request not found' });
+    res.json({ message: 'Delivery request deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting delivery request:', err);
+    res.status(500).json({ error: 'Failed to delete delivery request', details: err.message });
+  }
+});
+
+// CANCEL delivery request
+app.post('/api/delivery-requests/:id/cancel', async (req, res) => {
+  try {
+    const { reason, notes, cancelledBy } = req.body;
     
-    // Find the request first to check if it can be cancelled
-    const existingRequest = await DeliveryRequest.findById(req.params.id);
-    if (!existingRequest) {
-      return res.status(404).json({ error: 'Request not found' });
+    // Validate required fields
+    if (!reason || !cancelledBy) {
+      return res.status(400).json({ error: 'Cancellation reason and cancelledBy are required' });
     }
-    
-    // Check if request can be cancelled (only pending and processing requests)
-    const cancellableStatuses = ['pending', 'pending_confirmation', 'processing'];
-    if (!cancellableStatuses.includes(existingRequest.status)) {
-      return res.status(400).json({ 
-        error: 'Cannot cancel request', 
-        details: `Only requests with status ${cancellableStatuses.join(', ')} can be cancelled. Current status: ${existingRequest.status}` 
-      });
+
+    const request = await DeliveryRequest.findById(req.params.id);
+    if (!request) {
+      return res.status(404).json({ error: 'Delivery request not found' });
     }
-    
-    const updateData = {
-      status: 'cancelled',
-      cancelledAt: new Date(),
-      completedAt: new Date(),
-      updatedAt: new Date()
-    };
-    
-    const request = await DeliveryRequest.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      { new: true }
-    );
-    
-    console.log('Delivery request cancelled:', request);
+
+    // Only allow cancellation of pending or processing requests
+    if (request.status !== 'pending' && request.status !== 'pending_confirmation' && request.status !== 'processing') {
+      return res.status(400).json({ error: 'Only pending or processing requests can be cancelled' });
+    }
+
+    // Update request with cancellation details
+    request.status = 'cancelled';
+    request.cancelledAt = new Date();
+    request.cancelledBy = cancelledBy;
+    request.cancellationReason = reason;
+    request.cancellationNotes = notes || '';
+
+    await request.save();
     res.json(request);
   } catch (err) {
     console.error('Error cancelling delivery request:', err);
-    res.status(400).json({ error: 'Failed to cancel delivery request', details: err.message });
+    res.status(500).json({ error: 'Failed to cancel delivery request', details: err.message });
   }
 });
 
@@ -802,172 +811,50 @@ alignAndStartScheduler();
 // Dashboard metrics endpoint
 app.get('/api/dashboard/metrics', async (req, res) => {
   try {
-    console.log('Fetching dashboard metrics...');
-    const month = req.query.month;
-    const year = req.query.year;
-    const day = req.query.day;
-    console.log('Dashboard metrics request params:', { day, month, year });
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000 - 1);
 
-    const totalCustomers = await Customer.countDocuments();
-    const pendingRequests = await DeliveryRequest.countDocuments({ 
-      status: { $in: ['pending', 'pending_confirmation', 'processing'] } 
-    });
-
-    let dateQuery = {};
-    let timeLabel = 'All Time';
-    let isMonthlyView = false;
-    let isYearView = false;
-
-    // Helper to build start/end date
-    const makeRange = (start, end) => ({ $gte: start, $lt: end });
-    let startDate = null;
-    let endDate = null;
-
-    if (day && month && year) {
-      const dayNum = parseInt(day);
-      const monthNum = parseInt(month);
-      const yearNum = parseInt(year);
-      if (!isNaN(dayNum) && !isNaN(monthNum) && !isNaN(yearNum) && dayNum >= 1 && dayNum <= 31 && monthNum >= 1 && monthNum <= 12 && yearNum > 1900) {
-        startDate = new Date(yearNum, monthNum - 1, dayNum);
-        endDate = new Date(yearNum, monthNum - 1, dayNum + 1);
-        timeLabel = startDate.toLocaleDateString('en-GB');
-        console.log(`Specific day query: ${dayNum}/${monthNum}/${yearNum}`);
-        console.log(`Date range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
-      }
-    } else if (month && year) {
-      const monthNum = parseInt(month);
-      const yearNum = parseInt(year);
-      if (monthNum >= 1 && monthNum <= 12 && yearNum > 1900) {
-        startDate = new Date(yearNum, monthNum - 1, 1);
-        endDate = new Date(yearNum, monthNum, 1);
-        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        timeLabel = `${monthNames[monthNum - 1]} ${yearNum}`;
-        isMonthlyView = true;
-      }
-    } else if (year) {
-      const yearNum = parseInt(year);
-      if (!isNaN(yearNum) && yearNum > 1900) {
-        startDate = new Date(yearNum, 0, 1);
-        endDate = new Date(yearNum + 1, 0, 1);
-        timeLabel = `${yearNum}`;
-        isYearView = true;
-      }
-    } else {
-      // All-time history (no time limit)
-      timeLabel = 'All Time';
-    }
-
-    if (startDate && endDate) {
-      const range = makeRange(startDate, endDate);
-      // Consider both deliveredAt and completedAt to handle historical data
-      dateQuery = {
-        $or: [
-          { deliveredAt: range },
-          { completedAt: range },
-        ],
-      };
-    } else {
-      dateQuery = {};
-    }
-
-    console.log('Date filter setup:', { startDate, endDate, timeLabel });
-    console.log('Date query:', JSON.stringify(dateQuery, null, 2));
-
-    const deliveries = await DeliveryRequest.find({
+    // Get all delivery requests (excluding cancelled ones from all counts)
+    const allRequests = await DeliveryRequest.find({ status: { $ne: 'cancelled' } });
+    
+    // Get today's deliveries (excluding cancelled)
+    const todayDeliveries = await DeliveryRequest.find({
       status: 'delivered',
-      ...dateQuery
-    }).populate('customerId', 'pricePerCan paymentType');
-
-    console.log(`Found ${deliveries.length} delivered requests for query`);
-
-    // Additional debugging: check all delivered requests today
-    if (day && month && year) {
-      const allTodayDelivered = await DeliveryRequest.find({ status: 'delivered' });
-      const todayStart = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-      const todayEnd = new Date(parseInt(year), parseInt(month) - 1, parseInt(day) + 1);
-      
-      console.log(`Total delivered requests in DB: ${allTodayDelivered.length}`);
-      console.log(`Looking for deliveries between ${todayStart.toISOString()} and ${todayEnd.toISOString()}`);
-      
-      const matchingByDeliveredAt = allTodayDelivered.filter(d => {
-        if (!d.deliveredAt) return false;
-        const deliveredDate = new Date(d.deliveredAt);
-        return deliveredDate >= todayStart && deliveredDate < todayEnd;
-      });
-      
-      const matchingByCompletedAt = allTodayDelivered.filter(d => {
-        if (!d.completedAt) return false;
-        const completedDate = new Date(d.completedAt);
-        return completedDate >= todayStart && completedDate < todayEnd;
-      });
-      
-      console.log(`Matching by deliveredAt: ${matchingByDeliveredAt.length}`);
-      console.log(`Matching by completedAt: ${matchingByCompletedAt.length}`);
-      
-      // Sample of recent deliveries
-      const recentDeliveries = allTodayDelivered.slice(0, 5);
-      console.log('Sample deliveries:', recentDeliveries.map(d => ({
-        id: d._id,
-        status: d.status,
-        deliveredAt: d.deliveredAt,
-        completedAt: d.completedAt,
-        cans: d.cans,
-        paymentType: d.paymentType
-      })));
-    }
-
-    const totalCans = deliveries.reduce((sum, req) => sum + req.cans, 0);
-
-    let totalAmountGenerated = 0;
-    let totalCashAmountGenerated = 0;
-    let cashDeliveries = 0;
-    let accountDeliveries = 0;
-    
-    for (const delivery of deliveries) {
-      const unitPrice = (delivery.pricePerCan != null)
-        ? delivery.pricePerCan
-        : (delivery.customerId && delivery.customerId.pricePerCan) ? delivery.customerId.pricePerCan : 0;
-      const payType = (delivery.paymentType != null)
-        ? delivery.paymentType
-        : (delivery.customerId && delivery.customerId.paymentType) ? delivery.customerId.paymentType : undefined;
-      const amount = delivery.cans * (unitPrice || 0);
-      totalAmountGenerated += amount;
-      
-      if (payType === 'cash') {
-        totalCashAmountGenerated += amount;
-        cashDeliveries++;
-      } else if (payType === 'account') {
-        accountDeliveries++;
-      }
-      
-      // Debug each delivery
-      if (deliveries.length <= 10) {
-        console.log(`Delivery: ${delivery._id}, cans: ${delivery.cans}, payType: ${payType}, price: ${unitPrice}, amount: ${amount}`);
-      }
-    }
-    
-    console.log('Payment breakdown:', { 
-      totalDeliveries: deliveries.length,
-      cashDeliveries, 
-      accountDeliveries, 
-      totalCashAmountGenerated,
-      totalAmountGenerated 
+      deliveredAt: { $gte: startOfDay, $lte: endOfDay }
     });
 
-    const metrics = {
-      totalCustomers,
-      pendingRequests,
-      deliveries: deliveries.length,
-      totalCans,
-      totalAmountGenerated,
-      totalCashAmountGenerated,
-      timeLabel,
-      isMonthlyView,
-      isYearView,
-    };
+    // Get pending requests (excluding cancelled)
+    const pendingRequests = await DeliveryRequest.find({
+      status: { $in: ['pending', 'pending_confirmation'] }
+    });
 
-    console.log(`Dashboard metrics for ${timeLabel}:`, metrics);
-    res.json(metrics);
+    // Get processing requests (excluding cancelled)
+    const processingRequests = await DeliveryRequest.find({
+      status: 'processing'
+    });
+
+    // Get urgent requests (excluding cancelled)
+    const urgentRequests = await DeliveryRequest.find({
+      priority: 'urgent',
+      status: { $in: ['pending', 'pending_confirmation', 'processing'] }
+    });
+
+    // Calculate total cans delivered today (excluding cancelled)
+    const totalCansToday = todayDeliveries.reduce((sum, req) => sum + (req.cans || 0), 0);
+
+    // Get total customers
+    const totalCustomers = await Customer.countDocuments();
+
+    res.json({
+      totalCustomers,
+      pendingRequests: pendingRequests.length,
+      processingRequests: processingRequests.length,
+      urgentRequests: urgentRequests.length,
+      deliveries: todayDeliveries.length,
+      totalCans: totalCansToday,
+      timestamp: now.toISOString()
+    });
   } catch (err) {
     console.error('Error fetching dashboard metrics:', err);
     res.status(500).json({ error: 'Failed to fetch dashboard metrics', details: err.message });
