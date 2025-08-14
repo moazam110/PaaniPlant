@@ -315,6 +315,53 @@ const computeNextRun = (payload) => {
   }
 };
 
+// Compute the next run strictly based on the previous nextRun timestamp to preserve exact time-of-day
+const computeNextAfterPrev = (rule) => {
+  try {
+    if (!rule || !rule.nextRun) return computeNextRun(rule || {});
+    const prev = new Date(rule.nextRun);
+    if (isNaN(prev.getTime())) return computeNextRun(rule);
+    const hours = prev.getHours();
+    const minutes = prev.getMinutes();
+    const type = rule.type;
+    if (type === 'daily') {
+      const next = new Date(prev);
+      next.setDate(prev.getDate() + 1);
+      next.setHours(hours, minutes, 0, 0);
+      return next;
+    }
+    if (type === 'weekly') {
+      const allowed = Array.isArray(rule.days) ? rule.days.slice().sort() : [];
+      // If no specific days provided, default to every 7 days from previous
+      if (allowed.length === 0) {
+        const next = new Date(prev);
+        next.setDate(prev.getDate() + 7);
+        next.setHours(hours, minutes, 0, 0);
+        return next;
+      }
+      const prevDow = prev.getDay();
+      for (let i = 1; i <= 7; i++) {
+        const candidateDow = (prevDow + i) % 7;
+        if (allowed.includes(candidateDow)) {
+          const next = new Date(prev);
+          next.setDate(prev.getDate() + i);
+          next.setHours(hours, minutes, 0, 0);
+          return next;
+        }
+      }
+      // Fallback one week later
+      const next = new Date(prev);
+      next.setDate(prev.getDate() + 7);
+      next.setHours(hours, minutes, 0, 0);
+      return next;
+    }
+    // one_time has no next
+    return null;
+  } catch {
+    return computeNextRun(rule || {});
+  }
+};
+
 // Normalize time to 24-hour HH:mm format
 const normalizeTime24 = (raw) => {
   try {
@@ -616,7 +663,7 @@ const tryGenerateFromRecurring = async () => {
       if (hasActive) {
         // Still update nextRun for daily/weekly to avoid piling up
         if (rule.type !== 'one_time') {
-          const next = computeNextRun(rule);
+          const next = computeNextAfterPrev(rule);
           await RecurringRequest.updateOne({ _id: rule._id }, { $set: { nextRun: next, updatedAt: new Date() } });
         }
         continue;
@@ -651,7 +698,7 @@ const tryGenerateFromRecurring = async () => {
       if (rule.type === 'one_time') {
         await RecurringRequest.deleteOne({ _id: rule._id });
       } else {
-        const next = computeNextRun(rule);
+        const next = computeNextAfterPrev(rule);
         await RecurringRequest.updateOne({ _id: rule._id }, { $set: { nextRun: next, updatedAt: new Date(), lastTriggeredAt: new Date() } });
       }
     }

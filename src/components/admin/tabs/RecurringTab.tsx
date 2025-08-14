@@ -401,7 +401,31 @@ export default function RecurringTab() {
               return next;
             });
           } else {
-            const nextRun = computeNextRun({ type: r.type, days: r.days, date: r.date, time: r.time });
+            // Advance strictly based on previous nextRun to preserve time-of-day
+            const prev = r.nextRun ? new Date(r.nextRun) : null;
+            let nextRun: string = computeNextRun({ type: r.type, days: r.days, date: r.date, time: r.time });
+            if (prev && !isNaN(prev.getTime())) {
+              const hours = prev.getHours();
+              const minutes = prev.getMinutes();
+              if (r.type === 'daily') {
+                const n = new Date(prev); n.setDate(prev.getDate() + 1); n.setHours(hours, minutes, 0, 0); nextRun = n.toISOString();
+              } else if (r.type === 'weekly') {
+                const allowed = Array.isArray(r.days) ? r.days.slice().sort() : [];
+                if (allowed.length === 0) {
+                  const n = new Date(prev); n.setDate(prev.getDate() + 7); n.setHours(hours, minutes, 0, 0); nextRun = n.toISOString();
+                } else {
+                  const prevDow = prev.getDay();
+                  let found: Date | null = null;
+                  for (let i = 1; i <= 7; i++) {
+                    const candDow = (prevDow + i) % 7;
+                    if (allowed.includes(candDow)) {
+                      const n = new Date(prev); n.setDate(prev.getDate() + i); n.setHours(hours, minutes, 0, 0); found = n; break;
+                    }
+                  }
+                  if (found) nextRun = found.toISOString();
+                }
+              }
+            }
             const updRes = await fetch(buildApiUrl(`${API_ENDPOINTS.RECURRING_REQUESTS}/${r._id}`), {
               method: 'PUT', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ nextRun })
