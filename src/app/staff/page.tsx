@@ -27,6 +27,8 @@ export default function StaffPage() {
   const optimisticRef = useRef<Map<string, { status: DeliveryRequest['status']; expires: number }>>(new Map());
   const fetchInProgressRef = useRef<boolean>(false);
   const suppressUpdatesUntilRef = useRef<number>(0);
+  const suppressSinceRef = useRef<number>(0);
+  const currentFetchAbortRef = useRef<AbortController | null>(null);
 
   const { toast } = useToast();
   const router = useRouter();
@@ -149,7 +151,10 @@ export default function StaffPage() {
       if (fetchInProgressRef.current) return;
       fetchInProgressRef.current = true;
       try {
-        const res = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS));
+        // Abort any previous fetch controller reference since we're starting a new one
+        const controller = new AbortController();
+        currentFetchAbortRef.current = controller;
+        const res = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS), { signal: controller.signal });
         if (!res.ok) {
           throw new Error(`HTTP error! status: ${res.status}`);
         }
@@ -157,7 +162,7 @@ export default function StaffPage() {
         // Apply optimistic overrides to avoid flicker
         const now = Date.now();
         const withOptimistic: DeliveryRequest[] = data.map((req: DeliveryRequest) => {
-          const key = String((req as any)._id || (req as any).requestId || '');
+          const key = String((req as any)._id || (req as any).requestId || (req as any).id || '');
           const ov = optimisticRef.current.get(key);
           if (ov && ov.expires > now) {
             return { ...req, status: ov.status } as DeliveryRequest;
@@ -182,11 +187,16 @@ export default function StaffPage() {
         setPreviousRequestCount(currentPendingCount);
 
         // Suppress applying server list briefly right after a local action to prevent flicker
-        if (now >= suppressUpdatesUntilRef.current) {
+        // Only apply if we are outside the suppression window
+        if (!(now >= suppressSinceRef.current && now <= suppressUpdatesUntilRef.current)) {
           setDeliveryRequests(withOptimistic);
         }
         setIsLoading(false);
-      } catch (err) {
+      } catch (err: any) {
+        if (err && err.name === 'AbortError') {
+          // Ignore aborted fetch errors silently to avoid flicker/toast noise
+          return;
+        }
         console.error('Error fetching delivery requests:', err);
         setIsLoading(false);
         toast({
@@ -248,9 +258,12 @@ export default function StaffPage() {
         (req._id || req.requestId) === requestId ? { ...req, status: newStatus as DeliveryRequest['status'] } : req
       ));
 
-      const actualRequestId = currentRequest._id || currentRequest.requestId;
+      const actualRequestId = currentRequest._id || currentRequest.requestId || (currentRequest as any).id;
+      // Abort any in-flight polling request to prevent stale state applying after click
+      try { currentFetchAbortRef.current?.abort(); } catch {}
       // Briefly suppress polling updates to avoid flicker back to pending
-      suppressUpdatesUntilRef.current = Date.now() + 2000;
+      suppressSinceRef.current = Date.now();
+      suppressUpdatesUntilRef.current = suppressSinceRef.current + 5000;
       const response = await fetch(buildApiUrl(`api/delivery-requests/${actualRequestId}/status`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
