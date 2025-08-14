@@ -843,6 +843,28 @@ app.get('/api/dashboard/metrics', async (req, res) => {
     // Calculate total cans delivered today (excluding cancelled)
     const totalCansToday = todayDeliveries.reduce((sum, req) => sum + (req.cans || 0), 0);
 
+    // Calculate total generated amount and cash amount for today (excluding cancelled)
+    let totalAmountGenerated = 0;
+    let totalCashAmountGenerated = 0;
+    let cashDeliveries = 0;
+    let accountDeliveries = 0;
+
+    for (const delivery of todayDeliveries) {
+      // Get unit price from delivery request or customer
+      const unitPrice = delivery.pricePerCan || 0;
+      const payType = delivery.paymentType || 'cash';
+      const amount = delivery.cans * unitPrice;
+      
+      totalAmountGenerated += amount;
+      
+      if (payType === 'cash') {
+        totalCashAmountGenerated += amount;
+        cashDeliveries++;
+      } else if (payType === 'account') {
+        accountDeliveries++;
+      }
+    }
+
     // Get total customers
     const totalCustomers = await Customer.countDocuments();
 
@@ -853,6 +875,10 @@ app.get('/api/dashboard/metrics', async (req, res) => {
       urgentRequests: urgentRequests.length,
       deliveries: todayDeliveries.length,
       totalCans: totalCansToday,
+      totalAmountGenerated,
+      totalCashAmountGenerated,
+      cashDeliveries,
+      accountDeliveries,
       timestamp: now.toISOString()
     });
   } catch (err) {

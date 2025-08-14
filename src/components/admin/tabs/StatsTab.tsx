@@ -12,13 +12,17 @@ interface StatsTabProps {
   pendingDeliveries: number;
   deliveriesTodayCount: number;
   totalCansToday: number;
+  totalAmountGenerated: number;
+  totalCashAmountGenerated: number;
 }
 
 export default function StatsTab({
   totalCustomers,
   pendingDeliveries,
   deliveriesTodayCount,
-  totalCansToday
+  totalCansToday,
+  totalAmountGenerated,
+  totalCashAmountGenerated
 }: StatsTabProps) {
   const currentDate = new Date();
   const [selectedDay, setSelectedDay] = useState<string>('');
@@ -343,7 +347,7 @@ export default function StatsTab({
                     <Skeleton className="h-7 w-20 bg-muted/50" />
                   ) : (
                     <div className="text-2xl font-bold text-green-600">
-                      Rs. {filteredMetrics.totalAmountGenerated.toLocaleString()}
+                      Rs. {totalAmountGenerated.toLocaleString()}
                     </div>
                   )}
                 </CardContent>
@@ -359,7 +363,7 @@ export default function StatsTab({
                     <Skeleton className="h-7 w-20 bg-muted/50" />
                   ) : (
                     <div className="text-2xl font-bold text-green-600">
-                      Rs. {filteredMetrics.totalCashAmountGenerated.toLocaleString()}
+                      Rs. {totalCashAmountGenerated.toLocaleString()}
                     </div>
                   )}
                 </CardContent>

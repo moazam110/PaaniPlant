@@ -37,6 +37,8 @@ export default function AdminDashboardPage() {
   const [pendingDeliveries, setPendingDeliveries] = useState(0);
   const [deliveriesTodayCount, setDeliveriesTodayCount] = useState(0);
   const [totalCansToday, setTotalCansToday] = useState(0);
+  const [totalAmountGenerated, setTotalAmountGenerated] = useState(0);
+  const [totalCashAmountGenerated, setTotalCashAmountGenerated] = useState(0);
   const [deliveryRequests, setDeliveryRequests] = useState<DeliveryRequest[]>([]);
 
 
@@ -120,12 +122,16 @@ export default function AdminDashboardPage() {
           setPendingDeliveries(data.pendingRequests || 0);
           setDeliveriesTodayCount(data.deliveries || 0);
           setTotalCansToday(data.totalCans || 0);
+          setTotalAmountGenerated(data.totalAmountGenerated || 0);
+          setTotalCashAmountGenerated(data.totalCashAmountGenerated || 0);
         } catch (err) {
           console.error('Error fetching dashboard metrics:', err);
           setTotalCustomers(0);
           setPendingDeliveries(0);
           setDeliveriesTodayCount(0);
           setTotalCansToday(0);
+          setTotalAmountGenerated(0);
+          setTotalCashAmountGenerated(0);
         }
       };
 
@@ -147,6 +153,8 @@ export default function AdminDashboardPage() {
       setPendingDeliveries(0);
       setDeliveriesTodayCount(0);
       setTotalCansToday(0);
+      setTotalAmountGenerated(0);
+      setTotalCashAmountGenerated(0);
       setDeliveryRequests([]);
     }
   }, [authUser]); 
@@ -329,6 +337,8 @@ export default function AdminDashboardPage() {
             pendingDeliveries={pendingDeliveries}
             deliveriesTodayCount={deliveriesTodayCount}
             totalCansToday={totalCansToday}
+            totalAmountGenerated={totalAmountGenerated}
+            totalCashAmountGenerated={totalCashAmountGenerated}
           />
           
           <CustomersTab 
