@@ -133,9 +133,9 @@ export default function AdminDashboardPage() {
       fetchDashboardMetrics();
       refreshDeliveryRequests();
 
-      // Set up real-time updates every 5 seconds
-      const metricsInterval = setInterval(fetchDashboardMetrics, 5000);
-      const requestsInterval = setInterval(refreshDeliveryRequests, 3000);
+      // Set up periodic updates every 180 seconds (3 minutes)
+      const metricsInterval = setInterval(fetchDashboardMetrics, 180000);
+      const requestsInterval = setInterval(refreshDeliveryRequests, 180000);
 
       // Cleanup intervals on unmount
       return () => {
