@@ -532,7 +532,16 @@ export default function RecurringTab() {
               </div>
               <div>
                 <Label>Time</Label>
-                <Input type="time" value={form.time} onChange={(e) => setForm(prev => ({ ...prev, time: e.target.value }))} />
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="HH:mm"
+                  title="Use 24-hour time (HH:mm)"
+                  pattern="^([01]?[0-9]|2[0-3]):[0-5][0-9]$"
+                  value={form.time}
+                  onChange={(e) => setForm(prev => ({ ...prev, time: e.target.value }))}
+                  onBlur={(e) => setForm(prev => ({ ...prev, time: normalizeTime24(e.target.value) }))}
+                />
               </div>
             </div>
             {form.type === 'weekly' && (
