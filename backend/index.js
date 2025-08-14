@@ -650,15 +650,18 @@ const tryGenerateFromRecurring = async () => {
   try {
     const now = new Date();
     // Find all recurring rules with nextRun due in the past (with tolerance covering the scheduler interval)
-    const toleranceMs = SCHEDULER_INTERVAL_MS + 5 * 60 * 1000; // extra 5 minutes tolerance to avoid misses on cold-starts
-    const windowStart = new Date(now.getTime() - toleranceMs);
-    const dueRules = await RecurringRequest.find({ nextRun: { $lte: now, $gte: windowStart } }).sort({ nextRun: 1 }).lean();
+    // Fetch all rules due up to now; rely on lastTriggeredAt cooldown and nextRun advancement to prevent duplicates
+    const dueRules = await RecurringRequest.find({ nextRun: { $lte: now } }).sort({ nextRun: 1 }).lean();
     if (!dueRules.length) return;
 
     for (const rule of dueRules) {
-      // Debounce if recently triggered
-      if (rule.lastTriggeredAt && (now - new Date(rule.lastTriggeredAt)) < TRIGGER_COOLDOWN_MS) {
+      // Debounce if recently triggered (but allow if nextRun moved ahead since lastTriggeredAt)
+      if (rule.lastTriggeredAt) {
+        const lastTs = new Date(rule.lastTriggeredAt).getTime();
+        const nextTs = new Date(rule.nextRun).getTime();
+        if ((now - lastTs) < TRIGGER_COOLDOWN_MS && nextTs <= lastTs) {
         continue;
+        }
       }
 
       // Skip if active request already exists for this customer
