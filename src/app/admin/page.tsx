@@ -39,6 +39,7 @@ export default function AdminDashboardPage() {
   const [totalCansToday, setTotalCansToday] = useState(0);
   const [totalAmountGenerated, setTotalAmountGenerated] = useState(0);
   const [totalCashAmountGenerated, setTotalCashAmountGenerated] = useState(0);
+  const [currentTimeLabel, setCurrentTimeLabel] = useState('Today');
   const [deliveryRequests, setDeliveryRequests] = useState<DeliveryRequest[]>([]);
 
 
@@ -124,6 +125,7 @@ export default function AdminDashboardPage() {
           setTotalCansToday(data.totalCans || 0);
           setTotalAmountGenerated(data.totalAmountGenerated || 0);
           setTotalCashAmountGenerated(data.totalCashAmountGenerated || 0);
+          setCurrentTimeLabel(data.timeLabel || 'Today');
         } catch (err) {
           console.error('Error fetching dashboard metrics:', err);
           setTotalCustomers(0);
@@ -339,6 +341,7 @@ export default function AdminDashboardPage() {
             totalCansToday={totalCansToday}
             totalAmountGenerated={totalAmountGenerated}
             totalCashAmountGenerated={totalCashAmountGenerated}
+            currentTimeLabel={currentTimeLabel}
           />
           
           <CustomersTab 

@@ -812,44 +812,109 @@ alignAndStartScheduler();
 app.get('/api/dashboard/metrics', async (req, res) => {
   try {
     const now = new Date();
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000 - 1);
+    const { day, month, year } = req.query;
+    
+    let startOfDay, endOfDay, timeLabel;
+    
+    // Helper function to create PKT dates (UTC+05:00)
+    const createPKTDate = (year, month, day, hour = 0, minute = 0, second = 0) => {
+      // Create date in PKT timezone by adding 5 hours to UTC
+      const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+      // Adjust for PKT (UTC+05:00)
+      const pktDate = new Date(utcDate.getTime() + (5 * 60 * 60 * 1000));
+      return pktDate;
+    };
+    
+    if (day && month && year) {
+      // Specific date selected
+      const dayNum = parseInt(day);
+      const monthNum = parseInt(month);
+      const yearNum = parseInt(year);
+      
+      if (!isNaN(dayNum) && !isNaN(monthNum) && !isNaN(yearNum)) {
+        // Create PKT date boundaries
+        startOfDay = createPKTDate(yearNum, monthNum, dayNum, 0, 0, 0);
+        endOfDay = createPKTDate(yearNum, monthNum, dayNum, 23, 59, 59);
+        timeLabel = `${dayNum}/${monthNum}/${yearNum}`;
+      }
+    } else if (month && year) {
+      // Month view selected
+      const monthNum = parseInt(month);
+      const yearNum = parseInt(year);
+      
+      if (!isNaN(monthNum) && !isNaN(yearNum)) {
+        startOfDay = createPKTDate(yearNum, monthNum, 1, 0, 0, 0);
+        // Last day of month
+        const lastDay = new Date(yearNum, monthNum, 0).getDate();
+        endOfDay = createPKTDate(yearNum, monthNum, lastDay, 23, 59, 59);
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        timeLabel = `${monthNames[monthNum - 1]} ${yearNum}`;
+      }
+    } else if (year) {
+      // Year view selected
+      const yearNum = parseInt(year);
+      
+      if (!isNaN(yearNum)) {
+        startOfDay = createPKTDate(yearNum, 1, 1, 0, 0, 0);
+        endOfDay = createPKTDate(yearNum, 12, 31, 23, 59, 59);
+        timeLabel = `${yearNum}`;
+      }
+    }
+    
+    // Default to today in PKT if no specific date provided
+    if (!startOfDay || !endOfDay) {
+      const today = new Date();
+      // Convert current UTC time to PKT
+      const pktOffset = 5 * 60 * 60 * 1000; // 5 hours in milliseconds
+      const pktNow = new Date(today.getTime() + pktOffset);
+      
+      startOfDay = createPKTDate(pktNow.getUTCFullYear(), pktNow.getUTCMonth() + 1, pktNow.getUTCDate(), 0, 0, 0);
+      endOfDay = createPKTDate(pktNow.getUTCFullYear(), pktNow.getUTCMonth() + 1, pktNow.getUTCDate(), 23, 59, 59);
+      timeLabel = 'Today';
+    }
+
+    console.log(`📅 Dashboard metrics for: ${timeLabel}`);
+    console.log(`📅 Date range: ${startOfDay.toISOString()} to ${endOfDay.toISOString()}`);
+    console.log(`📅 PKT Time: ${startOfDay.toLocaleString('en-US', { timeZone: 'Asia/Karachi' })} to ${endOfDay.toLocaleString('en-US', { timeZone: 'Asia/Karachi' })}`);
 
     // Get all delivery requests (excluding cancelled ones from all counts)
     const allRequests = await DeliveryRequest.find({ status: { $ne: 'cancelled' } });
     
-    // Get today's deliveries (excluding cancelled)
-    const todayDeliveries = await DeliveryRequest.find({
+    // Get deliveries for the selected period (excluding cancelled)
+    const periodDeliveries = await DeliveryRequest.find({
       status: 'delivered',
-      deliveredAt: { $gte: startOfDay, $lte: endOfDay }
+      $or: [
+        { deliveredAt: { $gte: startOfDay, $lte: endOfDay } },
+        { completedAt: { $gte: startOfDay, $lte: endOfDay } }
+      ]
     });
 
-    // Get pending requests (excluding cancelled)
+    // Get pending requests (excluding cancelled) - always current
     const pendingRequests = await DeliveryRequest.find({
       status: { $in: ['pending', 'pending_confirmation'] }
     });
 
-    // Get processing requests (excluding cancelled)
+    // Get processing requests (excluding cancelled) - always current
     const processingRequests = await DeliveryRequest.find({
       status: 'processing'
     });
 
-    // Get urgent requests (excluding cancelled)
+    // Get urgent requests (excluding cancelled) - always current
     const urgentRequests = await DeliveryRequest.find({
       priority: 'urgent',
       status: { $in: ['pending', 'pending_confirmation', 'processing'] }
     });
 
-    // Calculate total cans delivered today (excluding cancelled)
-    const totalCansToday = todayDeliveries.reduce((sum, req) => sum + (req.cans || 0), 0);
+    // Calculate total cans delivered for the period (excluding cancelled)
+    const totalCansForPeriod = periodDeliveries.reduce((sum, req) => sum + (req.cans || 0), 0);
 
-    // Calculate total generated amount and cash amount for today (excluding cancelled)
+    // Calculate total generated amount and cash amount for the period (excluding cancelled)
     let totalAmountGenerated = 0;
     let totalCashAmountGenerated = 0;
     let cashDeliveries = 0;
     let accountDeliveries = 0;
 
-    for (const delivery of todayDeliveries) {
+    for (const delivery of periodDeliveries) {
       // Get unit price from delivery request or customer
       const unitPrice = delivery.pricePerCan || 0;
       const payType = delivery.paymentType || 'cash';
@@ -868,19 +933,32 @@ app.get('/api/dashboard/metrics', async (req, res) => {
     // Get total customers
     const totalCustomers = await Customer.countDocuments();
 
-    res.json({
+    const metrics = {
       totalCustomers,
       pendingRequests: pendingRequests.length,
       processingRequests: processingRequests.length,
       urgentRequests: urgentRequests.length,
-      deliveries: todayDeliveries.length,
-      totalCans: totalCansToday,
+      deliveries: periodDeliveries.length,
+      totalCans: totalCansForPeriod,
       totalAmountGenerated,
       totalCashAmountGenerated,
       cashDeliveries,
       accountDeliveries,
+      timeLabel,
+      startDate: startOfDay.toISOString(),
+      endDate: endOfDay.toISOString(),
       timestamp: now.toISOString()
+    };
+
+    console.log(`📊 Metrics calculated:`, {
+      deliveries: metrics.deliveries,
+      totalCans: metrics.totalCans,
+      totalAmount: metrics.totalAmountGenerated,
+      cashAmount: metrics.totalCashAmountGenerated,
+      timeLabel: metrics.timeLabel
     });
+
+    res.json(metrics);
   } catch (err) {
     console.error('Error fetching dashboard metrics:', err);
     res.status(500).json({ error: 'Failed to fetch dashboard metrics', details: err.message });

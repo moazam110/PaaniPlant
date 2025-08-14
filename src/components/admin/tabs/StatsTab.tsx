@@ -14,6 +14,7 @@ interface StatsTabProps {
   totalCansToday: number;
   totalAmountGenerated: number;
   totalCashAmountGenerated: number;
+  currentTimeLabel: string;
 }
 
 export default function StatsTab({
@@ -22,7 +23,8 @@ export default function StatsTab({
   deliveriesTodayCount,
   totalCansToday,
   totalAmountGenerated,
-  totalCashAmountGenerated
+  totalCashAmountGenerated,
+  currentTimeLabel
 }: StatsTabProps) {
   const currentDate = new Date();
   const [selectedDay, setSelectedDay] = useState<string>('');
@@ -78,18 +80,21 @@ export default function StatsTab({
 
     let url = buildApiUrl('api/dashboard/metrics');
     const params: string[] = [];
-    if (effectiveMonth && effectiveYear) {
+    
+    // Only send parameters if they are actually selected
+    if (effectiveDay && effectiveMonth && effectiveYear) {
+      params.push(`day=${effectiveDay}`, `month=${effectiveMonth}`, `year=${effectiveYear}`);
+    } else if (effectiveMonth && effectiveYear) {
       params.push(`month=${effectiveMonth}`, `year=${effectiveYear}`);
-    }
-    if (effectiveDay) {
-      params.push(`day=${effectiveDay}`);
-    }
-    if (!effectiveMonth && effectiveYear && !effectiveDay) {
+    } else if (effectiveYear && !effectiveMonth && !effectiveDay) {
       params.push(`year=${effectiveYear}`);
     }
+    
     if (params.length) {
       url += `?${params.join('&')}`;
     }
+
+    console.log(`🔍 Fetching metrics from: ${url}`);
 
     // set view flags locally based on selection
     const nextIsMonthlyView = !!(effectiveMonth && effectiveYear && !effectiveDay);
@@ -109,6 +114,9 @@ export default function StatsTab({
       const res = await fetch(url, { signal: controller.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      
+      console.log(`📊 Received metrics:`, data);
+      
       // Ignore if a newer request finished
       if (myVersion !== requestVersionRef.current) return;
 
@@ -124,6 +132,7 @@ export default function StatsTab({
       setIsYearView(nextIsYearView);
     } catch (e) {
       if ((e as any)?.name === 'AbortError') return;
+      console.error('Error fetching metrics:', e);
       // Ignore errors but stop loading state
       setFilteredMetrics(prev => ({ ...prev, isLoading: false }));
     }
