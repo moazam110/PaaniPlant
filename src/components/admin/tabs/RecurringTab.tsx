@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -125,6 +125,8 @@ export default function RecurringTab() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Prevent duplicate client-side triggers within a short window
+  const clientTriggerCacheRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     let isActive = true;
@@ -164,6 +166,10 @@ export default function RecurringTab() {
           const r = (await recRes.json()) as RecurringRequest[];
           const synced = ensureLocalSync(r);
           if (isActive) setRecurringRequests(synced);
+          // Attempt client-side due processing (non-blocking)
+          if (isActive) {
+            try { triggerDueIfNeeded(synced); } catch {}
+          }
         } else {
           const local = ensureLocalSync(null);
           if (isActive) setRecurringRequests(local);
@@ -248,7 +254,11 @@ export default function RecurringTab() {
         });
         if (res.ok) {
           const updated = await res.json();
-          setRecurringRequests(prev => prev.map(r => (r._id === editingId ? updated : r)));
+          setRecurringRequests(prev => {
+            const next = prev.map(r => (r._id === editingId ? updated : r));
+            try { localStorage.setItem('paani_recurring_requests', JSON.stringify(next)); } catch {}
+            return next;
+          });
         } else {
           // Offline/local fallback update
           setRecurringRequests(prev => {
@@ -281,7 +291,11 @@ export default function RecurringTab() {
         });
         if (res.ok) {
           const created = await res.json();
-          setRecurringRequests(prev => [created, ...prev]);
+          setRecurringRequests(prev => {
+            const next = [created, ...prev];
+            try { localStorage.setItem('paani_recurring_requests', JSON.stringify(next)); } catch {}
+            return next;
+          });
         } else {
           // Offline/local fallback create
           const cust = customersOptions.find(o => o.value === body.customerId);
@@ -323,7 +337,11 @@ export default function RecurringTab() {
       if (!confirm('Delete this recurring request?')) return;
       const res = await fetch(buildApiUrl(`${API_ENDPOINTS.RECURRING_REQUESTS}/${id}`), { method: 'DELETE' });
       if (res.ok) {
-        setRecurringRequests(prev => prev.filter(r => r._id !== id));
+        setRecurringRequests(prev => {
+          const next = prev.filter(r => r._id !== id);
+          try { localStorage.setItem('paani_recurring_requests', JSON.stringify(next)); } catch {}
+          return next;
+        });
         toast({ title: 'Deleted', description: 'Recurring request removed.' });
       } else {
         // Offline/local fallback delete
@@ -335,6 +353,73 @@ export default function RecurringTab() {
         toast({ title: 'Deleted (local)', description: 'Recurring request removed locally.' });
       }
     } catch {}
+  };
+
+  // Client-side fallback autopilot: create delivery when nextRun is due, then advance nextRun
+  const triggerDueIfNeeded = async (list: RecurringRequest[]) => {
+    const now = Date.now();
+    for (const r of list) {
+      if (!r.nextRun) continue;
+      const dueAt = new Date(r.nextRun).getTime();
+      if (isNaN(dueAt)) continue;
+      if (dueAt > now) continue;
+      const key = String(r._id || `${r.customerId}-${r.type}`);
+      const last = clientTriggerCacheRef.current.get(key) || 0;
+      if (now - last < 4 * 60 * 1000) continue; // debounce 4 minutes
+
+      // Mark as attempted early to minimize races
+      clientTriggerCacheRef.current.set(key, now);
+
+      try {
+        // Create delivery request
+        const body = {
+          customerId: r.customerId,
+          customerName: r.customerName,
+          address: r.address,
+          cans: r.cans,
+          orderDetails: '',
+          priority: r.priority || 'normal',
+        } as any;
+        const createRes = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!createRes.ok) {
+          // If server rejected (e.g., active exists), still advance nextRun to avoid piling up
+          // Fall through to advance nextRun
+        }
+
+        // Advance or clear nextRun on the recurring rule
+        if (r._id) {
+          if (r.type === 'one_time') {
+            // Remove one-time after firing
+            await fetch(buildApiUrl(`${API_ENDPOINTS.RECURRING_REQUESTS}/${r._id}`), { method: 'DELETE' });
+            setRecurringRequests(prev => {
+              const next = prev.filter(x => x._id !== r._id);
+              try { localStorage.setItem('paani_recurring_requests', JSON.stringify(next)); } catch {}
+              return next;
+            });
+          } else {
+            const nextRun = computeNextRun({ type: r.type, days: r.days, date: r.date, time: r.time });
+            const updRes = await fetch(buildApiUrl(`${API_ENDPOINTS.RECURRING_REQUESTS}/${r._id}`), {
+              method: 'PUT', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ nextRun })
+            });
+            if (updRes.ok) {
+              const updated = await updRes.json();
+              setRecurringRequests(prev => {
+                const next = prev.map(x => x._id === r._id ? updated : x);
+                try { localStorage.setItem('paani_recurring_requests', JSON.stringify(next)); } catch {}
+                return next;
+              });
+            }
+          }
+        }
+      } catch {
+        // ignore errors; will retry on next cycle
+      }
+    }
   };
 
   return (
