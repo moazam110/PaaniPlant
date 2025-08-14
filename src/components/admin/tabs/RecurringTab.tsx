@@ -38,9 +38,13 @@ const computeNextRun = (payload: { type: RecurringType; days?: number[]; date?: 
   const now = new Date();
   const [h, m] = (payload.time || '09:00').split(':').map(n => parseInt(n || '0', 10));
   if (payload.type === 'one_time' && payload.date) {
-    const d = new Date(payload.date);
-    d.setHours(h, m, 0, 0);
-    return d.toISOString();
+    // Parse yyyy-mm-dd as local date to preserve selected time exactly
+    const parts = String(payload.date).split('-').map(x => parseInt(x, 10));
+    const year = parts[0];
+    const monthZero = (parts[1] || 1) - 1;
+    const day = parts[2] || 1;
+    const dLocal = new Date(year, monthZero, day, h, m, 0, 0);
+    return dLocal.toISOString();
   }
   if (payload.type === 'daily') {
     const d = new Date();
@@ -173,7 +177,7 @@ export default function RecurringTab() {
       }
     };
     fetchAll();
-    const interval = setInterval(fetchAll, 10000);
+    const interval = setInterval(fetchAll, 180000);
     return () => { isActive = false; clearInterval(interval); };
   }, []);
 
@@ -531,17 +535,41 @@ export default function RecurringTab() {
                 </Select>
               </div>
               <div>
-                <Label>Time</Label>
-                <Input
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="HH:mm"
-                  title="Use 24-hour time (HH:mm)"
-                  pattern="^([01]?[0-9]|2[0-3]):[0-5][0-9]$"
-                  value={form.time}
-                  onChange={(e) => setForm(prev => ({ ...prev, time: e.target.value }))}
-                  onBlur={(e) => setForm(prev => ({ ...prev, time: normalizeTime24(e.target.value) }))}
-                />
+                <Label>Time (24-hour)</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Select
+                    value={(form.time || '09:00').split(':')[0]?.padStart(2, '0')}
+                    onValueChange={(v) => {
+                      const [, mRaw] = (form.time || '09:00').split(':');
+                      const mm = (mRaw || '00').padStart(2, '0');
+                      setForm(prev => ({ ...prev, time: normalizeTime24(`${v}:${mm}`) }));
+                    }}
+                  >
+                    <SelectTrigger><SelectValue placeholder="HH" /></SelectTrigger>
+                    <SelectContent className="max-h-64">
+                      {Array.from({ length: 24 }).map((_, i) => {
+                        const hh = i.toString().padStart(2, '0');
+                        return <SelectItem key={hh} value={hh}>{hh}</SelectItem>;
+                      })}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={(form.time || '09:00').split(':')[1]?.padStart(2, '0')}
+                    onValueChange={(v) => {
+                      const [hRaw] = (form.time || '09:00').split(':');
+                      const hh = (hRaw || '09').padStart(2, '0');
+                      setForm(prev => ({ ...prev, time: normalizeTime24(`${hh}:${v}`) }));
+                    }}
+                  >
+                    <SelectTrigger><SelectValue placeholder="mm" /></SelectTrigger>
+                    <SelectContent className="max-h-64">
+                      {Array.from({ length: 60 }).map((_, i) => {
+                        const mm = i.toString().padStart(2, '0');
+                        return <SelectItem key={mm} value={mm}>{mm}</SelectItem>;
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
             {form.type === 'weekly' && (

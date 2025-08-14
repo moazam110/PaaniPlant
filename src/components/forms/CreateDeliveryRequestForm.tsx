@@ -542,17 +542,12 @@ export default function CreateDeliveryRequestForm({
                       type="button"
                       variant="outline"
                       size="icon"
-                      onMouseDown={() => startHold(() => {
-                        const currentValue = Number(form.getValues('cans')) || 1;
-                        if (currentValue > 1) form.setValue('cans', currentValue - 1);
-                      })}
-                      onMouseUp={stopHold}
-                      onMouseLeave={stopHold}
-                      onTouchStart={(e) => { e.preventDefault(); startHold(() => {
+                      onPointerDown={(e) => { if ((e as any).button === 2) return; startHold(() => {
                         const currentValue = Number(form.getValues('cans')) || 1;
                         if (currentValue > 1) form.setValue('cans', currentValue - 1);
                       }); }}
-                      onTouchEnd={stopHold}
+                      onPointerUp={stopHold}
+                      onPointerLeave={stopHold}
                       disabled={isSubmitting || (Number(field.value) || 1) <= 1}
                       className="h-10 w-10"
                     >
@@ -567,17 +562,12 @@ export default function CreateDeliveryRequestForm({
                       type="button"
                       variant="outline"
                       size="icon"
-                      onMouseDown={() => startHold(() => {
-                        const currentValue = Number(form.getValues('cans')) || 1;
-                        form.setValue('cans', currentValue + 1);
-                      })}
-                      onMouseUp={stopHold}
-                      onMouseLeave={stopHold}
-                      onTouchStart={(e) => { e.preventDefault(); startHold(() => {
+                      onPointerDown={(e) => { if ((e as any).button === 2) return; startHold(() => {
                         const currentValue = Number(form.getValues('cans')) || 1;
                         form.setValue('cans', currentValue + 1);
                       }); }}
-                      onTouchEnd={stopHold}
+                      onPointerUp={stopHold}
+                      onPointerLeave={stopHold}
                       disabled={isSubmitting}
                       className="h-10 w-10"
                     >
