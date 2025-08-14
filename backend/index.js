@@ -100,9 +100,11 @@ const recurringRequestSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 });
 const RecurringRequest = mongoose.model('RecurringRequest', recurringRequestSchema);
-// Helpful indexes for scheduler performance
-recurringRequestSchema.index({ nextRun: 1 });
-recurringRequestSchema.index({ customerId: 1 });
+// Helpful indexes for scheduler performance (define on collection to ensure creation after model compile)
+try {
+  RecurringRequest.collection.createIndex({ nextRun: 1 }).catch(() => {});
+  RecurringRequest.collection.createIndex({ customerId: 1 }).catch(() => {});
+} catch {}
 
 // File upload setup
 const upload = multer({ dest: 'uploads/' });
@@ -398,6 +400,8 @@ const normalizeTime24 = (raw) => {
 // GET all recurring requests
 app.get('/api/recurring-requests', async (req, res) => {
   try {
+    // On-demand tick to ensure due jobs are processed even on sleeping hosts
+    try { await tryGenerateFromRecurring(); } catch {}
     const rec = await RecurringRequest.find().sort({ nextRun: 1, updatedAt: -1 });
     res.json(rec);
   } catch (err) {
@@ -476,6 +480,8 @@ app.delete('/api/recurring-requests/:id', async (req, res) => {
 // Delivery Requests endpoints
 app.get('/api/delivery-requests', async (req, res) => {
   try {
+    // On-demand tick before listing to surface newly generated requests immediately
+    try { await tryGenerateFromRecurring(); } catch {}
     console.log('Fetching delivery requests from database...');
     const requests = await DeliveryRequest.find().sort({ requestedAt: -1 })
       .populate('customerId', 'pricePerCan paymentType')
@@ -644,7 +650,7 @@ const tryGenerateFromRecurring = async () => {
   try {
     const now = new Date();
     // Find all recurring rules with nextRun due in the past (with tolerance covering the scheduler interval)
-    const toleranceMs = SCHEDULER_INTERVAL_MS + 60 * 1000; // extra 1 minute tolerance
+    const toleranceMs = SCHEDULER_INTERVAL_MS + 5 * 60 * 1000; // extra 5 minutes tolerance to avoid misses on cold-starts
     const windowStart = new Date(now.getTime() - toleranceMs);
     const dueRules = await RecurringRequest.find({ nextRun: { $lte: now, $gte: windowStart } }).sort({ nextRun: 1 }).lean();
     if (!dueRules.length) return;
