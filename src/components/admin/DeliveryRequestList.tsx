@@ -77,8 +77,8 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
   const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [filterDraft, setFilterDraft] = useState<{ today: boolean; date: string; cash: boolean; account: boolean; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>' }>({ today: false, date: '', cash: false, account: false, cans: '', cansOp: '=', price: '', priceOp: '>' });
-  const [activeFilter, setActiveFilter] = useState<{ today: boolean; date: string; cash: boolean; account: boolean; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>' }>({ today: false, date: '', cash: false, account: false, cans: '', cansOp: '=', price: '', priceOp: '>' });
+  const [filterDraft, setFilterDraft] = useState<{ today: boolean; date: string; cash: boolean; account: boolean; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>'; cancelled: boolean }>({ today: false, date: '', cash: false, account: false, cans: '', cansOp: '=', price: '', priceOp: '>', cancelled: false });
+  const [activeFilter, setActiveFilter] = useState<{ today: boolean; date: string; cash: boolean; account: boolean; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>'; cancelled: boolean }>({ today: false, date: '', cash: false, account: false, cans: '', cansOp: '=', price: '', priceOp: '>', cancelled: false });
   const [addressSortOrder, setAddressSortOrder] = useState<'asc' | 'desc' | null>(null);
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -173,7 +173,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
   // Apply panel filters after search filtering
   const fullyFilteredRequests = useMemo(() => {
     const list = filteredDeliveryRequests;
-    const { today, date, cash, account, cans, cansOp, price, priceOp } = activeFilter;
+    const { today, date, cash, account, cans, cansOp, price, priceOp, cancelled } = activeFilter;
 
     const hasDateFilter = today;
     const hasPaymentFilter = cash || account;
@@ -181,7 +181,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
     const priceFilterVal = price && /^\d{1,3}$/.test(price) ? Number(price) : null;
 
     const hasSpecificDate = !!date;
-    if (!hasDateFilter && !hasSpecificDate && !hasPaymentFilter && cansFilterVal == null && priceFilterVal == null) return list;
+    if (!hasDateFilter && !hasSpecificDate && !hasPaymentFilter && cansFilterVal == null && priceFilterVal == null && !cancelled) return list;
 
     // Helper to check day
     const isSameDay = (date: Date, ref: Date) => {
@@ -236,6 +236,11 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
         if (op === '<' && !(p < priceFilterVal)) return false;
         if (op === '=' && !(p === priceFilterVal)) return false;
         if (op === '>' && !(p > priceFilterVal)) return false;
+      }
+
+      // Cancelled filter
+      if (cancelled) {
+        if (req.status !== 'cancelled') return false;
       }
 
       return true;
@@ -536,6 +541,13 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                   </div>
                 </div>
                 <div>
+                  <Label className="mb-2 block">Cancelled</Label>
+                  <div className="flex items-center gap-2">
+                    <Checkbox id="flt-cancelled" checked={filterDraft.cancelled} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, cancelled: !!v }))} />
+                    <Label htmlFor="flt-cancelled">Only Show Cancelled</Label>
+                  </div>
+                </div>
+                <div>
                   <Label className="mb-2 block">Address Sort</Label>
                   <div className="flex items-center gap-2">
                     <Button
@@ -559,7 +571,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                   </div>
                 </div>
                 <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => { setFilterDraft({ today: false, date: '', cash: false, account: false, cans: '', cansOp: '=', price: '', priceOp: '>', }); }}>Clear</Button>
+                  <Button variant="outline" onClick={() => { setFilterDraft({ today: false, date: '', cash: false, account: false, cans: '', cansOp: '=', price: '', priceOp: '>', cancelled: false }); }}>Clear</Button>
                   <Button onClick={() => { setActiveFilter(filterDraft); setIsFilterOpen(false); }}>Apply</Button>
                 </div>
               </div>
@@ -601,6 +613,27 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
          <p className="text-muted-foreground mt-4 text-center">No requests or customers found matching "{searchTerm}".</p>
       )}
 
+      {/* Cancelled filter info message */}
+      {activeFilter.cancelled && (
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-md mb-4">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-blue-800">
+                Viewing Cancelled Requests Only
+              </h3>
+              <div className="mt-2 text-sm text-blue-700">
+                <p>This view shows only cancelled delivery requests with their cancellation details including reason, notes, and who cancelled them.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {fullyFilteredRequests.length > 0 && (
         <div className="border rounded-lg overflow-hidden max-h-[500px] overflow-y-auto table-container">
           <Table>
@@ -614,6 +647,13 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                 <TableHead className="w-[10%] text-center whitespace-nowrap">Payment Type</TableHead>
                 <TableHead className="w-[10%] text-center whitespace-nowrap">Priority</TableHead>
                 <TableHead className="w-[10%] text-center whitespace-nowrap">Status</TableHead>
+                {activeFilter.cancelled && (
+                  <>
+                    <TableHead className="w-[12%] text-center whitespace-nowrap">Cancelled By</TableHead>
+                    <TableHead className="w-[12%] text-center whitespace-nowrap">Reason</TableHead>
+                    <TableHead className="w-[15%] text-center whitespace-nowrap">Notes</TableHead>
+                  </>
+                )}
                 <TableHead className="w-[10%] text-center whitespace-nowrap">Edit</TableHead>
               </TableRow>
             </TableHeader>
@@ -662,6 +702,19 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                         {getStatusDisplay(request.status)}
                       </Badge>
                     </TableCell>
+                    {activeFilter.cancelled && (
+                      <>
+                        <TableCell className="w-[12%] text-center whitespace-nowrap">
+                          {request.cancelledBy || '-'}
+                        </TableCell>
+                        <TableCell className="w-[12%] text-center whitespace-nowrap">
+                          {request.cancellationReason || '-'}
+                        </TableCell>
+                        <TableCell className="w-[15%] text-center whitespace-nowrap">
+                          {request.cancellationNotes || '-'}
+                        </TableCell>
+                      </>
+                    )}
                     <TableCell className="w-[10%] text-center whitespace-nowrap">
                       {canEdit ? (
                         <Button variant="ghost" size="icon" title="Edit Request" onClick={() => onEditRequest(request)}>
@@ -687,6 +740,87 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
               })}
             </TableBody>
           </Table>
+        </div>
+      )}
+
+      {/* Mobile view for cancelled requests */}
+      {activeFilter.cancelled && (
+        <div className="md:hidden space-y-3 mt-6">
+          <h3 className="text-lg font-semibold">Cancelled Requests (Mobile View)</h3>
+          {fullyFilteredRequests.length === 0 ? (
+            <div className="p-3 text-center text-muted-foreground text-sm border rounded">
+              No cancelled requests found.
+            </div>
+          ) : (
+            fullyFilteredRequests.map((request) => {
+              const isSindhiName = /[ء-ي]/.test(request.customerName);
+              const nameClasses = cn(isSindhiName ? 'font-sindhi rtl' : 'ltr');
+              const intId = (request as any).customerIntId;
+              const pricePerCan = (request as any).pricePerCan;
+              const paymentType = ((request as any).paymentType || '').toString();
+
+              return (
+                <Card key={request._id || request.requestId || `mobile-${Math.random()}`} className="shadow-sm border-red-200 bg-red-50">
+                  <CardContent className="p-4">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <h4 className={cn(nameClasses, 'font-medium text-base')}>
+                            {intId ? `${intId} - ${request.customerName}` : request.customerName}
+                          </h4>
+                          <p className="text-sm text-muted-foreground">{request.address}</p>
+                        </div>
+                        <Badge variant="destructive" className="capitalize">
+                          Cancelled
+                        </Badge>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">Cans:</span> {request.cans}
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Price:</span> {pricePerCan !== undefined ? `Rs. ${pricePerCan}` : '-'}
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Payment:</span> {paymentType ? (
+                            <Badge variant="outline" className="capitalize ml-1">{paymentType}</Badge>
+                          ) : '-'}
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Requested:</span> {request.requestedAt ? format(new Date(request.requestedAt), 'MMM d, HH:mm') : '-'}
+                        </div>
+                      </div>
+
+                      {/* Cancellation details */}
+                      <div className="border-t pt-3 space-y-2 bg-white rounded p-3">
+                        <div className="text-sm">
+                          <span className="text-muted-foreground font-medium">Cancelled By:</span> 
+                          <span className="ml-2 capitalize">{request.cancelledBy || '-'}</span>
+                        </div>
+                        <div className="text-sm">
+                          <span className="text-muted-foreground font-medium">Reason:</span> 
+                          <span className="ml-2 capitalize">{request.cancellationReason || '-'}</span>
+                        </div>
+                        {request.cancellationNotes && (
+                          <div className="text-sm">
+                            <span className="text-muted-foreground font-medium">Notes:</span> 
+                            <span className="ml-2">{request.cancellationNotes}</span>
+                          </div>
+                        )}
+                        {request.cancelledAt && (
+                          <div className="text-sm">
+                            <span className="text-muted-foreground font-medium">Cancelled At:</span> 
+                            <span className="ml-2">{format(new Date(request.cancelledAt), 'MMM d, yyyy HH:mm')}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })
+          )}
         </div>
       )}
 
