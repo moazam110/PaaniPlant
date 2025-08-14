@@ -808,6 +808,61 @@ const alignAndStartScheduler = () => {
 };
 alignAndStartScheduler();
 
+// Test endpoint to verify PKT date calculation
+app.get('/api/test-pkt-dates', (req, res) => {
+  try {
+    const now = new Date();
+    
+    // Helper function to create PKT date boundaries
+    const createPKTDateBoundaries = (year, month, day) => {
+      // For PKT (UTC+05:00), we need to create UTC boundaries that represent
+      // the PKT business day from 00:00:00 to 23:59:59
+      
+      // PKT 00:00:00 = UTC 19:00:00 (previous day)
+      const startUTC = new Date(Date.UTC(year, month - 1, day - 1, 19, 0, 0, 0));
+      
+      // PKT 23:59:59 = UTC 18:59:59 (same day)
+      const endUTC = new Date(Date.UTC(year, month - 1, day, 18, 59, 59, 999));
+      
+      return { startUTC, endUTC };
+    };
+    
+    // Get current PKT time
+    const pktOffset = 5 * 60 * 60 * 1000; // 5 hours in milliseconds
+    const pktNow = new Date(now.getTime() + pktOffset);
+    
+    // Get PKT date components
+    const pktYear = pktNow.getUTCFullYear();
+    const pktMonth = pktNow.getUTCMonth() + 1;
+    const pktDay = pktNow.getUTCDate();
+    
+    // Create boundaries for today in PKT
+    const boundaries = createPKTDateBoundaries(pktYear, pktMonth, pktDay);
+    
+    const testData = {
+      currentUTC: now.toISOString(),
+      currentPKT: pktNow.toISOString(),
+      pktDate: `${pktYear}-${pktMonth.toString().padStart(2, '0')}-${pktDay.toString().padStart(2, '0')}`,
+      pktBoundaries: {
+        start: boundaries.startUTC.toISOString(),
+        end: boundaries.endUTC.toISOString(),
+        startPKT: boundaries.startUTC.toLocaleString('en-US', { timeZone: 'Asia/Karachi' }),
+        endPKT: boundaries.endUTC.toLocaleString('en-US', { timeZone: 'Asia/Karachi' })
+      },
+      explanation: {
+        pktStart: `PKT ${pktYear}-${pktMonth}-${pktDay} 00:00:00`,
+        pktEnd: `PKT ${pktYear}-${pktMonth}-${pktDay} 23:59:59`,
+        utcStart: `UTC ${boundaries.startUTC.toISOString()}`,
+        utcEnd: `UTC ${boundaries.endUTC.toISOString()}`
+      }
+    };
+    
+    res.json(testData);
+  } catch (err) {
+    res.status(500).json({ error: 'Test failed', details: err.message });
+  }
+});
+
 // Dashboard metrics endpoint
 app.get('/api/dashboard/metrics', async (req, res) => {
   try {
@@ -816,13 +871,18 @@ app.get('/api/dashboard/metrics', async (req, res) => {
     
     let startOfDay, endOfDay, timeLabel;
     
-    // Helper function to create PKT dates (UTC+05:00)
-    const createPKTDate = (year, month, day, hour = 0, minute = 0, second = 0) => {
-      // Create date in PKT timezone by adding 5 hours to UTC
-      const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
-      // Adjust for PKT (UTC+05:00)
-      const pktDate = new Date(utcDate.getTime() + (5 * 60 * 60 * 1000));
-      return pktDate;
+    // Helper function to create PKT date boundaries
+    const createPKTDateBoundaries = (year, month, day) => {
+      // For PKT (UTC+05:00), we need to create UTC boundaries that represent
+      // the PKT business day from 00:00:00 to 23:59:59
+      
+      // PKT 00:00:00 = UTC 19:00:00 (previous day)
+      const startUTC = new Date(Date.UTC(year, month - 1, day - 1, 19, 0, 0, 0));
+      
+      // PKT 23:59:59 = UTC 18:59:59 (same day)
+      const endUTC = new Date(Date.UTC(year, month - 1, day, 18, 59, 59, 999));
+      
+      return { startUTC, endUTC };
     };
     
     if (day && month && year) {
@@ -833,8 +893,9 @@ app.get('/api/dashboard/metrics', async (req, res) => {
       
       if (!isNaN(dayNum) && !isNaN(monthNum) && !isNaN(yearNum)) {
         // Create PKT date boundaries
-        startOfDay = createPKTDate(yearNum, monthNum, dayNum, 0, 0, 0);
-        endOfDay = createPKTDate(yearNum, monthNum, dayNum, 23, 59, 59);
+        const boundaries = createPKTDateBoundaries(yearNum, monthNum, dayNum);
+        startOfDay = boundaries.startUTC;
+        endOfDay = boundaries.endUTC;
         timeLabel = `${dayNum}/${monthNum}/${yearNum}`;
       }
     } else if (month && year) {
@@ -843,10 +904,14 @@ app.get('/api/dashboard/metrics', async (req, res) => {
       const yearNum = parseInt(year);
       
       if (!isNaN(monthNum) && !isNaN(yearNum)) {
-        startOfDay = createPKTDate(yearNum, monthNum, 1, 0, 0, 0);
+        const boundaries = createPKTDateBoundaries(yearNum, monthNum, 1);
+        startOfDay = boundaries.startUTC;
+        
         // Last day of month
         const lastDay = new Date(yearNum, monthNum, 0).getDate();
-        endOfDay = createPKTDate(yearNum, monthNum, lastDay, 23, 59, 59);
+        const endBoundaries = createPKTDateBoundaries(yearNum, monthNum, lastDay);
+        endOfDay = endBoundaries.endUTC;
+        
         const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         timeLabel = `${monthNames[monthNum - 1]} ${yearNum}`;
       }
@@ -855,27 +920,41 @@ app.get('/api/dashboard/metrics', async (req, res) => {
       const yearNum = parseInt(year);
       
       if (!isNaN(yearNum)) {
-        startOfDay = createPKTDate(yearNum, 1, 1, 0, 0, 0);
-        endOfDay = createPKTDate(yearNum, 12, 31, 23, 59, 59);
+        const boundaries = createPKTDateBoundaries(yearNum, 1, 1);
+        startOfDay = boundaries.startUTC;
+        
+        const endBoundaries = createPKTDateBoundaries(yearNum, 12, 31);
+        endOfDay = endBoundaries.endUTC;
+        
         timeLabel = `${yearNum}`;
       }
     }
     
     // Default to today in PKT if no specific date provided
     if (!startOfDay || !endOfDay) {
-      const today = new Date();
-      // Convert current UTC time to PKT
-      const pktOffset = 5 * 60 * 60 * 1000; // 5 hours in milliseconds
-      const pktNow = new Date(today.getTime() + pktOffset);
+      // Get current UTC time
+      const utcNow = new Date();
       
-      startOfDay = createPKTDate(pktNow.getUTCFullYear(), pktNow.getUTCMonth() + 1, pktNow.getUTCDate(), 0, 0, 0);
-      endOfDay = createPKTDate(pktNow.getUTCFullYear(), pktNow.getUTCMonth() + 1, pktNow.getUTCDate(), 23, 59, 59);
+      // Calculate current PKT time (UTC+05:00)
+      const pktOffset = 5 * 60 * 60 * 1000; // 5 hours in milliseconds
+      const pktNow = new Date(utcNow.getTime() + pktOffset);
+      
+      // Get PKT date components
+      const pktYear = pktNow.getUTCFullYear();
+      const pktMonth = pktNow.getUTCMonth() + 1;
+      const pktDay = pktNow.getUTCDate();
+      
+      // Create boundaries for today in PKT
+      const boundaries = createPKTDateBoundaries(pktYear, pktMonth, pktDay);
+      startOfDay = boundaries.startUTC;
+      endOfDay = boundaries.endUTC;
       timeLabel = 'Today';
     }
 
     console.log(`📅 Dashboard metrics for: ${timeLabel}`);
     console.log(`📅 Date range: ${startOfDay.toISOString()} to ${endOfDay.toISOString()}`);
     console.log(`📅 PKT Time: ${startOfDay.toLocaleString('en-US', { timeZone: 'Asia/Karachi' })} to ${endOfDay.toLocaleString('en-US', { timeZone: 'Asia/Karachi' })}`);
+    console.log(`📅 Current UTC: ${now.toISOString()}`);
 
     // Get all delivery requests (excluding cancelled ones from all counts)
     const allRequests = await DeliveryRequest.find({ status: { $ne: 'cancelled' } });
@@ -955,7 +1034,8 @@ app.get('/api/dashboard/metrics', async (req, res) => {
       totalCans: metrics.totalCans,
       totalAmount: metrics.totalAmountGenerated,
       cashAmount: metrics.totalCashAmountGenerated,
-      timeLabel: metrics.timeLabel
+      timeLabel: metrics.timeLabel,
+      periodDeliveriesCount: periodDeliveries.length
     });
 
     res.json(metrics);
