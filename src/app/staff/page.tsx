@@ -26,6 +26,7 @@ export default function StaffPage() {
   const [authUser, setAuthUser] = useState<any | null>(null);
   const optimisticRef = useRef<Map<string, { status: DeliveryRequest['status']; expires: number }>>(new Map());
   const fetchInProgressRef = useRef<boolean>(false);
+  const suppressUpdatesUntilRef = useRef<number>(0);
 
   const { toast } = useToast();
   const router = useRouter();
@@ -179,7 +180,11 @@ export default function StaffPage() {
         
         // Update previous count after processing
         setPreviousRequestCount(currentPendingCount);
-        setDeliveryRequests(withOptimistic);
+
+        // Suppress applying server list briefly right after a local action to prevent flicker
+        if (now >= suppressUpdatesUntilRef.current) {
+          setDeliveryRequests(withOptimistic);
+        }
         setIsLoading(false);
       } catch (err) {
         console.error('Error fetching delivery requests:', err);
@@ -244,6 +249,8 @@ export default function StaffPage() {
       ));
 
       const actualRequestId = currentRequest._id || currentRequest.requestId;
+      // Briefly suppress polling updates to avoid flicker back to pending
+      suppressUpdatesUntilRef.current = Date.now() + 2000;
       const response = await fetch(buildApiUrl(`api/delivery-requests/${actualRequestId}/status`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -257,6 +264,7 @@ export default function StaffPage() {
         setDeliveryRequests(prev => prev.map(req =>
           (req._id || req.requestId) === requestId ? { ...req, ...updatedRequest } : req
         ));
+        suppressUpdatesUntilRef.current = 0;
       } else {
         throw new Error('Failed to update status');
       }
@@ -274,6 +282,7 @@ export default function StaffPage() {
       // Remove optimistic entry
       const optimisticKey = String(requestId);
       optimisticRef.current.delete(optimisticKey);
+      suppressUpdatesUntilRef.current = 0;
       toast({
         variant: "destructive",
         title: "Update Failed",
