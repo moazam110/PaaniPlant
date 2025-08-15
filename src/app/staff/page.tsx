@@ -49,6 +49,9 @@ export default function StaffPage() {
   const silentRefreshRef = useRef<boolean>(false);
   const lastDataHashRef = useRef<string>('');
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Store the fetch function in a ref to avoid dependency issues
+  const fetchDeliveryRequestsRef = useRef<typeof fetchDeliveryRequests>();
 
   const { toast } = useToast();
   const router = useRouter();
@@ -257,12 +260,28 @@ export default function StaffPage() {
     } finally {
       fetchInProgressRef.current = false;
     }
-  }, [toast, previousRequestCount, createDataHash]);
+  }, [toast, createDataHash]); // Removed previousRequestCount dependency to prevent function recreation
 
+  // Store the function in ref after it's defined
   useEffect(() => {
+    fetchDeliveryRequestsRef.current = fetchDeliveryRequests;
+  }, [fetchDeliveryRequests]);
+
+  // Stable polling setup - only runs once on mount
+  useEffect(() => {
+    // Prevent multiple setups
+    if (refreshIntervalRef.current) {
+      console.log('🔄 Polling already set up, skipping duplicate setup');
+      return;
+    }
+    
+    console.log('🔄 Initializing staff dashboard polling system');
+    
     // Initial fetch (non-silent)
     setIsLoading(true);
-    fetchDeliveryRequests(false);
+    if (fetchDeliveryRequestsRef.current) {
+      fetchDeliveryRequestsRef.current(false);
+    }
 
     // Initialize previous count after first successful fetch
     let initializationAttempts = 0;
@@ -282,25 +301,34 @@ export default function StaffPage() {
     setTimeout(initializePreviousCount, 3000);
 
     // Enhanced silent polling: every 3 seconds with silent background updates
+    // This interval is set up once and never changes
+    console.log('🔄 Setting up stable polling interval (runs once on mount)');
     refreshIntervalRef.current = setInterval(() => {
       // Use silent refresh to prevent visual page reloads
-      fetchDeliveryRequests(true);
+      if (fetchDeliveryRequestsRef.current) {
+        console.log('🔄 Silent background refresh triggered');
+        fetchDeliveryRequestsRef.current(true);
+      } else {
+        console.warn('⚠️ fetchDeliveryRequestsRef.current is not available');
+      }
     }, 3000);
 
     // Cleanup interval on unmount
     return () => {
+      console.log('🔄 Cleaning up staff dashboard polling system');
       if (refreshIntervalRef.current) {
         clearInterval(refreshIntervalRef.current);
+        refreshIntervalRef.current = null;
       }
     };
-  }, [fetchDeliveryRequests]);
+  }, []); // Empty dependency array - only runs once on mount
 
   // Function to manually trigger a silent refresh (useful for external updates)
   const triggerSilentRefresh = useCallback(() => {
-    if (!fetchInProgressRef.current) {
-      fetchDeliveryRequests(true);
+    if (!fetchInProgressRef.current && fetchDeliveryRequestsRef.current) {
+      fetchDeliveryRequestsRef.current(true);
     }
-  }, [fetchDeliveryRequests]);
+  }, []); // No dependencies needed since we use ref
 
   // Pause/resume silent refreshes when page is not visible (save resources)
   useEffect(() => {
@@ -316,7 +344,9 @@ export default function StaffPage() {
         // Page is visible, resume silent refreshes
         if (!refreshIntervalRef.current) {
           refreshIntervalRef.current = setInterval(() => {
-            fetchDeliveryRequests(true);
+            if (fetchDeliveryRequestsRef.current) {
+              fetchDeliveryRequestsRef.current(true);
+            }
           }, 3000);
           console.log('🔄 Silent refreshes resumed (page visible)');
         }
@@ -325,7 +355,7 @@ export default function StaffPage() {
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [fetchDeliveryRequests]);
+  }, []); // Empty dependency array - only runs once
 
   const handleMarkAsDone = useCallback(async (requestId: string) => {
     try {
