@@ -189,8 +189,10 @@ export default function RecurringTab() {
       }
     };
     fetchAll();
-    const interval = setInterval(fetchAll, 180000);
-    return () => { isActive = false; clearInterval(interval); };
+    
+    // No separate refresh interval - admin dashboard refreshes every 3 seconds
+    // Recurring data will be updated through the main admin dashboard refresh system
+    return () => { isActive = false; };
   }, []);
 
   const customersOptions = useMemo(() => {

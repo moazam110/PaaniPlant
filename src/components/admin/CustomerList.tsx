@@ -109,11 +109,8 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
   useEffect(() => {
     fetchCustomers();
     
-    // Set up real-time updates every 60 seconds for customer list
-    const interval = setInterval(fetchCustomers, 60000);
-    
-    // Cleanup interval on unmount
-    return () => clearInterval(interval);
+    // No separate refresh interval - admin dashboard refreshes every 3 seconds
+    // Customer data will be updated through the main admin dashboard refresh system
   }, []);
 
   useImperativeHandle(ref, () => ({
