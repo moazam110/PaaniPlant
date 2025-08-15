@@ -1,6 +1,20 @@
 
 "use client";
 
+/**
+ * Staff Dashboard with Silent Background Updates
+ * 
+ * This component implements a silent refresh system that updates data in the background
+ * every 3 seconds without causing visual page reloads or disrupting the user experience.
+ * 
+ * Key Features:
+ * - Silent background data updates every 3 seconds
+ * - Smart change detection to prevent unnecessary re-renders
+ * - Optimistic updates for smooth status transitions
+ * - Resource optimization when page is not visible
+ * - Visual indicators for live updates without disruption
+ */
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Button as UIButton } from '@/components/ui/button';
 import { ArrowDownAZ, ArrowUpAZ } from 'lucide-react';
@@ -25,14 +39,26 @@ export default function StaffPage() {
   const [previousRequestCount, setPreviousRequestCount] = useState(0);
   const [authUser, setAuthUser] = useState<any | null>(null);
   
-  // Original optimistic updates
+  // Enhanced optimistic updates and silent refresh system
   const optimisticRef = useRef<Map<string, { status: DeliveryRequest['status']; expires: number }>>(new Map());
   const fetchInProgressRef = useRef<boolean>(false);
   const lastUpdateRef = useRef<number>(0);
   const currentFetchAbortRef = useRef<AbortController | null>(null);
+  
+  // Silent refresh system - prevents visual page reloads
+  const silentRefreshRef = useRef<boolean>(false);
+  const lastDataHashRef = useRef<string>('');
+  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const { toast } = useToast();
   const router = useRouter();
+
+  // Utility function to create a hash of delivery requests for change detection
+  const createDataHash = useCallback((requests: DeliveryRequest[]): string => {
+    return requests.map(req => 
+      `${req._id || req.requestId}-${req.status}-${req.requestedAt}`
+    ).join('|');
+  }, []);
 
   // Check staff authentication
   useEffect(() => {
@@ -142,8 +168,8 @@ export default function StaffPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Original fetch function
-  const fetchDeliveryRequests = useCallback(async () => {
+  // Enhanced fetch function with silent updates to prevent visual page reloads
+  const fetchDeliveryRequests = useCallback(async (isSilentRefresh: boolean = false) => {
     if (fetchInProgressRef.current) return;
     
     fetchInProgressRef.current = true;
@@ -177,38 +203,66 @@ export default function StaffPage() {
         if (v.expires <= now) optimisticRef.current.delete(k);
       }
 
-      // Only update if there are actual changes
-      const currentPendingCount = withOptimistic.filter((req: DeliveryRequest) => 
-        req.status === 'pending' || req.status === 'pending_confirmation'
-      ).length;
+      // Create hash of new data to detect real changes
+      const newDataHash = createDataHash(withOptimistic);
+      const hasRealChanges = newDataHash !== lastDataHashRef.current;
       
-      if (currentPendingCount !== previousRequestCount) {
-        setPreviousRequestCount(currentPendingCount);
-        console.log(`📊 Request count updated: ${currentPendingCount} pending requests`);
-      }
+      // Only update state if there are real changes or it's not a silent refresh
+      if (hasRealChanges || !isSilentRefresh) {
+        // Calculate pending count for metrics
+        const currentPendingCount = withOptimistic.filter((req: DeliveryRequest) => 
+          req.status === 'pending' || req.status === 'pending_confirmation'
+        ).length;
+        
+        if (currentPendingCount !== previousRequestCount) {
+          setPreviousRequestCount(currentPendingCount);
+          console.log(`📊 Request count updated: ${currentPendingCount} pending requests`);
+        }
 
-      setDeliveryRequests(withOptimistic);
-      setIsLoading(false);
+        // Update delivery requests with smooth transition
+        setDeliveryRequests(prevRequests => {
+          // If it's a silent refresh and no real changes, return previous state to prevent re-renders
+          if (isSilentRefresh && !hasRealChanges) {
+            return prevRequests;
+          }
+          
+          // Update the hash reference
+          lastDataHashRef.current = newDataHash;
+          
+          // Return new data for real changes
+          return withOptimistic;
+        });
+        
+        // Only set loading to false for non-silent refreshes
+        if (!isSilentRefresh) {
+          setIsLoading(false);
+        }
+      }
+      
     } catch (err: any) {
       if (err && err.name === 'AbortError') {
         return; // Ignore aborted fetch errors silently
       }
       console.error('Error fetching delivery requests:', err);
-      setIsLoading(false);
-      toast({
-        variant: "destructive",
-        title: "Connection Error",
-        description: "Unable to fetch delivery requests. Check if backend is running.",
-      });
+      
+      // Only show errors for non-silent refreshes
+      if (!isSilentRefresh) {
+        setIsLoading(false);
+        toast({
+          variant: "destructive",
+          title: "Connection Error",
+          description: "Unable to fetch delivery requests. Check if backend is running.",
+        });
+      }
     } finally {
       fetchInProgressRef.current = false;
     }
-  }, [toast, previousRequestCount]);
+  }, [toast, previousRequestCount, createDataHash]);
 
   useEffect(() => {
-    // Initial fetch
+    // Initial fetch (non-silent)
     setIsLoading(true);
-    fetchDeliveryRequests();
+    fetchDeliveryRequests(false);
 
     // Initialize previous count after first successful fetch
     let initializationAttempts = 0;
@@ -227,11 +281,50 @@ export default function StaffPage() {
     
     setTimeout(initializePreviousCount, 3000);
 
-    // Original polling: every 3 seconds
-    const interval = setInterval(fetchDeliveryRequests, 3000);
+    // Enhanced silent polling: every 3 seconds with silent background updates
+    refreshIntervalRef.current = setInterval(() => {
+      // Use silent refresh to prevent visual page reloads
+      fetchDeliveryRequests(true);
+    }, 3000);
 
     // Cleanup interval on unmount
-    return () => clearInterval(interval);
+    return () => {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+    };
+  }, [fetchDeliveryRequests]);
+
+  // Function to manually trigger a silent refresh (useful for external updates)
+  const triggerSilentRefresh = useCallback(() => {
+    if (!fetchInProgressRef.current) {
+      fetchDeliveryRequests(true);
+    }
+  }, [fetchDeliveryRequests]);
+
+  // Pause/resume silent refreshes when page is not visible (save resources)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Page is hidden, pause silent refreshes
+        if (refreshIntervalRef.current) {
+          clearInterval(refreshIntervalRef.current);
+          refreshIntervalRef.current = null;
+          console.log('🔄 Silent refreshes paused (page hidden)');
+        }
+      } else {
+        // Page is visible, resume silent refreshes
+        if (!refreshIntervalRef.current) {
+          refreshIntervalRef.current = setInterval(() => {
+            fetchDeliveryRequests(true);
+          }, 3000);
+          console.log('🔄 Silent refreshes resumed (page visible)');
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [fetchDeliveryRequests]);
 
   const handleMarkAsDone = useCallback(async (requestId: string) => {
@@ -246,14 +339,14 @@ export default function StaffPage() {
         newStatus = 'delivered';
       }
 
-      // Optimistic update: update local state immediately
+      // Enhanced optimistic update: update local state immediately with smooth transition
       const optimisticKey = String(currentRequest._id || currentRequest.requestId || '');
       optimisticRef.current.set(optimisticKey, { 
         status: newStatus as DeliveryRequest['status'], 
         expires: Date.now() + 8000 
       });
       
-      // Update local state immediately
+      // Update local state immediately with smooth transition
       setDeliveryRequests(prev => prev.map(req =>
         (req._id || req.requestId) === requestId ? { ...req, status: newStatus as DeliveryRequest['status'] } : req
       ));
@@ -354,6 +447,14 @@ export default function StaffPage() {
             </div>
           </div>
         )}
+        
+        {/* Subtle background update indicator */}
+        <div className="mx-4 mt-2 flex items-center justify-center">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            <span>Live updates enabled • Data refreshes every 3 seconds</span>
+          </div>
+        </div>
         <div className="px-2 py-1">
           <div className="flex items-center justify-between">
             <StaffDashboardMetrics 
