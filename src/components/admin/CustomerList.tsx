@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useEffect, useState, useMemo, useImperativeHandle, forwardRef, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useImperativeHandle, forwardRef } from 'react';
 import type { Customer } from '@/types';
 // REMOVE: import { db } from '@/firebase';
 // REMOVE: import { collection, query, orderBy, onSnapshot, Timestamp } from 'firebase/firestore';
@@ -40,7 +40,6 @@ export interface CustomerListRef {
 const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCustomer }, ref) => {
   const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -49,17 +48,6 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
   const [customerCansMap, setCustomerCansMap] = useState<Record<string, number>>({});
   const [addressSortOrder, setAddressSortOrder] = useState<'asc' | 'desc' | null>(null);
   
-  // Performance optimization: Debounced search
-  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
-  
-  // Performance optimization: Lazy loading state
-  const [visibleCustomers, setVisibleCustomers] = useState<Customer[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [customersPerPage] = useState(50); // Show 50 customers at a time
-  
-  // Performance optimization: Cache for expensive operations
-  const customerCache = useRef<Map<string, any>>(new Map());
-
   const fetchCustomers = async () => {
     setIsLoading(true);
     try {
@@ -155,51 +143,19 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
     return patternIndex >= Math.ceil(normalizedPattern.length * 0.7);
   };
 
-  // Performance optimization: Debounced search to reduce unnecessary filtering
-  useEffect(() => {
-    if (searchTimeout) {
-      clearTimeout(searchTimeout);
-    }
-    
-    const newTimeout = setTimeout(() => {
-      setDebouncedSearchTerm(searchTerm);
-    }, 300); // 300ms delay for better performance
-    
-    setSearchTimeout(newTimeout);
-    
-    return () => {
-      if (newTimeout) {
-        clearTimeout(newTimeout);
-      }
-    };
-  }, [searchTerm]);
-
-  // Performance optimization: Memoized search results
   const filteredCustomers = useMemo(() => {
-    if (!debouncedSearchTerm) {
+    if (!searchTerm) {
       return allCustomers;
     }
     
-    // Use cache for expensive search operations
-    const cacheKey = `search_${debouncedSearchTerm}`;
-    if (customerCache.current.has(cacheKey)) {
-      return customerCache.current.get(cacheKey);
-    }
-    
-    const results = allCustomers.filter(customer => {
+    return allCustomers.filter(customer => {
       return (
-        fuzzyMatch(customer.name, debouncedSearchTerm) ||
-        (customer.phone && fuzzyMatch(customer.phone, debouncedSearchTerm)) ||
-        fuzzyMatch(customer.address, debouncedSearchTerm)
+        fuzzyMatch(customer.name, searchTerm) ||
+        (customer.phone && fuzzyMatch(customer.phone, searchTerm)) ||
+        fuzzyMatch(customer.address, searchTerm)
       );
     });
-    
-    // Cache the results for 5 minutes
-    customerCache.current.set(cacheKey, results);
-    setTimeout(() => customerCache.current.delete(cacheKey), 300000);
-    
-    return results;
-  }, [allCustomers, debouncedSearchTerm]);
+  }, [allCustomers, searchTerm]);
 
   // Apply filters to customers using aggregated cans and optional price
   const filteredAndAggregatedCustomers = useMemo(() => {
@@ -274,19 +230,6 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
       return tb - ta;
     });
   }, [filteredCustomers, activeFilter, customerCansMap, addressSortOrder]);
-
-  // Performance optimization: Lazy loading for customer display
-  const updateVisibleCustomers = useCallback(() => {
-    const startIndex = (currentPage - 1) * customersPerPage;
-    const endIndex = startIndex + customersPerPage;
-    setVisibleCustomers(filteredAndAggregatedCustomers.slice(startIndex, endIndex));
-  }, [currentPage, customersPerPage, filteredAndAggregatedCustomers]);
-
-  // Update visible customers when filters change
-  useEffect(() => {
-    setCurrentPage(1); // Reset to first page when filters change
-    updateVisibleCustomers();
-  }, [updateVisibleCustomers]);
 
   if (isLoading) {
     return (
@@ -463,98 +406,69 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
           {searchTerm ? 'No customers found matching your search.' : 'No customers found. Add your first customer!'}
         </div>
       ) : (
-        <>
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Phone</TableHead>
-                  <TableHead>Address</TableHead>
-                  <TableHead className="w-[15%] text-center whitespace-nowrap">Payment Type</TableHead>
-                  <TableHead className="w-[12%] text-center whitespace-nowrap">Default Cans</TableHead>
-                  <TableHead className="w-[12%] text-center whitespace-nowrap">Price/Can</TableHead>
-                  <TableHead className="text-right">Edit</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {visibleCustomers.map((customer: Customer, idx: number) => {
-                  const isSindhiName = /[\u0621-\u064a]/.test(customer.name);
-                  const nameClasses = cn(isSindhiName ? 'font-sindhi rtl' : 'ltr');
-                  return (
-                    <TableRow 
-                      key={customer._id || customer.customerId || idx}
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => onEditCustomer && onEditCustomer(customer)}
-                    >
-                      <TableCell className={nameClasses}>
-                        <span>{(customer as any).id ? `${(customer as any).id} - ${customer.name}` : customer.name}</span>
-                        {typeof customer.pricePerCan === 'number' && customer.pricePerCan >= 100 && (
-                          <span aria-label="Premium" className="inline-flex ml-2 align-middle">
-                            <Star className="h-3 w-3 text-yellow-500" />
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell>{customer.phone || '-'}</TableCell>
-                      <TableCell className="whitespace-normal break-words max-w-xs">{customer.address}</TableCell>
-                      <TableCell className="w-[15%] text-center whitespace-nowrap">
-                        {(() => {
-                          const pt = ((customer as any).paymentType || '').toString().toLowerCase();
-                          const label = pt === 'account' ? 'Account' : 'Cash';
-                          return <Badge variant="outline" className="capitalize">{label}</Badge>;
-                        })()}
-                      </TableCell>
-                      <TableCell className="w-[12%] text-center whitespace-nowrap">{customer.defaultCans}</TableCell>
-                      <TableCell className="w-[12%] text-center whitespace-nowrap">{customer.pricePerCan ? `Rs. ${customer.pricePerCan}` : '-'}</TableCell>
-                      <TableCell className="text-right">
-                        {onEditCustomer && (
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onEditCustomer(customer);
-                            }} 
-                            title="Edit Customer"
-                          >
-                            <Pencil className="h-4 w-4 text-blue-600" />
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-          
-          {/* Performance optimization: Pagination controls */}
-          {filteredAndAggregatedCustomers.length > customersPerPage && (
-            <div className="flex items-center justify-between mt-4">
-              <div className="text-sm text-muted-foreground">
-                Showing {((currentPage - 1) * customersPerPage) + 1} to {Math.min(currentPage * customersPerPage, filteredAndAggregatedCustomers.length)} of {filteredAndAggregatedCustomers.length} customers
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                  disabled={currentPage === 1}
-                >
-                  Previous
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredAndAggregatedCustomers.length / customersPerPage), prev + 1))}
-                  disabled={currentPage >= Math.ceil(filteredAndAggregatedCustomers.length / customersPerPage)}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          )}
-        </>
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Phone</TableHead>
+                <TableHead>Address</TableHead>
+                <TableHead className="w-[15%] text-center whitespace-nowrap">Payment Type</TableHead>
+                <TableHead className="w-[12%] text-center whitespace-nowrap">Default Cans</TableHead>
+                <TableHead className="w-[12%] text-center whitespace-nowrap">Price/Can</TableHead>
+                <TableHead className="text-right">Edit</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredAndAggregatedCustomers.map((customer, idx) => {
+                const isSindhiName = /[\u0621-\u064a]/.test(customer.name);
+                const nameClasses = cn(isSindhiName ? 'font-sindhi rtl' : 'ltr');
+                return (
+                  <TableRow 
+                    key={customer._id || customer.customerId || idx}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => onEditCustomer && onEditCustomer(customer)}
+                  >
+                    <TableCell className={nameClasses}>
+                      <span>{(customer as any).id ? `${(customer as any).id} - ${customer.name}` : customer.name}</span>
+                      {typeof customer.pricePerCan === 'number' && customer.pricePerCan >= 100 && (
+                        <span aria-label="Premium" className="inline-flex ml-2 align-middle">
+                          <Star className="h-3 w-3 text-yellow-500" />
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>{customer.phone || '-'}</TableCell>
+                    <TableCell className="whitespace-normal break-words max-w-xs">{customer.address}</TableCell>
+                    <TableCell className="w-[15%] text-center whitespace-nowrap">
+                      {(() => {
+                        const pt = ((customer as any).paymentType || '').toString().toLowerCase();
+                        const label = pt === 'account' ? 'Account' : 'Cash';
+                        return <Badge variant="outline" className="capitalize">{label}</Badge>;
+                      })()}
+                    </TableCell>
+                    <TableCell className="w-[12%] text-center whitespace-nowrap">{customer.defaultCans}</TableCell>
+                    <TableCell className="w-[12%] text-center whitespace-nowrap">{customer.pricePerCan ? `Rs. ${customer.pricePerCan}` : '-'}</TableCell>
+                    <TableCell className="text-right">
+                      {onEditCustomer && (
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEditCustomer(customer);
+                          }} 
+                          title="Edit Customer"
+                        >
+                          <Pencil className="h-4 w-4 text-blue-600" />
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
       )}
     </div>
   );

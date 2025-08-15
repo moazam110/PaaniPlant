@@ -138,19 +138,19 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     if (authUser) {
-      // Initial fetch only - no automatic reloads
+      // Initial fetch
       fetchDashboardMetrics();
       refreshDeliveryRequests();
 
-      // DISABLED: Automatic reloads that were causing dashboard to reload
-      // const metricsInterval = setInterval(fetchDashboardMetrics, 180000);
-      // const requestsInterval = setInterval(refreshDeliveryRequests, 180000);
+      // Set up periodic updates every 180 seconds (3 minutes)
+      const metricsInterval = setInterval(fetchDashboardMetrics, 180000);
+      const requestsInterval = setInterval(refreshDeliveryRequests, 180000);
 
-      // Cleanup intervals on unmount (no longer needed)
-      // return () => {
-      //   clearInterval(metricsInterval);
-      //   clearInterval(requestsInterval);
-      // };
+      // Cleanup intervals on unmount
+      return () => {
+        clearInterval(metricsInterval);
+        clearInterval(requestsInterval);
+      };
     } else {
       setTotalCustomers(0);
       setPendingDeliveries(0);
@@ -198,8 +198,8 @@ export default function AdminDashboardPage() {
     };
 
     checkBackendConnection();
-    // Reduced frequency: Check connection every 60 seconds instead of 10 for less disruption
-    const interval = setInterval(checkBackendConnection, 60000);
+    // Check connection every 10 seconds instead of 30 for faster detection
+    const interval = setInterval(checkBackendConnection, 10000);
     return () => clearInterval(interval);
   }, []);
 

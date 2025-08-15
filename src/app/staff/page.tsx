@@ -25,7 +25,7 @@ export default function StaffPage() {
   const [previousRequestCount, setPreviousRequestCount] = useState(0);
   const [authUser, setAuthUser] = useState<any | null>(null);
   
-  // Optimized optimistic updates with single ref
+  // Original optimistic updates
   const optimisticRef = useRef<Map<string, { status: DeliveryRequest['status']; expires: number }>>(new Map());
   const fetchInProgressRef = useRef<boolean>(false);
   const lastUpdateRef = useRef<number>(0);
@@ -33,44 +33,6 @@ export default function StaffPage() {
 
   const { toast } = useToast();
   const router = useRouter();
-
-  // Memoized request counts to prevent unnecessary re-renders
-  const requestCounts = useMemo(() => {
-    const pending = deliveryRequests.filter(req => 
-      req.status === 'pending' || req.status === 'pending_confirmation'
-    ).length;
-    const processing = deliveryRequests.filter(req => req.status === 'processing').length;
-    const urgent = deliveryRequests.filter(req => 
-      req.priority === 'urgent' && 
-      (req.status === 'pending' || req.status === 'pending_confirmation' || req.status === 'processing')
-    ).length;
-    
-    return { pending, processing, urgent };
-  }, [deliveryRequests]);
-
-  // Memoized sorted requests to prevent re-sorting on every render
-  const sortedRequests = useMemo(() => {
-    if (!addressSortOrder) return deliveryRequests;
-    
-    const dir = addressSortOrder === 'asc' ? 1 : -1;
-    return [...deliveryRequests].sort((a, b) => {
-      const addrA = (a.address || '').toString().toLowerCase();
-      const addrB = (b.address || '').toString().toLowerCase();
-      
-      if (addrA < addrB) return -1 * dir;
-      if (addrA > addrB) return 1 * dir;
-      
-      // Tie-breaker: urgent first
-      if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
-      if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
-      
-      // Final tie-breaker: time oldest first
-      const timeA = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
-      const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
-      return timeA - timeB;
-    });
-  }, [deliveryRequests, addressSortOrder]);
-
 
   // Check staff authentication
   useEffect(() => {
@@ -81,52 +43,42 @@ export default function StaffPage() {
         
         // Check for admin staff access
         const adminStaffAccess = localStorage.getItem('admin_staff_access');
-        const adminSession = localStorage.getItem('paani_auth_session'); // This should be different
+        const adminSession = localStorage.getItem('paani_auth_session');
         
         let isAuthenticated = false;
         let userInfo = null;
         
         // Regular staff user authentication
         if (authSession) {
-          try {
-            const session = JSON.parse(authSession);
-            if (session.userType === 'staff' && session.email === 'staff@paani.com') {
-              userInfo = {
-                uid: session.sessionId,
-                email: session.email,
-                userType: session.userType,
-                loginTime: session.loginTime
-              };
-              isAuthenticated = true;
-              console.log('✅ Staff user authentication verified');
-            }
-          } catch (parseError) {
-            console.error('Error parsing staff session:', parseError);
-            localStorage.removeItem('paani_auth_session');
+          const session = JSON.parse(authSession);
+          if (session.userType === 'staff' && session.email === 'staff@paani.com') {
+            userInfo = {
+              uid: session.sessionId,
+              email: session.email,
+              userType: session.userType,
+              loginTime: session.loginTime
+            };
+            isAuthenticated = true;
+            console.log('✅ Staff user authentication verified');
           }
         }
         
         // Admin with staff access authentication
         if (!isAuthenticated && adminStaffAccess && adminSession) {
-          try {
-            const staffAccess = JSON.parse(adminStaffAccess);
-            const adminAuth = JSON.parse(adminSession);
-            
-            // Verify admin has valid session and staff access
-            if (adminAuth.userType === 'admin' && adminAuth.email === 'admin@paani.com' && staffAccess.sessionId) {
-              userInfo = {
-                uid: staffAccess.sessionId,
-                email: `${adminAuth.email} (Staff Access)`,
-                userType: 'admin_staff',
-                loginTime: adminAuth.loginTime,
-                staffAccessGranted: staffAccess.grantedAt
-              };
-              isAuthenticated = true;
-              console.log('✅ Admin staff access verified');
-            }
-          } catch (parseError) {
-            console.error('Error parsing admin session:', parseError);
-            localStorage.removeItem('admin_staff_access');
+          const staffAccess = JSON.parse(adminStaffAccess);
+          const adminAuth = JSON.parse(adminSession);
+          
+          // Verify admin has valid session and staff access
+          if (adminAuth.userType === 'admin' && adminAuth.email === 'admin@paani.com' && staffAccess.sessionId) {
+            userInfo = {
+              uid: staffAccess.sessionId,
+              email: `${adminAuth.email} (Staff Access)`,
+              userType: 'admin_staff',
+              loginTime: adminAuth.loginTime,
+              staffAccessGranted: staffAccess.grantedAt
+            };
+            isAuthenticated = true;
+            console.log('✅ Admin staff access verified');
           }
         }
         
@@ -190,13 +142,9 @@ export default function StaffPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Optimized fetch function with better error handling and performance
+  // Original fetch function
   const fetchDeliveryRequests = useCallback(async () => {
     if (fetchInProgressRef.current) return;
-    
-    // Skip fetch if we just updated (within 2 seconds)
-    const now = Date.now();
-    if (now - lastUpdateRef.current < 2000) return;
     
     fetchInProgressRef.current = true;
     try {
@@ -214,11 +162,11 @@ export default function StaffPage() {
       const data = await res.json();
       
       // Apply optimistic overrides efficiently
-      const currentTime = Date.now();
+      const now = Date.now();
       const withOptimistic: DeliveryRequest[] = data.map((req: DeliveryRequest) => {
         const key = String((req as any)._id || (req as any).requestId || (req as any).id || '');
         const ov = optimisticRef.current.get(key);
-        if (ov && ov.expires > currentTime) {
+        if (ov && ov.expires > now) {
           return { ...req, status: ov.status } as DeliveryRequest;
         }
         return req;
@@ -226,7 +174,7 @@ export default function StaffPage() {
 
       // Clean up expired optimistic entries
       for (const [k, v] of optimisticRef.current.entries()) {
-        if (v.expires <= currentTime) optimisticRef.current.delete(k);
+        if (v.expires <= now) optimisticRef.current.delete(k);
       }
 
       // Only update if there are actual changes
@@ -279,17 +227,8 @@ export default function StaffPage() {
     
     setTimeout(initializePreviousCount, 3000);
 
-    // Optimized polling: reduced frequency and smart updates
-    const interval = setInterval(() => {
-      // Only poll if there are pending requests or if it's been more than 10 seconds
-      const hasPendingRequests = deliveryRequests.some(req => 
-        req.status === 'pending' || req.status === 'pending_confirmation'
-      );
-      
-      if (hasPendingRequests || Date.now() - lastUpdateRef.current > 10000) {
-        fetchDeliveryRequests();
-      }
-    }, 5000); // Increased from 3 to 5 seconds
+    // Original polling: every 3 seconds
+    const interval = setInterval(fetchDeliveryRequests, 3000);
 
     // Cleanup interval on unmount
     return () => clearInterval(interval);
@@ -318,9 +257,6 @@ export default function StaffPage() {
       setDeliveryRequests(prev => prev.map(req =>
         (req._id || req.requestId) === requestId ? { ...req, status: newStatus as DeliveryRequest['status'] } : req
       ));
-
-      // Record the update time to prevent immediate refetch
-      lastUpdateRef.current = Date.now();
 
       const actualRequestId = currentRequest._id || currentRequest.requestId || (currentRequest as any).id;
       
@@ -422,7 +358,6 @@ export default function StaffPage() {
           <div className="flex items-center justify-between">
             <StaffDashboardMetrics 
               requests={deliveryRequests} 
-              requestCounts={requestCounts}
             />
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Sort by address:</span>
@@ -449,7 +384,7 @@ export default function StaffPage() {
         </div>
         <div className="px-2">
           <RequestQueue 
-            requests={sortedRequests} 
+            requests={deliveryRequests} 
             onMarkAsDone={handleMarkAsDone} 
             addressSortOrder={addressSortOrder} 
           />

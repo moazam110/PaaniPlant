@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import type { DeliveryRequest } from '@/types';
 import RequestCard from './RequestCard';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -15,12 +15,12 @@ interface RequestQueueProps {
 const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onCancel, addressSortOrder }) => {
   const [expandedDelivered, setExpandedDelivered] = useState<Record<string, boolean>>({});
   
-  const toggleDelivered = useCallback((key: string) => {
+  const toggleDelivered = (key: string) => {
     setExpandedDelivered(prev => ({ ...prev, [key]: !prev?.[key] }));
-  }, []);
+  };
   
   // Memoized address comparison function
-  const compareByAddress = useCallback((a: DeliveryRequest, b: DeliveryRequest, order: 'asc' | 'desc') => {
+  const compareByAddress = (a: DeliveryRequest, b: DeliveryRequest, order: 'asc' | 'desc') => {
     const addrA = (a.address || '').toString().toLowerCase();
     const addrB = (b.address || '').toString().toLowerCase();
     const dir = order === 'asc' ? 1 : -1;
@@ -36,7 +36,7 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
     const timeA = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
     const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
     return timeA - timeB;
-  }, []);
+  };
 
   // Memoized request filtering and sorting
   const pendingRequests = useMemo(() => {
@@ -53,7 +53,7 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
         const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
         return timeA - timeB; // Oldest first
       });
-  }, [requests, addressSortOrder, compareByAddress]);
+  }, [requests, addressSortOrder]);
 
   const processingRequests = useMemo(() => {
     return requests
@@ -69,7 +69,7 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
         const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
         return timeA - timeB; // Oldest first
       });
-  }, [requests, addressSortOrder, compareByAddress]);
+  }, [requests, addressSortOrder]);
 
   const deliveredRequests = useMemo(() => {
     // Pre-compute date boundaries
