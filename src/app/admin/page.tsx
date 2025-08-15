@@ -275,21 +275,21 @@ export default function AdminDashboardPage() {
     fetchDashboardMetricsRef.current(false);
     refreshDeliveryRequestsRef.current(false);
 
-    // Enhanced silent polling: every 3 minutes with silent background updates
+    // Enhanced silent polling: every 3 seconds with silent background updates
     // These intervals are set up once and never change
     metricsIntervalRef.current = setInterval(() => {
       if (fetchDashboardMetricsRef.current) {
         console.log('🔄 Admin dashboard: Silent metrics refresh triggered');
         fetchDashboardMetricsRef.current(true);
       }
-    }, 180000); // 3 minutes
+    }, 3000); // 3 seconds
 
     requestsIntervalRef.current = setInterval(() => {
       if (refreshDeliveryRequestsRef.current) {
         console.log('🔄 Admin dashboard: Silent delivery requests refresh triggered');
         refreshDeliveryRequestsRef.current(true);
       }
-    }, 180000); // 3 minutes
+    }, 3000); // 3 seconds
 
     // Cleanup intervals on unmount
     return () => {
@@ -326,14 +326,14 @@ export default function AdminDashboardPage() {
             if (fetchDashboardMetricsRef.current) {
               fetchDashboardMetricsRef.current(true);
             }
-          }, 180000);
+          }, 3000);
         }
         if (!requestsIntervalRef.current && refreshDeliveryRequestsRef.current) {
           requestsIntervalRef.current = setInterval(() => {
             if (refreshDeliveryRequestsRef.current) {
               refreshDeliveryRequestsRef.current(true);
             }
-          }, 180000);
+          }, 3000);
         }
         console.log('🔄 Admin dashboard: Silent refreshes resumed (page visible)');
       }
@@ -521,15 +521,15 @@ export default function AdminDashboardPage() {
           </div>
         )}
         
-        {/* Subtle background update indicator */}
-        {isBackendConnected && (
-          <div className="mx-4 mt-2 flex items-center justify-center">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span>Live updates enabled • Data refreshes every 3 minutes</span>
-            </div>
-          </div>
-        )}
+                 {/* Subtle background update indicator */}
+         {isBackendConnected && (
+           <div className="mx-4 mt-2 flex items-center justify-center">
+             <div className="flex items-center gap-2 text-xs text-muted-foreground">
+               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+               <span>Live updates enabled • Data refreshes every 3 seconds</span>
+             </div>
+           </div>
+         )}
         
         <TabNavigation activeTab={activeTab} onTabChange={setActiveTab}>
           <DeliveryTab 
