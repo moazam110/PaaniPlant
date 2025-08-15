@@ -1,9 +1,9 @@
 
 "use client";
 
-import React, { useEffect, useState, useMemo, useImperativeHandle, forwardRef, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useImperativeHandle, forwardRef, useCallback, useRef } from 'react';
 import type { Customer } from '@/types';
-// REMOVE: import { db } from '@/lib/firebase';
+// REMOVE: import { db } from '@/firebase';
 // REMOVE: import { collection, query, orderBy, onSnapshot, Timestamp } from 'firebase/firestore';
 import {
   Table,
@@ -40,6 +40,7 @@ export interface CustomerListRef {
 const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCustomer }, ref) => {
   const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -47,9 +48,92 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
   const [activeFilter, setActiveFilter] = useState<{ start: string; end: string; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>'; ptCash: boolean; ptAccount: boolean }>({ start: '', end: '', cans: '', cansOp: '<', price: '', priceOp: '=', ptCash: false, ptAccount: false });
   const [customerCansMap, setCustomerCansMap] = useState<Record<string, number>>({});
   const [addressSortOrder, setAddressSortOrder] = useState<'asc' | 'desc' | null>(null);
+  
+  // Performance optimization: Debounced search
+  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
+  
+  // Performance optimization: Lazy loading state
+  const [visibleCustomers, setVisibleCustomers] = useState<Customer[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [customersPerPage] = useState(50); // Show 50 customers at a time
+  
+  // Performance optimization: Cache for expensive operations
+  const customerCache = useRef<Map<string, any>>(new Map());
 
-  // Memoized fuzzy search function to prevent recreation
-  const fuzzyMatch = useCallback((text: string, pattern: string): boolean => {
+  const fetchCustomers = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(buildApiUrl(API_ENDPOINTS.CUSTOMERS));
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data: Customer[] = await response.json();
+      console.log('Fetched customers:', data.length);
+      // Ensure descending order by id (fallback createdAt)
+      const sorted = [...data].sort((a, b) => {
+        const aId = (a as any).id ?? 0;
+        const bId = (b as any).id ?? 0;
+        if (aId !== bId) return bId - aId;
+        const aTime = a.createdAt ? new Date(a.createdAt as any).getTime() : 0;
+        const bTime = b.createdAt ? new Date(b.createdAt as any).getTime() : 0;
+        return bTime - aTime;
+      });
+      setAllCustomers(sorted);
+      setError(null);
+
+      // Fetch aggregated cans for current activeFilter
+      await fetchAndBuildCansMap(activeFilter.start, activeFilter.end);
+    } catch (err) {
+      console.error('Error fetching customers:', err);
+      setError('Failed to fetch customers.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchAndBuildCansMap = async (start?: string, end?: string) => {
+    try {
+      const url = new URL(buildApiUrl('api/customers/stats-summary'));
+      if (start) url.searchParams.set('start', start);
+      if (end) url.searchParams.set('end', end);
+      console.log('Fetching customer stats from:', url.toString());
+      const res = await fetch(url.toString());
+      if (!res.ok) {
+        console.warn('Stats summary request failed:', res.status);
+        return;
+      }
+      const json = await res.json();
+      console.log('Stats summary response:', json);
+      if (!json || !json.data) return;
+      const map: Record<string, number> = {};
+      for (const row of json.data) {
+        map[row.customerObjectId] = row.totalCans;
+      }
+      console.log('Built customer cans map:', map);
+      setCustomerCansMap(map);
+    } catch (e) {
+      console.warn('Failed to fetch stats summary:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchCustomers();
+    
+    // Set up real-time updates every 60 seconds for customer list
+    const interval = setInterval(fetchCustomers, 60000);
+    
+    // Cleanup interval on unmount
+    return () => clearInterval(interval);
+  }, []);
+
+  useImperativeHandle(ref, () => ({
+    refreshCustomers: fetchCustomers,
+  }));
+
+  // Simple fuzzy search implementation
+  const fuzzyMatch = (text: string, pattern: string): boolean => {
     if (!pattern) return true;
     if (!text) return false;
     
@@ -69,158 +153,96 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
     
     // If we matched at least 70% of the pattern characters, it's a fuzzy match
     return patternIndex >= Math.ceil(normalizedPattern.length * 0.7);
-  }, []);
+  };
 
-  // Memoized address comparison function
-  const compareAddresses = useCallback((a: Customer, b: Customer, order: 'asc' | 'desc') => {
-    const aAddr = (a.address || '').toString().toLowerCase();
-    const bAddr = (b.address || '').toString().toLowerCase();
-    const dir = order === 'asc' ? 1 : -1;
-    
-    if (aAddr < bAddr) return -1 * dir;
-    if (aAddr > bAddr) return 1 * dir;
-    
-    // tie-breaker by createdAt newest first to keep list stable
-    const ta = a.createdAt ? new Date(a.createdAt as any).getTime() : 0;
-    const tb = b.createdAt ? new Date(b.createdAt as any).getTime() : 0;
-    return tb - ta;
-  }, []);
-
-  // Memoized filter validation to prevent unnecessary API calls
-  const shouldFetchStats = useMemo(() => {
-    const { start, end, cans, price, ptCash, ptAccount } = activeFilter;
-    return start || end || cans || price || ptCash || ptAccount;
-  }, [activeFilter]);
-
-  const fetchAndBuildCansMap = useCallback(async (start?: string, end?: string) => {
-    // Only fetch if we actually have filters that need stats
-    if (!shouldFetchStats) {
-      setCustomerCansMap({});
-      return;
-    }
-
-    try {
-      const url = new URL(buildApiUrl('api/customers/stats-summary'));
-      if (start) url.searchParams.set('start', start);
-      if (end) url.searchParams.set('end', end);
-      
-      const res = await fetch(url.toString());
-      if (!res.ok) {
-        console.warn('Stats summary request failed:', res.status);
-        return;
-      }
-      
-      const json = await res.json();
-      if (!json || !json.data) return;
-      
-      const map: Record<string, number> = {};
-      for (const row of json.data) {
-        map[row.customerObjectId] = row.totalCans;
-      }
-      setCustomerCansMap(map);
-    } catch (e) {
-      console.warn('Failed to fetch stats summary:', e);
-    }
-  }, [shouldFetchStats]);
-
-  // Optimized fetch function with better error handling
-  const fetchCustomers = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const response = await fetch(buildApiUrl(API_ENDPOINTS.CUSTOMERS));
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data: Customer[] = await response.json();
-      
-      // Ensure descending order by id (fallback createdAt)
-      const sorted = [...data].sort((a, b) => {
-        const aId = (a as any).id ?? 0;
-        const bId = (b as any).id ?? 0;
-        if (aId !== bId) return bId - aId;
-        const aTime = a.createdAt ? new Date(a.createdAt as any).getTime() : 0;
-        const bTime = b.createdAt ? new Date(b.createdAt as any).getTime() : 0;
-        return bTime - aTime;
-      });
-      
-      setAllCustomers(sorted);
-      setError(null);
-
-      // Only fetch stats if filters are active
-      if (shouldFetchStats) {
-        await fetchAndBuildCansMap(activeFilter.start, activeFilter.end);
-      }
-    } catch (err) {
-      console.error('Error fetching customers:', err);
-      setError('Failed to fetch customers.');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [fetchAndBuildCansMap, shouldFetchStats, activeFilter.start, activeFilter.end]);
-
+  // Performance optimization: Debounced search to reduce unnecessary filtering
   useEffect(() => {
-    fetchCustomers();
+    if (searchTimeout) {
+      clearTimeout(searchTimeout);
+    }
     
-    // Reduced polling frequency: from 60 seconds to 120 seconds for better performance
-    // Only poll if there are active filters that need stats
-    const interval = setInterval(() => {
-      if (shouldFetchStats) {
-        fetchCustomers();
+    const newTimeout = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300); // 300ms delay for better performance
+    
+    setSearchTimeout(newTimeout);
+    
+    return () => {
+      if (newTimeout) {
+        clearTimeout(newTimeout);
       }
-    }, 120000); // Increased from 60 to 120 seconds
-    
-    // Cleanup interval on unmount
-    return () => clearInterval(interval);
-  }, [fetchCustomers, shouldFetchStats]);
+    };
+  }, [searchTerm]);
 
-  useImperativeHandle(ref, () => ({
-    refreshCustomers: fetchCustomers,
-  }));
-
+  // Performance optimization: Memoized search results
   const filteredCustomers = useMemo(() => {
-    if (!searchTerm) {
+    if (!debouncedSearchTerm) {
       return allCustomers;
     }
     
-    return allCustomers.filter(customer => {
+    // Use cache for expensive search operations
+    const cacheKey = `search_${debouncedSearchTerm}`;
+    if (customerCache.current.has(cacheKey)) {
+      return customerCache.current.get(cacheKey);
+    }
+    
+    const results = allCustomers.filter(customer => {
       return (
-        fuzzyMatch(customer.name, searchTerm) ||
-        (customer.phone && fuzzyMatch(customer.phone, searchTerm)) ||
-        fuzzyMatch(customer.address, searchTerm)
+        fuzzyMatch(customer.name, debouncedSearchTerm) ||
+        (customer.phone && fuzzyMatch(customer.phone, debouncedSearchTerm)) ||
+        fuzzyMatch(customer.address, debouncedSearchTerm)
       );
     });
-  }, [allCustomers, searchTerm, fuzzyMatch]);
+    
+    // Cache the results for 5 minutes
+    customerCache.current.set(cacheKey, results);
+    setTimeout(() => customerCache.current.delete(cacheKey), 300000);
+    
+    return results;
+  }, [allCustomers, debouncedSearchTerm]);
 
-  // Apply filters to customers using aggregated cans and optional price - optimized version
+  // Apply filters to customers using aggregated cans and optional price
   const filteredAndAggregatedCustomers = useMemo(() => {
     const list = filteredCustomers; // name/phone/address fuzzy filter applied
     const { start, end, cans, cansOp, price, priceOp, ptCash, ptAccount } = activeFilter;
-    
-    // Early return if no filters are active
-    if (!start && !end && !cans && !price && !ptCash && !ptAccount && !addressSortOrder) {
-      return list;
-    }
-
     const cansVal = cans && /^\d{1,6}$/.test(cans) ? Number(cans) : null;
     const priceVal = price && /^\d{1,3}$/.test(price) ? Number(price) : null;
     const hasCansFilter = cansVal != null && cansOp;
     const hasPriceFilter = priceVal != null;
     const hasPtFilter = ptCash || ptAccount;
+    const hasDateFilter = start || end;
 
-    const filtered = list.filter(c => {
+    console.log('Filter state:', { start, end, cans, cansOp, price, priceOp, ptCash, ptAccount });
+    console.log('Filter booleans:', { hasCansFilter, hasPriceFilter, hasPtFilter, hasDateFilter });
+    console.log('Customer cans map size:', Object.keys(customerCansMap).length);
+    console.log('Customer cans map sample:', Object.entries(customerCansMap).slice(0, 3));
+
+    if (!hasDateFilter && !hasCansFilter && !hasPriceFilter && !hasPtFilter && !addressSortOrder) {
+      console.log('No filters active, returning all customers');
+      return list;
+    }
+
+    const filtered = list.filter((c: Customer) => {
       // cans filter based on aggregated map
       if (hasCansFilter) {
         const customerId = c._id || (c as any).customerId || '';
         const total = customerCansMap[customerId] || 0;
         const op = cansOp || '=';
-        
-        if (op === '<' && !(total < cansVal!)) return false;
-        if (op === '=' && !(total === cansVal!)) return false;
-        if (op === '>' && !(total > cansVal!)) return false;
+        console.log(`Filtering customer ${c.name} (ID: ${customerId}): total cans = ${total}, filter = ${op} ${cansVal}`);
+        if (op === '<' && !(total < cansVal!)) {
+          console.log(`  Rejected: ${total} is not < ${cansVal}`);
+          return false;
+        }
+        if (op === '=' && !(total === cansVal!)) {
+          console.log(`  Rejected: ${total} is not = ${cansVal}`);
+          return false;
+        }
+        if (op === '>' && !(total > cansVal!)) {
+          console.log(`  Rejected: ${total} is not > ${cansVal}`);
+          return false;
+        }
+        console.log(`  Accepted: ${total} ${op} ${cansVal}`);
       }
-      
       // price filter (per-can price from customer)
       if (hasPriceFilter) {
         const p = c.pricePerCan || 0;
@@ -229,70 +251,42 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
         if (op === '=' && !(p === priceVal!)) return false;
         if (op === '>' && !(p > priceVal!)) return false;
       }
-      
       // payment type filter
       if (hasPtFilter) {
         const pt = ((c as any).paymentType || '').toString().toLowerCase();
         if (ptCash && pt !== 'cash') return false;
         if (ptAccount && pt !== 'account') return false;
       }
-      
       return true;
     });
 
-    // Apply address sorting if needed
+    console.log(`Filtered ${list.length} customers down to ${filtered.length}`);
     if (!addressSortOrder) return filtered;
-    return [...filtered].sort((a, b) => compareAddresses(a, b, addressSortOrder));
-  }, [filteredCustomers, activeFilter, customerCansMap, addressSortOrder, compareAddresses]);
+    const dir = addressSortOrder === 'asc' ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const aAddr = (a.address || '').toString().toLowerCase();
+      const bAddr = (b.address || '').toString().toLowerCase();
+      if (aAddr < bAddr) return -1 * dir;
+      if (aAddr > bAddr) return 1 * dir;
+      // tie-breaker by createdAt newest first to keep list stable
+      const ta = a.createdAt ? new Date(a.createdAt as any).getTime() : 0;
+      const tb = b.createdAt ? new Date(b.createdAt as any).getTime() : 0;
+      return tb - ta;
+    });
+  }, [filteredCustomers, activeFilter, customerCansMap, addressSortOrder]);
 
-  // Memoized customer row component to prevent unnecessary re-renders
-  const CustomerRow = useCallback(({ customer, idx }: { customer: Customer; idx: number }) => {
-    const isSindhiName = /[\u0621-\u064a]/.test(customer.name);
-    const nameClasses = cn(isSindhiName ? 'font-sindhi rtl' : 'ltr');
-    
-    return (
-      <TableRow 
-        key={customer._id || customer.customerId || idx}
-        className="cursor-pointer hover:bg-muted/50"
-        onClick={() => onEditCustomer && onEditCustomer(customer)}
-      >
-        <TableCell className={nameClasses}>
-          <span>{(customer as any).id ? `${(customer as any).id} - ${customer.name}` : customer.name}</span>
-          {typeof customer.pricePerCan === 'number' && customer.pricePerCan >= 100 && (
-            <span aria-label="Premium" className="inline-flex ml-2 align-middle">
-              <Star className="h-3 w-3 text-yellow-500" />
-            </span>
-          )}
-        </TableCell>
-        <TableCell>{customer.phone || '-'}</TableCell>
-        <TableCell className="whitespace-normal break-words max-w-xs">{customer.address}</TableCell>
-        <TableCell className="w-[15%] text-center whitespace-nowrap">
-          {(() => {
-            const pt = ((customer as any).paymentType || '').toString().toLowerCase();
-            const label = pt === 'account' ? 'Account' : 'Cash';
-            return <Badge variant="outline" className="capitalize">{label}</Badge>;
-          })()}
-        </TableCell>
-        <TableCell className="w-[12%] text-center whitespace-nowrap">{customer.defaultCans}</TableCell>
-        <TableCell className="w-[12%] text-center whitespace-nowrap">{customer.pricePerCan ? `Rs. ${customer.pricePerCan}` : '-'}</TableCell>
-        <TableCell className="text-right">
-          {onEditCustomer && (
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={(e) => {
-                e.stopPropagation();
-                onEditCustomer(customer);
-              }} 
-              title="Edit Customer"
-            >
-              <Pencil className="h-4 w-4 text-blue-600" />
-            </Button>
-          )}
-        </TableCell>
-      </TableRow>
-    );
-  }, [onEditCustomer]);
+  // Performance optimization: Lazy loading for customer display
+  const updateVisibleCustomers = useCallback(() => {
+    const startIndex = (currentPage - 1) * customersPerPage;
+    const endIndex = startIndex + customersPerPage;
+    setVisibleCustomers(filteredAndAggregatedCustomers.slice(startIndex, endIndex));
+  }, [currentPage, customersPerPage, filteredAndAggregatedCustomers]);
+
+  // Update visible customers when filters change
+  useEffect(() => {
+    setCurrentPage(1); // Reset to first page when filters change
+    updateVisibleCustomers();
+  }, [updateVisibleCustomers]);
 
   if (isLoading) {
     return (
@@ -362,74 +356,76 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
                   />
                 </div>
               </div>
-              <div>
-                <Label className="mb-2 block">Total Cans (optional)</Label>
-                <div className="flex items-center gap-2">
-                  <div className="w-28">
-                    <Select value={filterDraft.cansOp} onValueChange={(v) => setFilterDraft(prev => ({ ...prev, cansOp: v as any }))}>
-                      <SelectTrigger>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="mb-2 block">Total Cans</Label>
+                  <div className="flex gap-2">
+                    <Select value={filterDraft.cansOp} onValueChange={(value: '<' | '=' | '>') => setFilterDraft(prev => ({ ...prev, cansOp: value }))}>
+                      <SelectTrigger className="w-16">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value=">">Greater</SelectItem>
-                        <SelectItem value="=">Equal</SelectItem>
-                        <SelectItem value="<">Less</SelectItem>
+                        <SelectItem value="<">Less than</SelectItem>
+                        <SelectItem value="=">Equal to</SelectItem>
+                        <SelectItem value=">">Greater than</SelectItem>
                       </SelectContent>
                     </Select>
-                  </div>
-                  <TextInput
-                    placeholder="e.g., 500"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    maxLength={6}
-                    value={filterDraft.cans}
-                    onChange={(e) => setFilterDraft(prev => ({ ...prev, cans: e.target.value.replace(/\D+/g, '').slice(0, 6) }))}
-                  />
-                </div>
-              </div>
-              <div>
-                <Label className="mb-2 block">Payment Type (optional)</Label>
-                <div className="flex items-center gap-6">
-                  <div className="flex items-center gap-2">
-                    <Checkbox id="pt-cash" checked={filterDraft.ptCash} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, ptCash: !!v }))} />
-                    <Label htmlFor="pt-cash">Cash</Label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Checkbox id="pt-account" checked={filterDraft.ptAccount} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, ptAccount: !!v }))} />
-                    <Label htmlFor="pt-account">Account</Label>
+                    <TextInput
+                      type="number"
+                      placeholder="0"
+                      value={filterDraft.cans}
+                      onChange={(e) => setFilterDraft(prev => ({ ...prev, cans: e.target.value }))}
+                      className="flex-1"
+                    />
                   </div>
                 </div>
-              </div>
-              <div>
-                <Label className="mb-2 block">Price per Can (optional)</Label>
-                <div className="flex items-center gap-2">
-                  <div className="w-28">
-                    <Select value={filterDraft.priceOp} onValueChange={(v) => setFilterDraft(prev => ({ ...prev, priceOp: v as any }))}>
-                      <SelectTrigger>
+                <div>
+                  <Label className="mb-2 block">Price per Can</Label>
+                  <div className="flex gap-2">
+                    <Select value={filterDraft.priceOp} onValueChange={(value: '<' | '=' | '>') => setFilterDraft(prev => ({ ...prev, priceOp: value }))}>
+                      <SelectTrigger className="w-16">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value=">">Greater</SelectItem>
-                        <SelectItem value="=">Equal</SelectItem>
-                        <SelectItem value="<">Less</SelectItem>
+                        <SelectItem value="<">Less than</SelectItem>
+                        <SelectItem value="=">Equal to</SelectItem>
+                        <SelectItem value=">">Greater than</SelectItem>
                       </SelectContent>
                     </Select>
+                    <TextInput
+                      type="number"
+                      placeholder="0"
+                      value={filterDraft.price}
+                      onChange={(e) => setFilterDraft(prev => ({ ...prev, price: e.target.value }))}
+                      className="flex-1"
+                    />
                   </div>
-                  <TextInput
-                    placeholder="e.g., 60"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    maxLength={3}
-                    value={filterDraft.price}
-                    onChange={(e) => setFilterDraft(prev => ({ ...prev, price: e.target.value.replace(/\D+/g, '').slice(0, 3) }))}
-                  />
                 </div>
               </div>
-              <div>
-                <Label className="mb-2 block">Address Sort</Label>
-                <div className="flex items-center gap-2">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Payment Type</Label>
+                <div className="flex gap-4">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="ptCash"
+                      checked={filterDraft.ptCash}
+                      onCheckedChange={(checked) => setFilterDraft(prev => ({ ...prev, ptCash: checked as boolean }))}
+                    />
+                    <Label htmlFor="ptCash">Cash</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="ptAccount"
+                      checked={filterDraft.ptAccount}
+                      onCheckedChange={(checked) => setFilterDraft(prev => ({ ...prev, ptAccount: checked as boolean }))}
+                    />
+                    <Label htmlFor="ptAccount">Account</Label>
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-between items-center">
+                <div className="flex gap-2">
                   <Button
-                    type="button"
                     variant={addressSortOrder === 'asc' ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => setAddressSortOrder(prev => (prev === 'asc' ? null : 'asc'))}
@@ -438,7 +434,6 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
                     <ArrowUpAZ className="h-4 w-4 mr-1" /> Asc
                   </Button>
                   <Button
-                    type="button"
                     variant={addressSortOrder === 'desc' ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => setAddressSortOrder(prev => (prev === 'desc' ? null : 'desc'))}
@@ -449,21 +444,13 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
                 </div>
               </div>
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => { 
-                  setFilterDraft({ start: '', end: '', cans: '', cansOp: '<', price: '', priceOp: '=', ptCash: false, ptAccount: false }); 
-                }}>Clear</Button>
+                <Button variant="outline" onClick={() => { setFilterDraft({ start: '', end: '', cans: '', cansOp: '<', price: '', priceOp: '=', ptCash: false, ptAccount: false }); }}>Clear</Button>
                 <Button onClick={async () => { 
+                  console.log('Apply button clicked with filter:', filterDraft);
                   setActiveFilter(filterDraft); 
                   setIsFilterOpen(false); 
-                  
-                  // Only fetch stats if the new filter actually needs them
-                  const needsStats = filterDraft.start || filterDraft.end || filterDraft.cans || filterDraft.price || filterDraft.ptCash || filterDraft.ptAccount;
-                  if (needsStats) {
-                    await fetchAndBuildCansMap(filterDraft.start, filterDraft.end); 
-                  } else {
-                    // Clear stats if no filters need them
-                    setCustomerCansMap({});
-                  }
+                  console.log('Fetching cans map for date range:', filterDraft.start, 'to', filterDraft.end);
+                  await fetchAndBuildCansMap(filterDraft.start, filterDraft.end); 
                 }}>Apply</Button>
               </div>
             </div>
@@ -476,26 +463,98 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
           {searchTerm ? 'No customers found matching your search.' : 'No customers found. Add your first customer!'}
         </div>
       ) : (
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead>Address</TableHead>
-                <TableHead className="w-[15%] text-center whitespace-nowrap">Payment Type</TableHead>
-                <TableHead className="w-[12%] text-center whitespace-nowrap">Default Cans</TableHead>
-                <TableHead className="w-[12%] text-center whitespace-nowrap">Price/Can</TableHead>
-                <TableHead className="text-right">Edit</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredAndAggregatedCustomers.map((customer, idx) => (
-                <CustomerRow key={customer._id || customer.customerId || idx} customer={customer} idx={idx} />
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <>
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>Address</TableHead>
+                  <TableHead className="w-[15%] text-center whitespace-nowrap">Payment Type</TableHead>
+                  <TableHead className="w-[12%] text-center whitespace-nowrap">Default Cans</TableHead>
+                  <TableHead className="w-[12%] text-center whitespace-nowrap">Price/Can</TableHead>
+                  <TableHead className="text-right">Edit</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {visibleCustomers.map((customer: Customer, idx: number) => {
+                  const isSindhiName = /[\u0621-\u064a]/.test(customer.name);
+                  const nameClasses = cn(isSindhiName ? 'font-sindhi rtl' : 'ltr');
+                  return (
+                    <TableRow 
+                      key={customer._id || customer.customerId || idx}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => onEditCustomer && onEditCustomer(customer)}
+                    >
+                      <TableCell className={nameClasses}>
+                        <span>{(customer as any).id ? `${(customer as any).id} - ${customer.name}` : customer.name}</span>
+                        {typeof customer.pricePerCan === 'number' && customer.pricePerCan >= 100 && (
+                          <span aria-label="Premium" className="inline-flex ml-2 align-middle">
+                            <Star className="h-3 w-3 text-yellow-500" />
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell>{customer.phone || '-'}</TableCell>
+                      <TableCell className="whitespace-normal break-words max-w-xs">{customer.address}</TableCell>
+                      <TableCell className="w-[15%] text-center whitespace-nowrap">
+                        {(() => {
+                          const pt = ((customer as any).paymentType || '').toString().toLowerCase();
+                          const label = pt === 'account' ? 'Account' : 'Cash';
+                          return <Badge variant="outline" className="capitalize">{label}</Badge>;
+                        })()}
+                      </TableCell>
+                      <TableCell className="w-[12%] text-center whitespace-nowrap">{customer.defaultCans}</TableCell>
+                      <TableCell className="w-[12%] text-center whitespace-nowrap">{customer.pricePerCan ? `Rs. ${customer.pricePerCan}` : '-'}</TableCell>
+                      <TableCell className="text-right">
+                        {onEditCustomer && (
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEditCustomer(customer);
+                            }} 
+                            title="Edit Customer"
+                          >
+                            <Pencil className="h-4 w-4 text-blue-600" />
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+          
+          {/* Performance optimization: Pagination controls */}
+          {filteredAndAggregatedCustomers.length > customersPerPage && (
+            <div className="flex items-center justify-between mt-4">
+              <div className="text-sm text-muted-foreground">
+                Showing {((currentPage - 1) * customersPerPage) + 1} to {Math.min(currentPage * customersPerPage, filteredAndAggregatedCustomers.length)} of {filteredAndAggregatedCustomers.length} customers
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredAndAggregatedCustomers.length / customersPerPage), prev + 1))}
+                  disabled={currentPage >= Math.ceil(filteredAndAggregatedCustomers.length / customersPerPage)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
