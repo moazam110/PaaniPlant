@@ -13,7 +13,7 @@ interface RequestQueueProps {
 }
 
 const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onCancel, addressSortOrder }) => {
-  const [expandedDelivered, setExpandedDelivered] = useState<Record<string, boolean>>();
+  const [expandedDelivered, setExpandedDelivered] = useState<Record<string, boolean>>({});
   
   const toggleDelivered = useCallback((key: string) => {
     setExpandedDelivered(prev => ({ ...prev, [key]: !prev?.[key] }));

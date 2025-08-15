@@ -81,42 +81,52 @@ export default function StaffPage() {
         
         // Check for admin staff access
         const adminStaffAccess = localStorage.getItem('admin_staff_access');
-        const adminSession = localStorage.getItem('paani_auth_session');
+        const adminSession = localStorage.getItem('paani_auth_session'); // This should be different
         
         let isAuthenticated = false;
         let userInfo = null;
         
         // Regular staff user authentication
         if (authSession) {
-          const session = JSON.parse(authSession);
-          if (session.userType === 'staff' && session.email === 'staff@paani.com') {
-            userInfo = {
-              uid: session.sessionId,
-              email: session.email,
-              userType: session.userType,
-              loginTime: session.loginTime
-            };
-            isAuthenticated = true;
-            console.log('✅ Staff user authentication verified');
+          try {
+            const session = JSON.parse(authSession);
+            if (session.userType === 'staff' && session.email === 'staff@paani.com') {
+              userInfo = {
+                uid: session.sessionId,
+                email: session.email,
+                userType: session.userType,
+                loginTime: session.loginTime
+              };
+              isAuthenticated = true;
+              console.log('✅ Staff user authentication verified');
+            }
+          } catch (parseError) {
+            console.error('Error parsing staff session:', parseError);
+            localStorage.removeItem('paani_auth_session');
           }
         }
         
         // Admin with staff access authentication
         if (!isAuthenticated && adminStaffAccess && adminSession) {
-          const staffAccess = JSON.parse(adminStaffAccess);
-          const adminAuth = JSON.parse(adminSession);
-          
-          // Verify admin has valid session and staff access
-          if (adminAuth.userType === 'admin' && adminAuth.email === 'admin@paani.com' && staffAccess.sessionId) {
-            userInfo = {
-              uid: staffAccess.sessionId,
-              email: `${adminAuth.email} (Staff Access)`,
-              userType: 'admin_staff',
-              loginTime: adminAuth.loginTime,
-              staffAccessGranted: staffAccess.grantedAt
-            };
-            isAuthenticated = true;
-            console.log('✅ Admin staff access verified');
+          try {
+            const staffAccess = JSON.parse(adminStaffAccess);
+            const adminAuth = JSON.parse(adminSession);
+            
+            // Verify admin has valid session and staff access
+            if (adminAuth.userType === 'admin' && adminAuth.email === 'admin@paani.com' && staffAccess.sessionId) {
+              userInfo = {
+                uid: staffAccess.sessionId,
+                email: `${adminAuth.email} (Staff Access)`,
+                userType: 'admin_staff',
+                loginTime: adminAuth.loginTime,
+                staffAccessGranted: staffAccess.grantedAt
+              };
+              isAuthenticated = true;
+              console.log('✅ Admin staff access verified');
+            }
+          } catch (parseError) {
+            console.error('Error parsing admin session:', parseError);
+            localStorage.removeItem('admin_staff_access');
           }
         }
         
@@ -204,11 +214,11 @@ export default function StaffPage() {
       const data = await res.json();
       
       // Apply optimistic overrides efficiently
-      const now = Date.now();
+      const currentTime = Date.now();
       const withOptimistic: DeliveryRequest[] = data.map((req: DeliveryRequest) => {
         const key = String((req as any)._id || (req as any).requestId || (req as any).id || '');
         const ov = optimisticRef.current.get(key);
-        if (ov && ov.expires > now) {
+        if (ov && ov.expires > currentTime) {
           return { ...req, status: ov.status } as DeliveryRequest;
         }
         return req;
@@ -216,7 +226,7 @@ export default function StaffPage() {
 
       // Clean up expired optimistic entries
       for (const [k, v] of optimisticRef.current.entries()) {
-        if (v.expires <= now) optimisticRef.current.delete(k);
+        if (v.expires <= currentTime) optimisticRef.current.delete(k);
       }
 
       // Only update if there are actual changes
