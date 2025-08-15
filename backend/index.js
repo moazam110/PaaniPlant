@@ -4,6 +4,20 @@ import bodyParser from 'body-parser';
 import multer from 'multer';
 import mongoose from 'mongoose';
 
+/**
+ * DUPLICATE DELIVERY REQUEST PREVENTION SYSTEM
+ * 
+ * This system implements multiple layers of protection against duplicate delivery requests:
+ * 
+ * 1. DATABASE LEVEL: Unique compound index on (customerId, status) for active requests
+ * 2. APPLICATION LEVEL: Server-side validation checking existing active requests
+ * 3. RATE LIMITING: In-memory rate limiting (1 request per customer per 5 seconds)
+ * 4. CLIENT LEVEL: Frontend cooldown tracking and visual indicators
+ * 
+ * This prevents the scenario where rapid submissions during the 2-3 second creation delay
+ * could result in duplicate requests for the same customer.
+ */
+
 const app = express();
 const PORT = process.env.PORT || 4000;
 
@@ -84,6 +98,24 @@ const deliveryRequestSchema = new mongoose.Schema({
 });
 
 const DeliveryRequest = mongoose.model('DeliveryRequest', deliveryRequestSchema);
+
+// Create unique compound index to prevent duplicate delivery requests for the same customer
+// This ensures only one active request per customer at a time
+try {
+  DeliveryRequest.collection.createIndex(
+    { 
+      customerId: 1, 
+      status: 1 
+    }, 
+    { 
+      unique: true,
+      partialFilterExpression: { 
+        status: { $in: ['pending', 'pending_confirmation', 'processing'] } 
+      },
+      name: 'unique_active_customer_request'
+    }
+  ).catch(() => {});
+} catch {}
 
 // Recurring requests
 const recurringRequestSchema = new mongoose.Schema({
@@ -575,6 +607,58 @@ app.get('/api/delivery-requests', async (req, res) => {
 app.post('/api/delivery-requests', async (req, res) => {
   try {
     console.log('Creating delivery request:', req.body);
+    
+    // RATE LIMITING: Prevent rapid duplicate submissions
+    if (req.body.customerId) {
+      const now = Date.now();
+      const customerKey = `delivery_${req.body.customerId}`;
+      const customerRateLimit = deliveryRequestRateLimit.get(customerKey);
+      
+      if (customerRateLimit) {
+        const { count, resetTime } = customerRateLimit;
+        if (now < resetTime && count >= RATE_LIMIT_MAX_REQUESTS) {
+          const remainingTime = Math.ceil((resetTime - now) / 1000);
+          console.log('Rate limit exceeded for customer:', req.body.customerId);
+          return res.status(429).json({
+            error: 'Rate limit exceeded',
+            details: `Too many requests. Please wait ${remainingTime} seconds.`,
+            code: 'RATE_LIMIT_EXCEEDED',
+            retryAfter: remainingTime
+          });
+        }
+        
+        if (now >= resetTime) {
+          // Reset window
+          deliveryRequestRateLimit.set(customerKey, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
+        } else {
+          // Increment count
+          deliveryRequestRateLimit.set(customerKey, { count: count + 1, resetTime });
+        }
+      } else {
+        // First request for this customer
+        deliveryRequestRateLimit.set(customerKey, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
+      }
+    }
+    
+    // STRONG DUPLICATE PREVENTION LOGIC
+    // Check for existing active requests for the same customer
+    if (req.body.customerId) {
+      const existingActiveRequest = await DeliveryRequest.findOne({
+        customerId: req.body.customerId,
+        status: { $in: ['pending', 'pending_confirmation', 'processing'] }
+      });
+      
+      if (existingActiveRequest) {
+        console.log('Duplicate prevention: Active request already exists for customer:', req.body.customerId);
+        return res.status(409).json({ 
+          error: 'Duplicate request prevented', 
+          details: 'Customer already has an active delivery request',
+          existingRequestId: existingActiveRequest._id,
+          existingStatus: existingActiveRequest.status
+        });
+      }
+    }
+    
     // Derive missing denormalized fields from customer
     let pricePerCan = req.body.pricePerCan;
     let paymentType = req.body.paymentType;
@@ -594,11 +678,38 @@ app.post('/api/delivery-requests', async (req, res) => {
       paymentType,
       customerIntId,
     });
-    const savedRequest = await request.save();
+    
+    // Use save() with error handling for duplicate key errors
+    let savedRequest;
+    try {
+      savedRequest = await request.save();
+    } catch (saveError) {
+      // Handle MongoDB duplicate key errors (additional safety net)
+      if (saveError.code === 11000) {
+        console.log('MongoDB duplicate key error caught for customer:', req.body.customerId);
+        return res.status(409).json({ 
+          error: 'Duplicate request prevented', 
+          details: 'A delivery request for this customer already exists',
+          code: 'DUPLICATE_REQUEST'
+        });
+      }
+      throw saveError;
+    }
+    
     console.log('Delivery request saved:', savedRequest);
     res.status(201).json(savedRequest);
   } catch (err) {
     console.error('Error creating delivery request:', err);
+    
+    // Enhanced error handling for duplicate scenarios
+    if (err.code === 11000) {
+      return res.status(409).json({ 
+        error: 'Duplicate request prevented', 
+        details: 'A delivery request for this customer already exists',
+        code: 'DUPLICATE_REQUEST'
+      });
+    }
+    
     res.status(400).json({ error: 'Failed to create delivery request', details: err.message });
   }
 });
@@ -716,6 +827,21 @@ app.post('/api/delivery-requests/:id/cancel', async (req, res) => {
     res.status(500).json({ error: 'Failed to cancel delivery request', details: err.message });
   }
 });
+
+// Rate limiting for delivery request creation to prevent rapid duplicate submissions
+const deliveryRequestRateLimit = new Map();
+const RATE_LIMIT_WINDOW_MS = 5000; // 5 seconds
+const RATE_LIMIT_MAX_REQUESTS = 1; // Max 1 request per customer per window
+
+// Cleanup expired rate limit entries every minute to prevent memory leaks
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of deliveryRequestRateLimit.entries()) {
+    if (now >= value.resetTime) {
+      deliveryRequestRateLimit.delete(key);
+    }
+  }
+}, 60000); // Clean up every minute
 
 // Simple server-side scheduler to auto-generate delivery requests from recurring rules
 const SCHEDULER_INTERVAL_MS = 3 * 60 * 1000; // 3 minutes

@@ -65,6 +65,10 @@ export default function CreateDeliveryRequestForm({
   const initialHoldTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isHoldingRef = useRef<boolean>(false);
   const holdStopCleanupRef = useRef<() => void>(() => {});
+  
+  // DUPLICATE PREVENTION: Track recent submissions to prevent rapid duplicate requests
+  const recentSubmissionsRef = useRef<Map<string, number>>(new Map());
+  const SUBMISSION_COOLDOWN_MS = 5000; // 5 seconds cooldown between submissions for same customer
 
   const isEditMode = !!editingRequest;
   // A request can be cancelled if it's in 'edit mode' AND its status is 'pending', 'pending_confirmation', or 'processing'
@@ -210,6 +214,19 @@ export default function CreateDeliveryRequestForm({
       });
       return;
     }
+    
+    // Check for submission cooldown
+    const now = Date.now();
+    const lastSubmission = recentSubmissionsRef.current.get(normalized);
+    if (lastSubmission && (now - lastSubmission) < SUBMISSION_COOLDOWN_MS) {
+      const remainingTime = Math.ceil((SUBMISSION_COOLDOWN_MS - (now - lastSubmission)) / 1000);
+      toast({
+        variant: "destructive",
+        title: "Submission Cooldown",
+        description: `${customer.name} has a ${remainingTime} second cooldown period. Please wait before creating another request.`,
+      });
+      return;
+    }
 
     setSelectedCustomer(customer);
     form.setValue("cans", customer.defaultCans || 1);
@@ -226,6 +243,27 @@ export default function CreateDeliveryRequestForm({
       });
       return;
     }
+    
+    // DUPLICATE PREVENTION: Check for recent submissions
+    if (selectedCustomer && !isEditMode) {
+      const customerId = selectedCustomer._id || (selectedCustomer as any).customerId;
+      const now = Date.now();
+      const lastSubmission = recentSubmissionsRef.current.get(customerId);
+      
+      if (lastSubmission && (now - lastSubmission) < SUBMISSION_COOLDOWN_MS) {
+        const remainingTime = Math.ceil((SUBMISSION_COOLDOWN_MS - (now - lastSubmission)) / 1000);
+        toast({
+          variant: "destructive",
+          title: "Submission Too Soon",
+          description: `Please wait ${remainingTime} seconds before submitting another request for this customer.`,
+        });
+        return;
+      }
+      
+      // Mark this submission time
+      recentSubmissionsRef.current.set(customerId, now);
+    }
+    
     setIsSubmitting(true);
 
     try {
@@ -297,7 +335,15 @@ export default function CreateDeliveryRequestForm({
             } catch {}
           })();
         } else {
-          throw new Error('Failed to create request');
+          // Handle specific error responses from backend
+          const errorData = await response.json().catch(() => ({}));
+          if (response.status === 409 && errorData.code === 'DUPLICATE_REQUEST') {
+            throw new Error('Customer already has an active delivery request. Please wait until it\'s completed.');
+          }
+          if (response.status === 429 && errorData.code === 'RATE_LIMIT_EXCEEDED') {
+            throw new Error(`Rate limit exceeded. Please wait ${errorData.retryAfter || 5} seconds before trying again.`);
+          }
+          throw new Error(errorData.details || 'Failed to create request');
         }
       }
 
@@ -319,15 +365,45 @@ export default function CreateDeliveryRequestForm({
       }
     } catch (error: any) {
       console.error("Error submitting delivery request:", error);
-      toast({
-        variant: "destructive",
-        title: "Submission Failed",
-        description: error.message || "An unexpected error occurred.",
-      });
+      
+      // Enhanced error handling for duplicate scenarios
+      if (error.message && error.message.includes('already has an active delivery request')) {
+        toast({
+          variant: "destructive",
+          title: "Duplicate Request Prevented",
+          description: error.message,
+        });
+      } else if (error.message && error.message.includes('Rate limit exceeded')) {
+        toast({
+          variant: "destructive",
+          title: "Rate Limit Exceeded",
+          description: error.message,
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Submission Failed",
+          description: error.message || "An unexpected error occurred.",
+        });
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  // Cleanup expired submission timestamps
+  useEffect(() => {
+    const cleanupInterval = setInterval(() => {
+      const now = Date.now();
+      for (const [customerId, timestamp] of recentSubmissionsRef.current.entries()) {
+        if (now - timestamp > SUBMISSION_COOLDOWN_MS) {
+          recentSubmissionsRef.current.delete(customerId);
+        }
+      }
+    }, 60000); // Clean up every minute
+    
+    return () => clearInterval(cleanupInterval);
+  }, []);
 
   // Helpers for continuous +/- hold
   const stopHold = () => {
@@ -454,6 +530,13 @@ export default function CreateDeliveryRequestForm({
                     const nameClasses = cn("font-medium", isSindhiName ? 'font-sindhi rtl' : 'ltr');
                     const customerId = customer._id || customer.customerId;
                     const hasActiveRequest = customersWithActiveRequests.has(customerId || '');
+                    
+                    // Check for submission cooldown
+                    const now = Date.now();
+                    const lastSubmission = recentSubmissionsRef.current.get(customerId);
+                    const isInCooldown = lastSubmission && (now - lastSubmission) < SUBMISSION_COOLDOWN_MS;
+                    const cooldownRemaining = isInCooldown ? Math.ceil((SUBMISSION_COOLDOWN_MS - (now - lastSubmission)) / 1000) : 0;
+                    const isDisabled = hasActiveRequest || isInCooldown;
 
                     return (
                       <Button
@@ -462,10 +545,10 @@ export default function CreateDeliveryRequestForm({
                         variant="ghost"
                         className={cn(
                           "w-full justify-start h-auto p-2 text-left relative",
-                          hasActiveRequest ? "opacity-60 cursor-not-allowed" : "hover:bg-accent"
+                          isDisabled ? "opacity-60 cursor-not-allowed" : "hover:bg-accent"
                         )}
                         onClick={() => handleSelectCustomer(customer)}
-                        disabled={isSubmitting || hasActiveRequest}
+                        disabled={isSubmitting || isDisabled}
                       >
                         <Avatar className="h-8 w-8 mr-3">
                           <AvatarFallback>
@@ -475,11 +558,18 @@ export default function CreateDeliveryRequestForm({
                         <div className="flex-1">
                           <div className="flex items-center justify-between">
                             <p className={nameClasses}>{customer.name}</p>
-                            {hasActiveRequest && (
-                              <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full ml-2">
-                                Active Order
-                              </span>
-                            )}
+                            <div className="flex gap-1">
+                              {hasActiveRequest && (
+                                <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
+                                  Active Order
+                                </span>
+                              )}
+                              {isInCooldown && (
+                                <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full">
+                                  Cooldown: {cooldownRemaining}s
+                                </span>
+                              )}
+                            </div>
                           </div>
                           <p className="text-xs text-muted-foreground">{customer.address}</p>
                           {(customer as any).pricePerCan !== undefined && (
