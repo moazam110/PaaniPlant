@@ -15,6 +15,7 @@ interface StatsTabProps {
   totalAmountGenerated: number;
   totalCashAmountGenerated: number;
   currentTimeLabel: string;
+  isStatsPreloaded?: boolean;
 }
 
 export default function StatsTab({
@@ -24,7 +25,8 @@ export default function StatsTab({
   totalCansToday,
   totalAmountGenerated,
   totalCashAmountGenerated,
-  currentTimeLabel
+  currentTimeLabel,
+  isStatsPreloaded = false
 }: StatsTabProps) {
   const currentDate = new Date();
   const [selectedDay, setSelectedDay] = useState<string>('');
@@ -162,6 +164,9 @@ export default function StatsTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Show loading only when changing dates, not on initial load
+  const showLoading = !isStatsPreloaded && filteredMetrics.isLoading;
+
   return (
     <div className="p-4 space-y-6">
       {/* Day/Month/Year Selectors */}
@@ -232,7 +237,7 @@ export default function StatsTab({
                   <PackageCheck className="h-5 w-5 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  {filteredMetrics.isLoading ? (
+                  {showLoading ? (
                     <Skeleton className="h-7 w-12 bg-muted/50" />
                   ) : (
                     <div className="text-2xl font-bold">{filteredMetrics.deliveries}</div>
@@ -246,7 +251,7 @@ export default function StatsTab({
                   <PackageSearch className="h-5 w-5 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  {filteredMetrics.isLoading ? (
+                  {showLoading ? (
                     <Skeleton className="h-7 w-12 bg-muted/50" />
                   ) : (
                     <div className="text-2xl font-bold">{filteredMetrics.totalCans}</div>
@@ -260,7 +265,7 @@ export default function StatsTab({
                   <IndianRupee className="h-5 w-5 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  {filteredMetrics.isLoading ? (
+                  {showLoading ? (
                     <Skeleton className="h-7 w-20 bg-muted/50" />
                   ) : (
                     <div className="text-2xl font-bold text-green-600">
@@ -276,7 +281,7 @@ export default function StatsTab({
                   <IndianRupee className="h-5 w-5 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  {filteredMetrics.isLoading ? (
+                  {showLoading ? (
                     <Skeleton className="h-7 w-20 bg-muted/50" />
                   ) : (
                     <div className="text-2xl font-bold text-green-600">Rs. {filteredMetrics.totalCashAmountGenerated.toLocaleString()}</div>
@@ -324,7 +329,7 @@ export default function StatsTab({
                   <PackageCheck className="h-5 w-5 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  {filteredMetrics.isLoading ? (
+                  {showLoading ? (
                     <Skeleton className="h-7 w-12 bg-muted/50" />
                   ) : (
                     <div className="text-2xl font-bold">{filteredMetrics.deliveries}</div>
@@ -338,7 +343,7 @@ export default function StatsTab({
                   <PackageSearch className="h-5 w-5 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  {filteredMetrics.isLoading ? (
+                  {showLoading ? (
                     <Skeleton className="h-7 w-12 bg-muted/50" />
                   ) : (
                     <div className="text-2xl font-bold">{filteredMetrics.totalCans}</div>
@@ -352,7 +357,7 @@ export default function StatsTab({
                   <IndianRupee className="h-5 w-5 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  {filteredMetrics.isLoading ? (
+                  {showLoading ? (
                     <Skeleton className="h-7 w-20 bg-muted/50" />
                   ) : (
                     <div className="text-2xl font-bold text-green-600">
@@ -368,7 +373,7 @@ export default function StatsTab({
                   <IndianRupee className="h-5 w-5 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  {filteredMetrics.isLoading ? (
+                  {showLoading ? (
                     <Skeleton className="h-7 w-20 bg-muted/50" />
                   ) : (
                     <div className="text-2xl font-bold text-green-600">
@@ -389,7 +394,7 @@ export default function StatsTab({
                 <PackageCheck className="h-5 w-5 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                {filteredMetrics.isLoading ? (
+                {showLoading ? (
                   <Skeleton className="h-7 w-12 bg-muted/50" />
                 ) : (
                   <div className="text-2xl font-bold">{filteredMetrics.deliveries}</div>
@@ -403,7 +408,7 @@ export default function StatsTab({
                 <PackageSearch className="h-5 w-5 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                {filteredMetrics.isLoading ? (
+                {showLoading ? (
                   <Skeleton className="h-7 w-12 bg-muted/50" />
                 ) : (
                   <div className="text-2xl font-bold">{filteredMetrics.totalCans}</div>
@@ -417,7 +422,7 @@ export default function StatsTab({
                 <IndianRupee className="h-5 w-5 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                {filteredMetrics.isLoading ? (
+                {showLoading ? (
                   <Skeleton className="h-7 w-20 bg-muted/50" />
                 ) : (
                   <div className="text-2xl font-bold text-green-600">
@@ -433,7 +438,7 @@ export default function StatsTab({
                 <IndianRupee className="h-5 w-5 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                {filteredMetrics.isLoading ? (
+                {showLoading ? (
                   <Skeleton className="h-7 w-20 bg-muted/50" />
                 ) : (
                   <div className="text-2xl font-bold text-green-600">

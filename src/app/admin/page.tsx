@@ -40,6 +40,8 @@ export default function AdminDashboardPage() {
   const [totalAmountGenerated, setTotalAmountGenerated] = useState(0);
   const [totalCashAmountGenerated, setTotalCashAmountGenerated] = useState(0);
   const [currentTimeLabel, setCurrentTimeLabel] = useState('Today');
+  const [isStatsPreloaded, setIsStatsPreloaded] = useState(false);
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState<NodeJS.Timeout | null>(null);
   const [deliveryRequests, setDeliveryRequests] = useState<DeliveryRequest[]>([]);
 
 
@@ -109,34 +111,73 @@ export default function AdminDashboardPage() {
     }
   }, []);
 
+  const fetchDashboardMetrics = async () => {
+    try {
+      setIsLoading(true);
+      const res = await fetch(buildApiUrl(API_ENDPOINTS.DASHBOARD_METRICS));
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      const data = await res.json();
+      setTotalCustomers(data.totalCustomers || 0);
+      setPendingDeliveries(data.pendingRequests || 0);
+      setDeliveriesTodayCount(data.deliveries || 0);
+      setTotalCansToday(data.totalCans || 0);
+      setTotalAmountGenerated(data.totalAmountGenerated || 0);
+      setTotalCashAmountGenerated(data.totalCashAmountGenerated || 0);
+      setCurrentTimeLabel(data.timeLabel || 'Today');
+    } catch (err) {
+      console.error('Error fetching dashboard metrics:', err);
+      setTotalCustomers(0);
+      setPendingDeliveries(0);
+      setDeliveriesTodayCount(0);
+      setTotalCansToday(0);
+      setTotalAmountGenerated(0);
+      setTotalCashAmountGenerated(0);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Auto-refresh today's stats every minute
+  useEffect(() => {
+    const interval = setInterval(() => {
+      // Only auto-refresh if we're viewing today's stats
+      if (currentTimeLabel === 'Today') {
+        console.log('🔄 Auto-refreshing today\'s stats...');
+        fetchDashboardMetrics();
+      }
+    }, 60000); // 60 seconds
+
+    setAutoRefreshInterval(interval);
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [currentTimeLabel]);
+
+  // Pre-fetch stats when component mounts
+  useEffect(() => {
+    const preloadStats = async () => {
+      console.log('🚀 Pre-loading stats for instant display...');
+      await fetchDashboardMetrics();
+      setIsStatsPreloaded(true);
+    };
+
+    preloadStats();
+  }, []);
+
+  // Cleanup auto-refresh on unmount
+  useEffect(() => {
+    return () => {
+      if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+      }
+    };
+  }, [autoRefreshInterval]);
+
   useEffect(() => {
     if (authUser) {
-      // Function to fetch dashboard metrics
-      const fetchDashboardMetrics = async () => {
-        try {
-          const res = await fetch(buildApiUrl(API_ENDPOINTS.DASHBOARD_METRICS));
-          if (!res.ok) {
-            throw new Error(`HTTP error! status: ${res.status}`);
-          }
-          const data = await res.json();
-          setTotalCustomers(data.totalCustomers || 0);
-          setPendingDeliveries(data.pendingRequests || 0);
-          setDeliveriesTodayCount(data.deliveries || 0);
-          setTotalCansToday(data.totalCans || 0);
-          setTotalAmountGenerated(data.totalAmountGenerated || 0);
-          setTotalCashAmountGenerated(data.totalCashAmountGenerated || 0);
-          setCurrentTimeLabel(data.timeLabel || 'Today');
-        } catch (err) {
-          console.error('Error fetching dashboard metrics:', err);
-          setTotalCustomers(0);
-          setPendingDeliveries(0);
-          setDeliveriesTodayCount(0);
-          setTotalCansToday(0);
-          setTotalAmountGenerated(0);
-          setTotalCashAmountGenerated(0);
-        }
-      };
-
       // Initial fetch
       fetchDashboardMetrics();
       refreshDeliveryRequests();
@@ -342,6 +383,7 @@ export default function AdminDashboardPage() {
             totalAmountGenerated={totalAmountGenerated}
             totalCashAmountGenerated={totalCashAmountGenerated}
             currentTimeLabel={currentTimeLabel}
+            isStatsPreloaded={isStatsPreloaded}
           />
           
           <CustomersTab 
