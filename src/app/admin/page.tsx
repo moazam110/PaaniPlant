@@ -23,7 +23,7 @@ export default function AdminDashboardPage() {
   const router = useRouter();
   
   const [authUser, setAuthUser] = useState<any | null>(null); // Placeholder for auth user
-  const [isLoading, setIsLoading] = useState(true); 
+  const [isLoading, setIsLoading] = useState(true);
   const [isBackendConnected, setIsBackendConnected] = useState(false);
   
   const [isCustomerFormDialogOpen, setIsCustomerFormDialogOpen] = useState(false);
@@ -160,7 +160,7 @@ export default function AdminDashboardPage() {
       setTotalCashAmountGenerated(0);
       setDeliveryRequests([]);
     }
-  }, [authUser]); 
+  }, [authUser]);
 
   useEffect(() => {
     // Check backend connection

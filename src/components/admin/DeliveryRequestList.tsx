@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import type { Customer, DeliveryRequest } from '@/types';
 // REMOVE: import { db } from '@/lib/firebase';
 // REMOVE: import { collection, query, orderBy, onSnapshot, Timestamp, doc, updateDoc, serverTimestamp, addDoc } from 'firebase/firestore';
@@ -112,38 +112,61 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
       });
   }, []);
 
+  // Optimized status order calculation - memoized to avoid recalculation
+  const getStatusOrderValue = useCallback((status: DeliveryRequest['status']) => {
+    if (status === 'pending_confirmation') return 0;
+    if (status === 'pending') return 1;
+    if (status === 'processing') return 2;
+    if (status === 'delivered') return 3;
+    if (status === 'cancelled') return 4;
+    return 5;
+  }, []);
+
+  // Optimized date comparison - memoized to avoid Date object creation
+  const isSameDay = useCallback((date1: Date, date2: Date) => {
+    return (
+      date1.getFullYear() === date2.getFullYear() &&
+      date1.getMonth() === date2.getMonth() &&
+      date1.getDate() === date2.getDate()
+    );
+  }, []);
+
+  // Pre-compute date references to avoid recreation
+  const todayRef = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return today;
+  }, []);
+
+  const specificRef = useMemo(() => {
+    if (!activeFilter.date) return null;
+    const specific = new Date(activeFilter.date);
+    specific.setHours(0, 0, 0, 0);
+    return specific;
+  }, [activeFilter.date]);
+
+  // Optimized processed requests with better memoization
   const processedRequests = useMemo(() => {
-    // Client-side sort to ensure 'pending' and 'pending_confirmation' are on top,
-    // then 'delivered', then 'cancelled'. Within these groups, rely on Firestore's 'requestedAt' (desc)
-    // and 'priority' (desc for emergencies within pending).
+    if (!deliveryRequests.length) return [];
+    
     return [...deliveryRequests].sort((a, b) => {
-        const statusOrderValue = (status: DeliveryRequest['status']) => {
-            if (status === 'pending_confirmation') return 0; // Urgent might make this appear above regular pending
-            if (status === 'pending') return 1;
-            if (status === 'processing') return 2; // Added processing status
-            if (status === 'delivered') return 3;
-            if (status === 'cancelled') return 4;
-            return 5; 
-        };
+      const orderA = getStatusOrderValue(a.status);
+      const orderB = getStatusOrderValue(b.status);
 
-        const orderA = statusOrderValue(a.status);
-        const orderB = statusOrderValue(b.status);
+      if (orderA !== orderB) return orderA - orderB;
 
-        if (orderA !== orderB) return orderA - orderB;
-
-        // Within the same status group, if it's an active request, prioritize urgent
-        if (a.status === 'pending' || a.status === 'pending_confirmation' || a.status === 'processing') {
-            if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
-            if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
-        }
-        
-        // If statuses and (for active) priorities are the same, rely on Firestore's requestedAt (desc)
-        // This means timeB - timeA to keep recent on top.
-        const timeA = new Date(a.requestedAt).getTime();
-        const timeB = new Date(b.requestedAt).getTime();
-        return timeB - timeA;
+      // Within the same status group, prioritize urgent for active requests
+      if (a.status === 'pending' || a.status === 'pending_confirmation' || a.status === 'processing') {
+        if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
+        if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
+      }
+      
+      // Use pre-computed timestamps to avoid Date object creation
+      const timeA = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
+      const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
+      return timeB - timeA;
     });
-  }, [deliveryRequests]);
+  }, [deliveryRequests, getStatusOrderValue]);
 
 
   const filteredDeliveryRequests = useMemo(() => {
@@ -170,43 +193,36 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
     });
   }, [processedRequests, searchTerm]);
 
-  // Apply panel filters after search filtering
+  // Apply panel filters after search filtering - optimized version
   const fullyFilteredRequests = useMemo(() => {
     const list = filteredDeliveryRequests;
     const { today, date, cash, account, cans, cansOp, price, priceOp, cancelled } = activeFilter;
 
+    // Early return if no filters are active
     const hasDateFilter = today;
     const hasPaymentFilter = cash || account;
     const cansFilterVal = cans && /^\d{1,2}$/.test(cans) ? Number(cans) : null;
     const priceFilterVal = price && /^\d{1,3}$/.test(price) ? Number(price) : null;
-
     const hasSpecificDate = !!date;
-    if (!hasDateFilter && !hasSpecificDate && !hasPaymentFilter && cansFilterVal == null && priceFilterVal == null && !cancelled) return list;
+    
+    if (!hasDateFilter && !hasSpecificDate && !hasPaymentFilter && cansFilterVal == null && priceFilterVal == null && !cancelled) {
+      return list;
+    }
 
-    // Helper to check day
-    const isSameDay = (date: Date, ref: Date) => {
-      return (
-        date.getFullYear() === ref.getFullYear() &&
-        date.getMonth() === ref.getMonth() &&
-        date.getDate() === ref.getDate()
-      );
-    };
-
-    const todayRef = new Date();
-    todayRef.setHours(0, 0, 0, 0);
-    const specificRef = hasSpecificDate ? new Date(date) : null;
-    if (specificRef) specificRef.setHours(0, 0, 0, 0);
-
-    const filtered = list.filter(req => {
+    // Use memoized date references and comparison function
+    return list.filter(req => {
       // Date filter: apply only to delivered history
       if (hasDateFilter || hasSpecificDate) {
         if (req.status !== 'delivered') return false;
         const deliveredTime = (req as any).deliveredAt || (req as any).completedAt;
         if (!deliveredTime) return false;
+        
         const d = new Date(deliveredTime);
         d.setHours(0, 0, 0, 0);
+        
         const matchToday = today && isSameDay(d, todayRef);
         const matchSpecific = hasSpecificDate && specificRef ? isSameDay(d, specificRef) : false;
+        
         if (!(matchToday || matchSpecific)) return false;
       }
 
@@ -245,25 +261,32 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
 
       return true;
     });
+  }, [filteredDeliveryRequests, activeFilter, todayRef, specificRef, isSameDay]);
 
-    if (!addressSortOrder) return filtered;
+  // Separate optimized address sorting
+  const sortedRequests = useMemo(() => {
+    if (!addressSortOrder) return fullyFilteredRequests;
+    
     const dir = addressSortOrder === 'asc' ? 1 : -1;
-    return [...filtered].sort((a, b) => {
+    return [...fullyFilteredRequests].sort((a, b) => {
       const aAddr = (a.address || '').toString().toLowerCase();
       const bAddr = (b.address || '').toString().toLowerCase();
+      
       if (aAddr < bAddr) return -1 * dir;
       if (aAddr > bAddr) return 1 * dir;
+      
       // tie-breaker: urgent first within same address for active requests
       if ((a.status === 'pending' || a.status === 'processing') && (b.status === 'pending' || b.status === 'processing')) {
         if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
         if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
       }
+      
       // final tie-breaker by requestedAt oldest first
       const ta = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
       const tb = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
       return ta - tb;
     });
-  }, [filteredDeliveryRequests, activeFilter, addressSortOrder]);
+  }, [fullyFilteredRequests, addressSortOrder]);
 
   const customersForNewRequest = useMemo(() => {
     const trimmed = searchTerm.trim();
@@ -634,7 +657,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
         </div>
       )}
 
-      {fullyFilteredRequests.length > 0 && (
+      {sortedRequests.length > 0 && (
         <div className="border rounded-lg overflow-hidden max-h-[500px] overflow-y-auto table-container">
           <Table>
             <TableHeader>
@@ -658,7 +681,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
               </TableRow>
             </TableHeader>
             <TableBody>
-              {fullyFilteredRequests.map((request, index) => {
+              {sortedRequests.map((request, index) => {
                 const isSindhiName = /[ء-ي]/.test(request.customerName);
                 const nameClasses = cn(isSindhiName ? 'font-sindhi rtl' : 'ltr');
                 const isCancelled = request.status === 'cancelled';
@@ -747,12 +770,12 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
       {activeFilter.cancelled && (
         <div className="md:hidden space-y-3 mt-6">
           <h3 className="text-lg font-semibold">Cancelled Requests (Mobile View)</h3>
-          {fullyFilteredRequests.length === 0 ? (
+          {sortedRequests.length === 0 ? (
             <div className="p-3 text-center text-muted-foreground text-sm border rounded">
               No cancelled requests found.
             </div>
           ) : (
-            fullyFilteredRequests.map((request) => {
+            sortedRequests.map((request) => {
               const isSindhiName = /[ء-ي]/.test(request.customerName);
               const nameClasses = cn(isSindhiName ? 'font-sindhi rtl' : 'ltr');
               const intId = (request as any).customerIntId;
