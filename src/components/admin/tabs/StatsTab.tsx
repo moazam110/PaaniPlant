@@ -15,7 +15,6 @@ interface StatsTabProps {
   totalAmountGenerated: number;
   totalCashAmountGenerated: number;
   currentTimeLabel: string;
-  isStatsPreloaded?: boolean;
 }
 
 export default function StatsTab({
@@ -26,7 +25,6 @@ export default function StatsTab({
   totalAmountGenerated,
   totalCashAmountGenerated,
   currentTimeLabel,
-  isStatsPreloaded = false
 }: StatsTabProps) {
   const currentDate = new Date();
   const [selectedDay, setSelectedDay] = useState<string>('');
@@ -165,7 +163,7 @@ export default function StatsTab({
   }, []);
 
   // Show loading only when changing dates, not on initial load
-  const showLoading = !isStatsPreloaded && filteredMetrics.isLoading;
+  const showLoading = filteredMetrics.isLoading;
 
   return (
     <div className="p-4 space-y-6">
