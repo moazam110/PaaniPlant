@@ -6,17 +6,24 @@ import { Hourglass, ListTodo, Clock } from 'lucide-react';
 
 interface StaffDashboardMetricsProps {
   requests: DeliveryRequest[];
+  requestCounts?: {
+    pending: number;
+    processing: number;
+    urgent: number;
+  };
 }
 
-const StaffDashboardMetrics: React.FC<StaffDashboardMetricsProps> = ({ requests }) => {
-  // Count active tasks (pending + processing) - exclude cancelled
-  const pendingCount = requests.filter(req => 
+const StaffDashboardMetrics: React.FC<StaffDashboardMetricsProps> = ({ requests, requestCounts }) => {
+  // Use provided counts if available, otherwise calculate from requests
+  const pendingCount = requestCounts?.pending ?? requests.filter(req => 
     (req.status === 'pending' || req.status === 'pending_confirmation')
   ).length;
-  const processingCount = requests.filter(req => 
+  
+  const processingCount = requestCounts?.processing ?? requests.filter(req => 
     req.status === 'processing'
   ).length;
-  const urgentCount = requests.filter(req => 
+  
+  const urgentCount = requestCounts?.urgent ?? requests.filter(req => 
     req.priority === 'urgent' && 
     (req.status === 'pending' || req.status === 'pending_confirmation' || req.status === 'processing')
   ).length;

@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import type { DeliveryRequest } from '@/types';
 import RequestCard from './RequestCard';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -13,76 +13,87 @@ interface RequestQueueProps {
 }
 
 const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onCancel, addressSortOrder }) => {
-  const [expandedDelivered, setExpandedDelivered] = useState<Record<string, boolean>>({});
-  const toggleDelivered = (key: string) => {
-    setExpandedDelivered(prev => ({ ...prev, [key]: !prev[key] }));
-  };
+  const [expandedDelivered, setExpandedDelivered] = useState<Record<string, boolean>>();
   
-  const compareByAddress = (a: DeliveryRequest, b: DeliveryRequest, order: 'asc' | 'desc') => {
+  const toggleDelivered = useCallback((key: string) => {
+    setExpandedDelivered(prev => ({ ...prev, [key]: !prev?.[key] }));
+  }, []);
+  
+  // Memoized address comparison function
+  const compareByAddress = useCallback((a: DeliveryRequest, b: DeliveryRequest, order: 'asc' | 'desc') => {
     const addrA = (a.address || '').toString().toLowerCase();
     const addrB = (b.address || '').toString().toLowerCase();
     const dir = order === 'asc' ? 1 : -1;
+    
     if (addrA < addrB) return -1 * dir;
     if (addrA > addrB) return 1 * dir;
+    
     // Tie-breaker: urgent first
     if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
     if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
+    
     // Final tie-breaker: time oldest first
-    const timeA = a.requestedAt instanceof Date ? a.requestedAt.getTime() : (typeof a.requestedAt === 'number' ? a.requestedAt : 0);
-    const timeB = b.requestedAt instanceof Date ? b.requestedAt.getTime() : (typeof b.requestedAt === 'number' ? b.requestedAt : 0);
+    const timeA = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
+    const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
     return timeA - timeB;
-  };
-  const pendingRequests = requests
-    .filter(req => (req.status === 'pending' || req.status === 'pending_confirmation'))
-    .sort((a, b) => {
-      if (addressSortOrder) {
-        return compareByAddress(a, b, addressSortOrder);
-      }
-      if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
-      if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
-      // Ensure dates are properly compared; assuming they are Date objects or numbers
-      const timeA = a.requestedAt instanceof Date ? a.requestedAt.getTime() : (typeof a.requestedAt === 'number' ? a.requestedAt : 0);
-      const timeB = b.requestedAt instanceof Date ? b.requestedAt.getTime() : (typeof b.requestedAt === 'number' ? b.requestedAt : 0);
-      return timeA - timeB; // Oldest first
-    });
+  }, []);
 
-  const processingRequests = requests
-    .filter(req => req.status === 'processing')
-    .sort((a, b) => {
-      if (addressSortOrder) {
-        return compareByAddress(a, b, addressSortOrder);
-      }
-      if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
-      if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
-      // Sort by when they started processing (requestedAt for now, could be a processingStartedAt field)
-      const timeA = a.requestedAt instanceof Date ? a.requestedAt.getTime() : (typeof a.requestedAt === 'number' ? a.requestedAt : 0);
-      const timeB = b.requestedAt instanceof Date ? b.requestedAt.getTime() : (typeof b.requestedAt === 'number' ? b.requestedAt : 0);
-      return timeA - timeB; // Oldest first
-    });
+  // Memoized request filtering and sorting
+  const pendingRequests = useMemo(() => {
+    return requests
+      .filter(req => (req.status === 'pending' || req.status === 'pending_confirmation'))
+      .sort((a, b) => {
+        if (addressSortOrder) {
+          return compareByAddress(a, b, addressSortOrder);
+        }
+        if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
+        if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
+        
+        const timeA = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
+        const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
+        return timeA - timeB; // Oldest first
+      });
+  }, [requests, addressSortOrder, compareByAddress]);
 
-  const deliveredRequests = requests
-    .filter(req => {
-      // Include delivered requests only (exclude cancelled)
-      if (req.status !== 'delivered') return false;
-      
-      // Show delivered requests from current date only (24 hours)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      
-      // Use appropriate date field based on status
-      let completionDate;
-      completionDate = req.deliveredAt ? new Date(req.deliveredAt) : new Date(req.completedAt || req.requestedAt);
-      
-      return completionDate && completionDate >= today && completionDate < tomorrow;
-    })
-    // Ensure dates are properly compared for sorting completedAt
-    .sort((a, b) => {
-        const timeA = a.completedAt instanceof Date ? a.completedAt.getTime() : (typeof a.completedAt === 'number' ? a.completedAt : 0);
-        const timeB = b.completedAt instanceof Date ? b.completedAt.getTime() : (typeof b.completedAt === 'number' ? b.completedAt : 0);
+  const processingRequests = useMemo(() => {
+    return requests
+      .filter(req => req.status === 'processing')
+      .sort((a, b) => {
+        if (addressSortOrder) {
+          return compareByAddress(a, b, addressSortOrder);
+        }
+        if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
+        if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
+        
+        const timeA = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
+        const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
+        return timeA - timeB; // Oldest first
+      });
+  }, [requests, addressSortOrder, compareByAddress]);
+
+  const deliveredRequests = useMemo(() => {
+    // Pre-compute date boundaries
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    return requests
+      .filter(req => {
+        if (req.status !== 'delivered') return false;
+        
+        // Use appropriate date field based on status
+        let completionDate;
+        completionDate = req.deliveredAt ? new Date(req.deliveredAt) : new Date(req.completedAt || req.requestedAt);
+        
+        return completionDate && completionDate >= today && completionDate < tomorrow;
+      })
+      .sort((a, b) => {
+        const timeA = a.completedAt ? new Date(a.completedAt).getTime() : 0;
+        const timeB = b.completedAt ? new Date(b.completedAt).getTime() : 0;
         return timeB - timeA; // Newest completed first
-    });
+      });
+  }, [requests]);
 
   // Canceled requests are excluded entirely
 

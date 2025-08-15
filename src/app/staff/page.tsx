@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Button as UIButton } from '@/components/ui/button';
 import { ArrowDownAZ, ArrowUpAZ } from 'lucide-react';
 import type { DeliveryRequest } from '@/types';
@@ -24,17 +24,52 @@ export default function StaffPage() {
   const [isBackendConnected, setIsBackendConnected] = useState(false);
   const [previousRequestCount, setPreviousRequestCount] = useState(0);
   const [authUser, setAuthUser] = useState<any | null>(null);
+  
+  // Optimized optimistic updates with single ref
   const optimisticRef = useRef<Map<string, { status: DeliveryRequest['status']; expires: number }>>(new Map());
   const fetchInProgressRef = useRef<boolean>(false);
-  const suppressUpdatesUntilRef = useRef<number>(0);
-  const suppressSinceRef = useRef<number>(0);
+  const lastUpdateRef = useRef<number>(0);
   const currentFetchAbortRef = useRef<AbortController | null>(null);
 
   const { toast } = useToast();
   const router = useRouter();
 
+  // Memoized request counts to prevent unnecessary re-renders
+  const requestCounts = useMemo(() => {
+    const pending = deliveryRequests.filter(req => 
+      req.status === 'pending' || req.status === 'pending_confirmation'
+    ).length;
+    const processing = deliveryRequests.filter(req => req.status === 'processing').length;
+    const urgent = deliveryRequests.filter(req => 
+      req.priority === 'urgent' && 
+      (req.status === 'pending' || req.status === 'pending_confirmation' || req.status === 'processing')
+    ).length;
+    
+    return { pending, processing, urgent };
+  }, [deliveryRequests]);
 
-
+  // Memoized sorted requests to prevent re-sorting on every render
+  const sortedRequests = useMemo(() => {
+    if (!addressSortOrder) return deliveryRequests;
+    
+    const dir = addressSortOrder === 'asc' ? 1 : -1;
+    return [...deliveryRequests].sort((a, b) => {
+      const addrA = (a.address || '').toString().toLowerCase();
+      const addrB = (b.address || '').toString().toLowerCase();
+      
+      if (addrA < addrB) return -1 * dir;
+      if (addrA > addrB) return 1 * dir;
+      
+      // Tie-breaker: urgent first
+      if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
+      if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
+      
+      // Final tie-breaker: time oldest first
+      const timeA = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
+      const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
+      return timeA - timeB;
+    });
+  }, [deliveryRequests, addressSortOrder]);
 
 
   // Check staff authentication
@@ -145,70 +180,74 @@ export default function StaffPage() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    // Function to fetch delivery requests
-    const fetchDeliveryRequests = async () => {
-      if (fetchInProgressRef.current) return;
-      fetchInProgressRef.current = true;
-      try {
-        // Abort any previous fetch controller reference since we're starting a new one
-        const controller = new AbortController();
-        currentFetchAbortRef.current = controller;
-        const res = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS), { signal: controller.signal });
-        if (!res.ok) {
-          throw new Error(`HTTP error! status: ${res.status}`);
-        }
-        const data = await res.json();
-        // Apply optimistic overrides to avoid flicker
-        const now = Date.now();
-        const withOptimistic: DeliveryRequest[] = data.map((req: DeliveryRequest) => {
-          const key = String((req as any)._id || (req as any).requestId || (req as any).id || '');
-          const ov = optimisticRef.current.get(key);
-          if (ov && ov.expires > now) {
-            return { ...req, status: ov.status } as DeliveryRequest;
-          }
-          return req;
-        });
-
-        // Clean up expired optimistic entries
-        for (const [k, v] of optimisticRef.current.entries()) {
-          if (v.expires <= now) optimisticRef.current.delete(k);
-        }
-
-        // Check for new delivery requests (only pending/pending_confirmation)
-        const currentPendingRequests = data.filter((req: DeliveryRequest) => 
-          req.status === 'pending' || req.status === 'pending_confirmation'
-        );
-        const currentPendingCount = currentPendingRequests.length;
-        
-        console.log(`📊 Request count check - Previous: ${previousRequestCount}, Current: ${currentPendingCount}, Total requests: ${data.length}`);
-        
-        // Update previous count after processing
-        setPreviousRequestCount(currentPendingCount);
-
-        // Suppress applying server list briefly right after a local action to prevent flicker
-        // Only apply if we are outside the suppression window
-        if (!(now >= suppressSinceRef.current && now <= suppressUpdatesUntilRef.current)) {
-          setDeliveryRequests(withOptimistic);
-        }
-        setIsLoading(false);
-      } catch (err: any) {
-        if (err && err.name === 'AbortError') {
-          // Ignore aborted fetch errors silently to avoid flicker/toast noise
-          return;
-        }
-        console.error('Error fetching delivery requests:', err);
-        setIsLoading(false);
-        toast({
-          variant: "destructive",
-          title: "Connection Error",
-          description: "Unable to fetch delivery requests. Check if backend is running.",
-        });
-      } finally {
-        fetchInProgressRef.current = false;
+  // Optimized fetch function with better error handling and performance
+  const fetchDeliveryRequests = useCallback(async () => {
+    if (fetchInProgressRef.current) return;
+    
+    // Skip fetch if we just updated (within 2 seconds)
+    const now = Date.now();
+    if (now - lastUpdateRef.current < 2000) return;
+    
+    fetchInProgressRef.current = true;
+    try {
+      const controller = new AbortController();
+      currentFetchAbortRef.current = controller;
+      
+      const res = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS), { 
+        signal: controller.signal 
+      });
+      
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
       }
-    };
+      
+      const data = await res.json();
+      
+      // Apply optimistic overrides efficiently
+      const now = Date.now();
+      const withOptimistic: DeliveryRequest[] = data.map((req: DeliveryRequest) => {
+        const key = String((req as any)._id || (req as any).requestId || (req as any).id || '');
+        const ov = optimisticRef.current.get(key);
+        if (ov && ov.expires > now) {
+          return { ...req, status: ov.status } as DeliveryRequest;
+        }
+        return req;
+      });
 
+      // Clean up expired optimistic entries
+      for (const [k, v] of optimisticRef.current.entries()) {
+        if (v.expires <= now) optimisticRef.current.delete(k);
+      }
+
+      // Only update if there are actual changes
+      const currentPendingCount = withOptimistic.filter((req: DeliveryRequest) => 
+        req.status === 'pending' || req.status === 'pending_confirmation'
+      ).length;
+      
+      if (currentPendingCount !== previousRequestCount) {
+        setPreviousRequestCount(currentPendingCount);
+        console.log(`📊 Request count updated: ${currentPendingCount} pending requests`);
+      }
+
+      setDeliveryRequests(withOptimistic);
+      setIsLoading(false);
+    } catch (err: any) {
+      if (err && err.name === 'AbortError') {
+        return; // Ignore aborted fetch errors silently
+      }
+      console.error('Error fetching delivery requests:', err);
+      setIsLoading(false);
+      toast({
+        variant: "destructive",
+        title: "Connection Error",
+        description: "Unable to fetch delivery requests. Check if backend is running.",
+      });
+    } finally {
+      fetchInProgressRef.current = false;
+    }
+  }, [toast, previousRequestCount]);
+
+  useEffect(() => {
     // Initial fetch
     setIsLoading(true);
     fetchDeliveryRequests();
@@ -230,16 +269,23 @@ export default function StaffPage() {
     
     setTimeout(initializePreviousCount, 3000);
 
-    // Set up real-time updates every 3 seconds
+    // Optimized polling: reduced frequency and smart updates
     const interval = setInterval(() => {
-      fetchDeliveryRequests();
-    }, 3000);
+      // Only poll if there are pending requests or if it's been more than 10 seconds
+      const hasPendingRequests = deliveryRequests.some(req => 
+        req.status === 'pending' || req.status === 'pending_confirmation'
+      );
+      
+      if (hasPendingRequests || Date.now() - lastUpdateRef.current > 10000) {
+        fetchDeliveryRequests();
+      }
+    }, 5000); // Increased from 3 to 5 seconds
 
     // Cleanup interval on unmount
     return () => clearInterval(interval);
-  }, [toast]);
+  }, [fetchDeliveryRequests]);
 
-  const handleMarkAsDone = async (requestId: string) => {
+  const handleMarkAsDone = useCallback(async (requestId: string) => {
     try {
       const currentRequest = deliveryRequests.find(req => (req._id || req.requestId) === requestId);
       if (!currentRequest) return;
@@ -251,19 +297,28 @@ export default function StaffPage() {
         newStatus = 'delivered';
       }
 
-      // Optimistic update: update local state immediately and record temporary override
+      // Optimistic update: update local state immediately
       const optimisticKey = String(currentRequest._id || currentRequest.requestId || '');
-      optimisticRef.current.set(optimisticKey, { status: newStatus as DeliveryRequest['status'], expires: Date.now() + 8000 });
+      optimisticRef.current.set(optimisticKey, { 
+        status: newStatus as DeliveryRequest['status'], 
+        expires: Date.now() + 8000 
+      });
+      
+      // Update local state immediately
       setDeliveryRequests(prev => prev.map(req =>
         (req._id || req.requestId) === requestId ? { ...req, status: newStatus as DeliveryRequest['status'] } : req
       ));
 
+      // Record the update time to prevent immediate refetch
+      lastUpdateRef.current = Date.now();
+
       const actualRequestId = currentRequest._id || currentRequest.requestId || (currentRequest as any).id;
-      // Abort any in-flight polling request to prevent stale state applying after click
-      try { currentFetchAbortRef.current?.abort(); } catch {}
-      // Briefly suppress polling updates to avoid flicker back to pending
-      suppressSinceRef.current = Date.now();
-      suppressUpdatesUntilRef.current = suppressSinceRef.current + 5000;
+      
+      // Abort any in-flight polling request
+      try { 
+        currentFetchAbortRef.current?.abort(); 
+      } catch {}
+
       const response = await fetch(buildApiUrl(`api/delivery-requests/${actualRequestId}/status`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -277,7 +332,6 @@ export default function StaffPage() {
         setDeliveryRequests(prev => prev.map(req =>
           (req._id || req.requestId) === requestId ? { ...req, ...updatedRequest } : req
         ));
-        suppressUpdatesUntilRef.current = 0;
       } else {
         throw new Error('Failed to update status');
       }
@@ -286,23 +340,23 @@ export default function StaffPage() {
       // Revert optimistic update on error
       setDeliveryRequests(prev => prev.map(req => {
         if ((req._id || req.requestId) === requestId) {
-          // revert to previous state by toggling back
           const prevStatus = req.status === 'processing' ? 'pending' : (req.status === 'delivered' ? 'processing' : req.status);
           return { ...req, status: prevStatus } as DeliveryRequest;
         }
         return req;
       }));
+      
       // Remove optimistic entry
       const optimisticKey = String(requestId);
       optimisticRef.current.delete(optimisticKey);
-      suppressUpdatesUntilRef.current = 0;
+      
       toast({
         variant: "destructive",
         title: "Update Failed",
         description: "Could not update the request status. Please try again.",
       });
     }
-  };
+  }, [deliveryRequests, toast]);
 
 
 
@@ -356,7 +410,10 @@ export default function StaffPage() {
         )}
         <div className="px-2 py-1">
           <div className="flex items-center justify-between">
-            <StaffDashboardMetrics requests={deliveryRequests} />
+            <StaffDashboardMetrics 
+              requests={deliveryRequests} 
+              requestCounts={requestCounts}
+            />
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Sort by address:</span>
               <UIButton
@@ -381,7 +438,11 @@ export default function StaffPage() {
           </div>
         </div>
         <div className="px-2">
-          <RequestQueue requests={deliveryRequests} onMarkAsDone={handleMarkAsDone} addressSortOrder={addressSortOrder} />
+          <RequestQueue 
+            requests={sortedRequests} 
+            onMarkAsDone={handleMarkAsDone} 
+            addressSortOrder={addressSortOrder} 
+          />
         </div>
       </main>
       
