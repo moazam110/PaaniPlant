@@ -73,14 +73,27 @@ export default function AdminDashboardPage() {
 
   // Utility function to create a hash of dashboard data for change detection
   const createDashboardDataHash = useCallback((data: any): string => {
-    return `${data.totalCustomers}-${data.pendingRequests}-${data.deliveries}-${data.totalCans}-${data.totalAmountGenerated}-${data.totalCashAmountGenerated}`;
+    try {
+      return `${data?.totalCustomers || 0}-${data?.pendingRequests || 0}-${data?.deliveries || 0}-${data?.totalCans || 0}-${data?.totalAmountGenerated || 0}-${data?.totalCashAmountGenerated || 0}`;
+    } catch (error) {
+      console.error('Error creating dashboard data hash:', error);
+      return 'error-hash';
+    }
   }, []);
 
   // Utility function to create a hash of delivery requests for change detection
   const createDeliveryRequestsHash = useCallback((requests: DeliveryRequest[]): string => {
-    return requests.map(req => 
-      `${req._id || req.requestId}-${req.status}-${req.requestedAt}`
-    ).join('|');
+    try {
+      if (!Array.isArray(requests)) {
+        return 'no-requests';
+      }
+      return requests.map(req => 
+        `${req?._id || req?.requestId || 'unknown'}-${req?.status || 'unknown'}-${req?.requestedAt || 'unknown'}`
+      ).join('|');
+    } catch (error) {
+      console.error('Error creating delivery requests hash:', error);
+      return 'error-hash';
+    }
   }, []);
 
   useEffect(() => {
@@ -161,12 +174,6 @@ export default function AdminDashboardPage() {
     }
   }, [createDeliveryRequestsHash]);
 
-  // Store the functions in refs after they're defined
-  useEffect(() => {
-    fetchDashboardMetricsRef.current = fetchDashboardMetrics;
-    refreshDeliveryRequestsRef.current = refreshDeliveryRequests;
-  }, [fetchDashboardMetrics, refreshDeliveryRequests]);
-
   const fetchDashboardMetrics = async (isSilentRefresh: boolean = false) => {
     try {
       if (!isSilentRefresh) {
@@ -218,6 +225,21 @@ export default function AdminDashboardPage() {
     }
   };
 
+  // Store the functions in refs after they're defined
+  const [functionsReady, setFunctionsReady] = useState(false);
+  
+  useEffect(() => {
+    try {
+      console.log('🔄 Admin dashboard: Storing functions in refs...');
+      fetchDashboardMetricsRef.current = fetchDashboardMetrics;
+      refreshDeliveryRequestsRef.current = refreshDeliveryRequests;
+      setFunctionsReady(true);
+      console.log('✅ Admin dashboard: Functions stored in refs successfully');
+    } catch (error) {
+      console.error('❌ Admin dashboard: Error storing functions in refs:', error);
+    }
+  }, [fetchDashboardMetrics, refreshDeliveryRequests]);
+
   // Stable polling setup - only runs once on mount
   useEffect(() => {
     if (!authUser) {
@@ -239,13 +261,19 @@ export default function AdminDashboardPage() {
     
     console.log('🔄 Admin dashboard: Initializing polling system');
     
+    // Wait for functions to be available in refs
+    if (!fetchDashboardMetricsRef.current || !refreshDeliveryRequestsRef.current) {
+      console.log('🔄 Admin dashboard: Functions not ready yet, waiting...', {
+        metricsReady: !!fetchDashboardMetricsRef.current,
+        requestsReady: !!refreshDeliveryRequestsRef.current,
+        functionsReady
+      });
+      return;
+    }
+    
     // Initial fetch (non-silent)
-    if (fetchDashboardMetricsRef.current) {
-      fetchDashboardMetricsRef.current(false);
-    }
-    if (refreshDeliveryRequestsRef.current) {
-      refreshDeliveryRequestsRef.current(false);
-    }
+    fetchDashboardMetricsRef.current(false);
+    refreshDeliveryRequestsRef.current(false);
 
     // Enhanced silent polling: every 3 minutes with silent background updates
     // These intervals are set up once and never change
@@ -275,7 +303,7 @@ export default function AdminDashboardPage() {
         requestsIntervalRef.current = null;
       }
     };
-  }, [authUser]); // Only depends on authUser, not on functions
+  }, [authUser, functionsReady]); // Re-run when functions become available
 
   // Pause/resume silent refreshes when page is not visible (save resources)
   useEffect(() => {
@@ -293,14 +321,14 @@ export default function AdminDashboardPage() {
         }
       } else {
         // Page is visible, resume silent refreshes
-        if (!metricsIntervalRef.current) {
+        if (!metricsIntervalRef.current && fetchDashboardMetricsRef.current) {
           metricsIntervalRef.current = setInterval(() => {
             if (fetchDashboardMetricsRef.current) {
               fetchDashboardMetricsRef.current(true);
             }
           }, 180000);
         }
-        if (!requestsIntervalRef.current) {
+        if (!requestsIntervalRef.current && refreshDeliveryRequestsRef.current) {
           requestsIntervalRef.current = setInterval(() => {
             if (refreshDeliveryRequestsRef.current) {
               refreshDeliveryRequestsRef.current(true);
@@ -431,8 +459,10 @@ export default function AdminDashboardPage() {
     if (customerListRef.current) {
       customerListRef.current.refreshCustomers();
     }
-    // Also trigger silent refresh of dashboard data
-    triggerSilentRefresh();
+    // Only trigger silent refresh if functions are ready
+    if (functionsReady) {
+      triggerSilentRefresh();
+    }
   };
 
 
@@ -550,7 +580,10 @@ export default function AdminDashboardPage() {
                               if (refreshDeliveryRequestsRef.current) {
                                 refreshDeliveryRequestsRef.current(false); // Non-silent refresh for immediate feedback
                               }
-                              triggerSilentRefresh(); // Also refresh metrics
+                              // Only trigger silent refresh if functions are ready
+                              if (functionsReady) {
+                                triggerSilentRefresh(); // Also refresh metrics
+                              }
                               closeRequestDialog(); 
                             }}
                             onCloseDialog={closeRequestDialog} 
