@@ -32,10 +32,10 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
     if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
     if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
     
-    // Final tie-breaker: time oldest first
+    // Final tie-breaker: time newest first
     const timeA = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
     const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
-    return timeA - timeB;
+    return timeB - timeA;
   };
 
   // Memoized request filtering and sorting
@@ -51,7 +51,7 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
         
         const timeA = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
         const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
-        return timeA - timeB; // Oldest first
+        return timeB - timeA; // Newest first (new requests at top)
       });
   }, [requests, addressSortOrder]);
 
@@ -67,7 +67,7 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
         
         const timeA = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
         const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
-        return timeA - timeB; // Oldest first
+        return timeB - timeA; // Newest first (new requests at top)
       });
   }, [requests, addressSortOrder]);
 

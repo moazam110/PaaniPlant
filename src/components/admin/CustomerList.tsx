@@ -299,7 +299,7 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-3">
                 <div>
                   <Label className="mb-2 block">Total Cans</Label>
                   <div className="flex gap-2">
