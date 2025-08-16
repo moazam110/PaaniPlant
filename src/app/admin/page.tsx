@@ -97,42 +97,16 @@ export default function AdminDashboardPage() {
   }, []);
 
   useEffect(() => {
-    // Check for valid admin authentication session
-    const checkAuth = () => {
-      try {
-        const authSession = localStorage.getItem('paani_auth_session');
-        if (authSession) {
-          const session = JSON.parse(authSession);
-          
-          // Verify it's an admin session
-          if (session.userType === 'admin' && session.email === 'admin@paani.com') {
-            setAuthUser({
-              uid: session.sessionId,
-              email: session.email,
-              userType: session.userType,
-              loginTime: session.loginTime
-            });
-            console.log('✅ Admin authentication verified');
-          } else {
-            // Invalid session, redirect to login
-            console.log('❌ Invalid admin session, redirecting to login');
-            router.push('/admin/login');
-          }
-        } else {
-          // No session, redirect to login
-          console.log('❌ No admin session found, redirecting to login');
-          router.push('/admin/login');
-        }
-      } catch (error) {
-        console.error('Auth check error:', error);
-        router.push('/admin/login');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    checkAuth();
-  }, [router]);
+    // No authentication required - direct access granted
+    setAuthUser({
+      uid: 'admin_direct_access',
+      email: 'admin@paani.com',
+      userType: 'admin',
+      loginTime: new Date().toISOString()
+    });
+    console.log('✅ Admin access granted (no authentication required)');
+    setIsLoading(false);
+  }, []);
 
   // Ensure activeTab is always valid
   useEffect(() => {

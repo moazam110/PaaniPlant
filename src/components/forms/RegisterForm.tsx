@@ -27,7 +27,7 @@ const registerSchema = z.object({
 
 type RegisterFormValues = z.infer<typeof registerSchema>;
 
-const SUPER_ADMIN_EMAIL = "moazamabbasi909@gmail.com";
+const SUPER_ADMIN_EMAIL = process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL || "admin@example.com";
 
 export default function RegisterForm() {
   const { toast } = useToast();

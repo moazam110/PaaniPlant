@@ -1,29 +1,26 @@
 // Centralized API configuration
 const getApiBaseUrl = () => {
-  // Production URL (when deployed)
-  const PRODUCTION_URL = 'https://paani-b.onrender.com';
-  
-  // For debugging
-  if (typeof window !== 'undefined') {
-    console.log('🔍 Client-side NEXT_PUBLIC_API_BASE_URL:', process.env.NEXT_PUBLIC_API_BASE_URL);
-  }
-  
-  // Use environment variable or fallback
-  // In production, prefer the environment variable, but have a backup
+  // Get environment variable
   const envUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
   
-  // If we have an environment variable and it's not localhost, use it
-  if (envUrl && !envUrl.includes('localhost')) {
+  // For debugging
+  if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+    console.log('🔍 Client-side NEXT_PUBLIC_API_BASE_URL:', envUrl);
+  }
+  
+  // Use environment variable if available
+  if (envUrl) {
     return envUrl;
   }
   
-  // If we're in development and no specific production URL is set, use localhost
-  if (envUrl && envUrl.includes('localhost')) {
-    return envUrl;
+  // Fallback to localhost for development
+  if (process.env.NODE_ENV === 'development') {
+    const port = process.env.NEXT_PUBLIC_BACKEND_PORT || '4000';
+    return `http://localhost:${port}`;
   }
   
-  // Default to production URL if no environment variable is set
-  return PRODUCTION_URL;
+  // Throw error if no environment variable is set in production
+  throw new Error('NEXT_PUBLIC_API_BASE_URL environment variable is required in production');
 };
 
 export const API_BASE_URL = getApiBaseUrl();
