@@ -89,7 +89,7 @@ const deliveryRequestSchema = new mongoose.Schema({
   completedAt: { type: Date },
   cancelledAt: { type: Date },
   cancelledBy: { type: String, enum: ['admin', 'staff', 'customer', 'system'] },
-  cancellationReason: { type: String, enum: ['customer_request', 'out_of_stock', 'delivery_issue', 'weather', 'other'] },
+  cancellationReason: { type: String, enum: ['door_closed', 'duplicate', 'other'] },
   cancellationNotes: { type: String },
   createdBy: { type: String, default: '' },
   internalNotes: { type: String, default: '' },

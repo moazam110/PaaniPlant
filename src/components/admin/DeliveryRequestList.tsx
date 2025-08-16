@@ -87,7 +87,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
   // Cancellation state
   const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
   const [cancellingRequest, setCancellingRequest] = useState<DeliveryRequest | null>(null);
-  const [cancellationReason, setCancellationReason] = useState<string>('customer_request');
+  const [cancellationReason, setCancellationReason] = useState<string>('door_closed');
   const [cancellationNotes, setCancellationNotes] = useState<string>('');
 
   // Removed auto-clear: keep user input to avoid retyping when creating multiple city-specific requests
@@ -366,7 +366,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
         });
         setIsCancelDialogOpen(false);
         setCancellingRequest(null);
-        setCancellationReason('customer_request');
+        setCancellationReason('door_closed');
         setCancellationNotes('');
       } else {
         throw new Error('Failed to cancel request');
@@ -870,10 +870,8 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = ({ onInitiateNew
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="customer_request">Customer Request</SelectItem>
-                  <SelectItem value="out_of_stock">Out of Stock</SelectItem>
-                  <SelectItem value="delivery_issue">Delivery Issue</SelectItem>
-                  <SelectItem value="weather">Weather</SelectItem>
+                  <SelectItem value="door_closed">Door Closed</SelectItem>
+                  <SelectItem value="duplicate">Duplicate</SelectItem>
                   <SelectItem value="other">Other</SelectItem>
                 </SelectContent>
               </Select>

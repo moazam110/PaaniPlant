@@ -39,7 +39,7 @@ export interface DeliveryRequest {
   completedAt?: any; // Firestore Timestamp for staff app or general completion tracking
   cancelledAt?: any; // Firestore Timestamp - When the request was cancelled
   cancelledBy?: 'admin' | 'staff' | 'customer' | 'system'; // Who cancelled the request
-  cancellationReason?: 'customer_request' | 'out_of_stock' | 'delivery_issue' | 'weather' | 'other'; // Reason for cancellation
+  cancellationReason?: 'door_closed' | 'duplicate' | 'other'; // Reason for cancellation
   cancellationNotes?: string; // Additional notes about the cancellation
   createdBy?: string; // UID of admin/staff who created or 'customer_portal' etc.
   internalNotes?: string; // Optional: Internal notes for admin/staff about this request - kept for schema flexibility
