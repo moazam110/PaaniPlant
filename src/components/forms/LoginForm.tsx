@@ -23,17 +23,7 @@ interface LoginFormProps {
   userType?: 'admin' | 'staff';
 }
 
-// Hardcoded authentication credentials
-const HARDCODED_CREDENTIALS = {
-  admin: {
-    email: 'admin@paani.com',
-    password: 'adminpaani@123'
-  },
-  staff: {
-    email: 'staff@paani.com', 
-    password: 'staffpaani@123'
-  }
-};
+// No hardcoded credentials - authentication removed for direct access
 
 export default function LoginForm({ userType = 'admin' }: LoginFormProps) {
   const { toast } = useToast();
@@ -47,51 +37,19 @@ export default function LoginForm({ userType = 'admin' }: LoginFormProps) {
   });
 
   const onSubmit = async (data: LoginFormValues) => {
-    try {
-      const credentials = HARDCODED_CREDENTIALS[userType];
-      
-      // Check hardcoded credentials
-      if (data.email === credentials.email && data.password === credentials.password) {
-        // Create persistent session
-        const authSession = {
-          email: data.email,
-          userType: userType,
-          loginTime: new Date().toISOString(),
-          sessionId: `${userType}_${Date.now()}`
-        };
-        
-        // Store session in localStorage (persists until logout)
-        localStorage.setItem('paani_auth_session', JSON.stringify(authSession));
-        
-        console.log(`✅ ${userType} authentication successful`);
-        
-        toast({
-          title: "Login Successful",
-          description: `Welcome ${userType}! Redirecting to dashboard.`,
-        });
-        
-        // Redirect based on user type
-        if (userType === 'admin') {
-          router.push('/admin');
-        } else {
-          router.push('/staff');
-        }
-      } else {
-        // Invalid credentials
-        toast({
-          variant: "destructive",
-          title: "Login Failed",
-          description: "Invalid email or password. Please check your credentials and try again.",
-        });
-      }
-    } catch (error: any) {
-      console.error('Login error:', error);
-      
-      toast({
-        variant: "destructive",
-        title: "Login Error",
-        description: "An unexpected error occurred during login. Please try again.",
-      });
+    // No authentication required - directly redirect to dashboard
+    console.log(`✅ ${userType} access granted (no authentication required)`);
+    
+    toast({
+      title: "Access Granted",
+      description: `Welcome ${userType}! Redirecting to dashboard.`,
+    });
+    
+    // Redirect based on user type
+    if (userType === 'admin') {
+      router.push('/admin');
+    } else {
+      router.push('/staff');
     }
   };
 
@@ -102,7 +60,7 @@ export default function LoginForm({ userType = 'admin' }: LoginFormProps) {
           {userType === 'admin' ? 'Admin' : 'Staff'} Login
         </CardTitle>
         <CardDescription className="text-center">
-          Enter your credentials to access the {userType} dashboard.
+          Click login to access the {userType} dashboard (no authentication required).
         </CardDescription>
       </CardHeader>
       <Form {...form}>

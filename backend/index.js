@@ -3,6 +3,10 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 import multer from 'multer';
 import mongoose from 'mongoose';
+import dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
 
 /**
  * DUPLICATE DELIVERY REQUEST PREVENTION SYSTEM
@@ -24,8 +28,13 @@ const PORT = process.env.PORT || 4000;
 app.use(cors());
 app.use(bodyParser.json());
 
-// MongoDB connection with Atlas URI - corrected format
-const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://moazam:e4U92jBllqwtoGLc@cluster0.u5haqnr.mongodb.net/PAANI?retryWrites=true&w=majority&appName=Cluster0';
+// MongoDB connection - Use environment variable
+const MONGO_URI = process.env.MONGO_URI;
+if (!MONGO_URI) {
+  console.error('❌ MONGO_URI environment variable is required');
+  console.error('Please create a .env file with your MongoDB connection string');
+  process.exit(1);
+}
 
 console.log('Connecting to MongoDB with URI:', MONGO_URI.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@'));
 

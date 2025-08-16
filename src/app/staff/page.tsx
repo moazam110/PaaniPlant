@@ -63,91 +63,21 @@ export default function StaffPage() {
     ).join('|');
   }, []);
 
-  // Check staff authentication
+  // No authentication required - direct access granted
   useEffect(() => {
-    const checkAuth = () => {
-      try {
-        // Check for regular staff session
-        const authSession = localStorage.getItem('paani_auth_session');
-        
-        // Check for admin staff access
-        const adminStaffAccess = localStorage.getItem('admin_staff_access');
-        const adminSession = localStorage.getItem('paani_auth_session');
-        
-        let isAuthenticated = false;
-        let userInfo = null;
-        
-        // Regular staff user authentication
-        if (authSession) {
-          const session = JSON.parse(authSession);
-          if (session.userType === 'staff' && session.email === 'staff@paani.com') {
-            userInfo = {
-              uid: session.sessionId,
-              email: session.email,
-              userType: session.userType,
-              loginTime: session.loginTime
-            };
-            isAuthenticated = true;
-            console.log('✅ Staff user authentication verified');
-          }
-        }
-        
-        // Admin with staff access authentication
-        if (!isAuthenticated && adminStaffAccess && adminSession) {
-          const staffAccess = JSON.parse(adminStaffAccess);
-          const adminAuth = JSON.parse(adminSession);
-          
-          // Verify admin has valid session and staff access
-          if (adminAuth.userType === 'admin' && adminAuth.email === 'admin@paani.com' && staffAccess.sessionId) {
-            userInfo = {
-              uid: staffAccess.sessionId,
-              email: `${adminAuth.email} (Staff Access)`,
-              userType: 'admin_staff',
-              loginTime: adminAuth.loginTime,
-              staffAccessGranted: staffAccess.grantedAt
-            };
-            isAuthenticated = true;
-            console.log('✅ Admin staff access verified');
-          }
-        }
-        
-        if (isAuthenticated && userInfo) {
-          setAuthUser(userInfo);
-        } else {
-          // No valid authentication, redirect to login
-          console.log('❌ No valid staff authentication found, redirecting to login');
-          router.push('/staff/login');
-        }
-      } catch (error) {
-        console.error('Staff auth check error:', error);
-        router.push('/staff/login');
-      }
-    };
-
-    checkAuth();
-  }, [router]);
+    setAuthUser({
+      uid: 'staff_direct_access',
+      email: 'staff@paani.com',
+      userType: 'staff',
+      loginTime: new Date().toISOString()
+    });
+    console.log('✅ Staff access granted (no authentication required)');
+  }, []);
 
   const handleSignOut = () => {
-    try {
-      if (authUser?.userType === 'admin_staff') {
-        // Admin with staff access - only clear staff access, keep admin session
-        localStorage.removeItem('admin_staff_access');
-        console.log('✅ Admin staff access revoked, returning to admin dashboard');
-        
-        // Close current window and return to admin dashboard
-        window.close();
-      } else {
-        // Regular staff user - clear staff session
-        localStorage.removeItem('paani_auth_session');
-        console.log('✅ Staff signed out successfully');
-        
-        // Redirect to login page
-        router.push('/staff/login');
-      }
-    } catch (error) {
-      console.error('Sign out error:', error);
-      alert('Error signing out. Please try again.');
-    }
+    // No authentication required - just redirect to login page
+    console.log('✅ Staff signed out (redirecting to login)');
+    router.push('/staff/login');
   };
 
   useEffect(() => {
