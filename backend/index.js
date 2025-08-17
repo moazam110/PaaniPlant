@@ -4,6 +4,9 @@ import bodyParser from 'body-parser';
 import multer from 'multer';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import rateLimit from 'express-rate-limit';
 
 // Load environment variables
 dotenv.config();
@@ -150,8 +153,171 @@ try {
   RecurringRequest.collection.createIndex({ customerId: 1 }).catch(() => {});
 } catch {}
 
+// Super Admin Schema
+const superAdminSchema = new mongoose.Schema({
+  email: { type: String, unique: true, required: true, immutable: true },
+  username: { type: String, unique: true, required: true, immutable: true },
+  password: { type: String, required: true },
+  name: { type: String, required: true },
+  role: { type: String, default: 'super_admin', immutable: true },
+  status: { type: String, enum: ['active', 'suspended', 'deleted'], default: 'active' },
+  isSetupComplete: { type: Boolean, default: false },
+  setupCompletedAt: { type: Date },
+  lastLoginAt: { type: Date },
+  loginAttempts: { type: Number, default: 0 },
+  lockedUntil: { type: Date },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+const SuperAdmin = mongoose.model('SuperAdmin', superAdminSchema);
+
+// Admin User Schema (created by super admin)
+const adminUserSchema = new mongoose.Schema({
+  email: { type: String, unique: true, required: true, immutable: true },
+  username: { type: String, unique: true, required: true, immutable: true },
+  password: { type: String, required: true },
+  name: { type: String, required: true },
+  role: { type: String, enum: ['admin'], default: 'admin' },
+  status: { type: String, enum: ['active', 'suspended', 'deleted'], default: 'active' },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'SuperAdmin', required: true },
+  canModifyCredentials: { type: Boolean, default: false }, // Always false for regular admins
+  lastLoginAt: { type: Date },
+  loginAttempts: { type: Number, default: 0 },
+  lockedUntil: { type: Date },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+const AdminUser = mongoose.model('AdminUser', adminUserSchema);
+
+// System Logs Schema
+const systemLogSchema = new mongoose.Schema({
+  timestamp: { type: Date, default: Date.now, index: true },
+  user: { type: String, required: true },
+  action: { type: String, required: true },
+  ipAddress: { type: String, required: true },
+  type: { 
+    type: String, 
+    enum: ['authentication', 'admin_activity', 'security', 'system', 'database', 'email'],
+    required: true 
+  },
+  severity: { 
+    type: String, 
+    enum: ['low', 'medium', 'high', 'critical'],
+    default: 'low' 
+  },
+  details: { type: String, required: true },
+  metadata: { type: mongoose.Schema.Types.Mixed, default: {} }
+});
+
+const SystemLog = mongoose.model('SystemLog', systemLogSchema);
+
+// Security Events Schema
+const securityEventSchema = new mongoose.Schema({
+  timestamp: { type: Date, default: Date.now, index: true },
+  type: { 
+    type: String, 
+    enum: ['failed_login', 'suspicious_ip', 'brute_force', 'account_locked', 'session_expired'],
+    required: true 
+  },
+  user: { type: String },
+  ipAddress: { type: String, required: true },
+  details: { type: String, required: true },
+  severity: { 
+    type: String, 
+    enum: ['low', 'medium', 'high', 'critical'],
+    default: 'medium' 
+  },
+  resolved: { type: Boolean, default: false },
+  resolvedAt: { type: Date },
+  resolvedBy: { type: String }
+});
+
+const SecurityEvent = mongoose.model('SecurityEvent', securityEventSchema);
+
 // File upload setup
 const upload = multer({ dest: 'uploads/' });
+
+
+
+// JWT Secret - should be in environment variables
+const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
+
+// Rate limiting for authentication
+const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // limit each IP to 5 requests per windowMs
+  message: 'Too many authentication attempts, please try again later',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Authentication middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    req.user = user;
+    next();
+  });
+};
+
+// Super Admin only middleware
+const requireSuperAdmin = (req, res, next) => {
+  if (req.user.role !== 'super_admin') {
+    return res.status(403).json({ error: 'Super admin access required' });
+  }
+  next();
+};
+
+// Admin or Super Admin middleware
+const requireAdmin = (req, res, next) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+};
+
+// Logging utility
+const logSystemActivity = async (user, action, ipAddress, type, severity, details, metadata = {}) => {
+  try {
+    await SystemLog.create({
+      user,
+      action,
+      ipAddress,
+      type,
+      severity,
+      details,
+      metadata
+    });
+  } catch (error) {
+    console.error('Failed to log system activity:', error);
+  }
+};
+
+// Security event logging
+const logSecurityEvent = async (type, ipAddress, details, severity = 'medium', user = null) => {
+  try {
+    await SecurityEvent.create({
+      type,
+      user,
+      ipAddress,
+      details,
+      severity
+    });
+  } catch (error) {
+    console.error('Failed to log security event:', error);
+  }
+};
 
 // Root route handler - API documentation
 app.get('/', (req, res) => {
@@ -166,16 +332,633 @@ app.get('/', (req, res) => {
       deliveryRequests: '/api/delivery-requests',
       recurringRequests: '/api/recurring-requests',
       dashboardMetrics: '/api/dashboard/metrics',
-      testCustomer: '/api/test-customer (POST)',
+
       auth: {
         login: '/api/auth/login (POST)',
-        register: '/api/auth/register (POST)'
+        register: '/api/auth/register (POST)',
+        superAdminSetup: '/api/auth/super-admin-setup (POST)',
+        superAdminLogin: '/api/auth/super-admin-login (POST)'
+      },
+      superAdmin: {
+        dashboard: '/api/super-admin/dashboard (GET)',
+        admins: '/api/super-admin/admins (GET, POST, PUT, DELETE)',
+        logs: '/api/super-admin/logs (GET)',
+        security: '/api/super-admin/security (GET)',
+        system: '/api/super-admin/system (GET, PUT)',
+        audit: '/api/super-admin/audit (GET)'
       },
       notifications: '/api/notifications',
       upload: '/api/upload (POST)'
     },
     documentation: 'Visit /api/health for system status'
   });
+});
+
+// Super Admin Setup Route (one-time use)
+app.post('/api/auth/super-admin-setup', async (req, res) => {
+  try {
+    // Check if super admin already exists
+    const existingSuperAdmin = await SuperAdmin.findOne({ role: 'super_admin' });
+    if (existingSuperAdmin) {
+      return res.status(400).json({ 
+        error: 'Super admin already exists. Setup cannot be performed again.' 
+      });
+    }
+
+    const { email, username, password, name } = req.body;
+
+    // Validate input
+    if (!email || !username || !password || !name) {
+      return res.status(400).json({ 
+        error: 'All fields are required: email, username, password, name' 
+      });
+    }
+
+    // Check if email or username already exists
+    const existingUser = await SuperAdmin.findOne({ 
+      $or: [{ email }, { username }] 
+    });
+    if (existingUser) {
+      return res.status(400).json({ 
+        error: 'Email or username already exists' 
+      });
+    }
+
+    // Hash password
+    const saltRounds = 12;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    // Create super admin
+    const superAdmin = new SuperAdmin({
+      email,
+      username,
+      password: hashedPassword,
+      name,
+      role: 'super_admin',
+      status: 'active',
+      isSetupComplete: true,
+      setupCompletedAt: new Date()
+    });
+
+    await superAdmin.save();
+
+    // Log the setup
+    await logSystemActivity(
+      'system',
+      'Super Admin Setup',
+      req.ip,
+      'system',
+      'high',
+      `Super admin account created: ${email}`,
+      { username, name }
+    );
+
+    res.status(201).json({
+      message: 'Super admin account created successfully',
+      user: {
+        id: superAdmin._id,
+        email: superAdmin.email,
+        username: superAdmin.username,
+        name: superAdmin.name,
+        role: superAdmin.role
+      }
+    });
+
+  } catch (error) {
+    console.error('Super admin setup error:', error);
+    res.status(500).json({ error: 'Failed to create super admin account' });
+  }
+});
+
+// Super Admin Login Route
+app.post('/api/auth/super-admin-login', authRateLimit, async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
+    }
+
+    // Find super admin by username
+    const superAdmin = await SuperAdmin.findOne({ username, role: 'super_admin' });
+    if (!superAdmin) {
+      await logSecurityEvent('failed_login', req.ip, `Failed login attempt for username: ${username}`);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Check if account is locked
+    if (superAdmin.lockedUntil && superAdmin.lockedUntil > new Date()) {
+      return res.status(423).json({ 
+        error: 'Account is locked. Please try again later.',
+        lockedUntil: superAdmin.lockedUntil
+      });
+    }
+
+    // Check if account is suspended
+    if (superAdmin.status !== 'active') {
+      return res.status(423).json({ error: 'Account is suspended' });
+    }
+
+    // Verify password
+    const isValidPassword = await bcrypt.compare(password, superAdmin.password);
+    if (!isValidPassword) {
+      // Increment failed login attempts
+      superAdmin.loginAttempts += 1;
+      
+      // Lock account after 5 failed attempts
+      if (superAdmin.loginAttempts >= 5) {
+        superAdmin.lockedUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+        await logSecurityEvent('account_locked', req.ip, `Account locked due to multiple failed logins: ${username}`, 'high');
+      }
+      
+      await superAdmin.save();
+      await logSecurityEvent('failed_login', req.ip, `Failed login attempt for username: ${username}`);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Reset failed login attempts on successful login
+    superAdmin.loginAttempts = 0;
+    superAdmin.lockedUntil = null;
+    superAdmin.lastLoginAt = new Date();
+    await superAdmin.save();
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { 
+        id: superAdmin._id, 
+        username: superAdmin.username, 
+        role: superAdmin.role,
+        name: superAdmin.name
+      },
+      JWT_SECRET,
+      { expiresIn: '8h' }
+    );
+
+    // Log successful login
+    await logSystemActivity(
+      superAdmin.username,
+      'Login Success',
+      req.ip,
+      'authentication',
+      'low',
+      `Super admin logged in successfully`
+    );
+
+    res.json({
+      message: 'Login successful',
+      token,
+      user: {
+        id: superAdmin._id,
+        username: superAdmin.username,
+        name: superAdmin.name,
+        role: superAdmin.role
+      }
+    });
+
+  } catch (error) {
+    console.error('Super admin login error:', error);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// Super Admin Dashboard API Routes
+
+// Get dashboard metrics
+app.get('/api/super-admin/dashboard', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    // Get admin statistics
+    const totalAdmins = await AdminUser.countDocuments({ status: { $ne: 'deleted' } });
+    const activeAdmins = await AdminUser.countDocuments({ status: 'active' });
+    const suspendedAdmins = await AdminUser.countDocuments({ status: 'suspended' });
+
+    // Get security statistics
+    const failedLogins = await SecurityEvent.countDocuments({ 
+      type: 'failed_login', 
+      timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } // Last 24 hours
+    });
+    
+    const suspiciousActivities = await SecurityEvent.countDocuments({ 
+      type: { $in: ['suspicious_ip', 'brute_force'] },
+      timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+    });
+
+    // Get activity metrics
+    const newAdmins = await AdminUser.countDocuments({ 
+      createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } // Last 7 days
+    });
+
+    const systemLogins = await SystemLog.countDocuments({ 
+      type: 'authentication',
+      timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+    });
+
+    const actionsToday = await SystemLog.countDocuments({ 
+      timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+    });
+
+    // Log the dashboard access
+    await logSystemActivity(
+      req.user.username,
+      'Dashboard Access',
+      req.ip,
+      'admin_activity',
+      'low',
+      'Super admin accessed dashboard'
+    );
+
+    res.json({
+      systemStats: {
+        totalAdmins,
+        activeAdmins,
+        suspendedAdmins,
+        failedLogins,
+        suspiciousActivities,
+        lastSecurityScan: '2h ago' // This would be calculated based on actual security scans
+      },
+      activityMetrics: {
+        newAdmins,
+        systemLogins,
+        actionsToday
+      }
+    });
+
+  } catch (error) {
+    console.error('Dashboard metrics error:', error);
+    res.status(500).json({ error: 'Failed to fetch dashboard metrics' });
+  }
+});
+
+// Admin Management Routes
+
+// Get all admin users
+app.get('/api/super-admin/admins', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const admins = await AdminUser.find({ status: { $ne: 'deleted' } })
+      .select('-password')
+      .sort({ createdAt: -1 });
+
+    res.json(admins);
+
+  } catch (error) {
+    console.error('Get admins error:', error);
+    res.status(500).json({ error: 'Failed to fetch admin users' });
+  }
+});
+
+// Create new admin user
+app.post('/api/super-admin/admins', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { email, username, password, name } = req.body;
+
+    // Validate input
+    if (!email || !username || !password || !name) {
+      return res.status(400).json({ 
+        error: 'All fields are required: email, username, password, name' 
+      });
+    }
+
+    // Check if email or username already exists
+    const existingUser = await AdminUser.findOne({ 
+      $or: [{ email }, { username }] 
+    });
+    if (existingUser) {
+      return res.status(400).json({ 
+        error: 'Email or username already exists' 
+      });
+    }
+
+    // Hash password
+    const saltRounds = 12;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    // Create admin user
+    const adminUser = new AdminUser({
+      email,
+      username,
+      password: hashedPassword,
+      name,
+      role: 'admin',
+      status: 'active',
+      createdBy: req.user.id,
+      canModifyCredentials: false
+    });
+
+    await adminUser.save();
+
+    // Log the admin creation
+    await logSystemActivity(
+      req.user.username,
+      'Create Admin',
+      req.ip,
+      'admin_activity',
+      'medium',
+      `New admin user created: ${email}`,
+      { adminId: adminUser._id, adminUsername: username }
+    );
+
+    // Return admin details (without password)
+    const adminData = adminUser.toObject();
+    delete adminData.password;
+
+    res.status(201).json({
+      message: 'Admin user created successfully',
+      admin: adminData,
+      credentials: {
+        username,
+        password // Return plain password only once for super admin to share
+      }
+    });
+
+  } catch (error) {
+    console.error('Create admin error:', error);
+    res.status(500).json({ error: 'Failed to create admin user' });
+  }
+});
+
+// Update admin user
+app.put('/api/super-admin/admins/:id', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, status, password } = req.body;
+
+    const adminUser = await AdminUser.findById(id);
+    if (!adminUser) {
+      return res.status(404).json({ error: 'Admin user not found' });
+    }
+
+    // Update fields
+    if (name) adminUser.name = name;
+    if (status) adminUser.status = status;
+    if (password) {
+      const saltRounds = 12;
+      adminUser.password = await bcrypt.hash(password, saltRounds);
+    }
+
+    adminUser.updatedAt = new Date();
+    await adminUser.save();
+
+    // Log the update
+    await logSystemActivity(
+      req.user.username,
+      'Update Admin',
+      req.ip,
+      'admin_activity',
+      'medium',
+      `Admin user updated: ${adminUser.email}`,
+      { adminId: id, updatedFields: Object.keys(req.body) }
+    );
+
+    const adminData = adminUser.toObject();
+    delete adminData.password;
+
+    res.json({
+      message: 'Admin user updated successfully',
+      admin: adminData
+    });
+
+  } catch (error) {
+    console.error('Update admin error:', error);
+    res.status(500).json({ error: 'Failed to update admin user' });
+  }
+});
+
+// Delete admin user (soft delete)
+app.delete('/api/super-admin/admins/:id', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const adminUser = await AdminUser.findById(id);
+    if (!adminUser) {
+      return res.status(404).json({ error: 'Admin user not found' });
+    }
+
+    // Soft delete
+    adminUser.status = 'deleted';
+    adminUser.updatedAt = new Date();
+    await adminUser.save();
+
+    // Log the deletion
+    await logSystemActivity(
+      req.user.username,
+      'Delete Admin',
+      req.ip,
+      'admin_activity',
+      'high',
+      `Admin user deleted: ${adminUser.email}`,
+      { adminId: id }
+    );
+
+    res.json({ message: 'Admin user deleted successfully' });
+
+  } catch (error) {
+    console.error('Delete admin error:', error);
+    res.status(500).json({ error: 'Failed to delete admin user' });
+  }
+});
+
+// System Logs Routes
+
+// Get system logs with filtering
+app.get('/api/super-admin/logs', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { 
+      type, 
+      severity, 
+      search, 
+      startDate, 
+      endDate, 
+      page = 1, 
+      limit = 50 
+    } = req.query;
+
+    // Build filter object
+    const filter = {};
+    
+    if (type && type !== 'all') filter.type = type;
+    if (severity && severity !== 'all') filter.severity = severity;
+    
+    if (startDate || endDate) {
+      filter.timestamp = {};
+      if (startDate) filter.timestamp.$gte = new Date(startDate);
+      if (endDate) filter.timestamp.$lte = new Date(endDate);
+    }
+
+    if (search) {
+      filter.$or = [
+        { user: { $regex: search, $options: 'i' } },
+        { action: { $regex: search, $options: 'i' } },
+        { details: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Calculate pagination
+    const skip = (page - 1) * limit;
+    
+    // Get logs with pagination
+    const logs = await SystemLog.find(filter)
+      .sort({ timestamp: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    // Get total count for pagination
+    const totalLogs = await SystemLog.countDocuments(filter);
+
+    res.json({
+      logs,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: totalLogs,
+        pages: Math.ceil(totalLogs / limit)
+      }
+    });
+
+  } catch (error) {
+    console.error('Get logs error:', error);
+    res.status(500).json({ error: 'Failed to fetch system logs' });
+  }
+});
+
+// Export logs (placeholder for future implementation)
+app.post('/api/super-admin/logs/export', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const { type, severity, startDate, endDate } = req.body;
+
+    // Build filter object
+    const filter = {};
+    
+    if (type && type !== 'all') filter.type = type;
+    if (severity && severity !== 'all') filter.severity = severity;
+    
+    if (startDate || endDate) {
+      filter.timestamp = {};
+      if (startDate) filter.timestamp.$gte = new Date(startDate);
+      if (endDate) filter.timestamp.$lte = new Date(endDate);
+    }
+
+    const logs = await SystemLog.find(filter).sort({ timestamp: -1 });
+
+    // Log the export
+    await logSystemActivity(
+      req.user.username,
+      'Export Logs',
+      req.ip,
+      'admin_activity',
+      'low',
+      `Exported ${logs.length} log entries`,
+      { type, severity, startDate, endDate }
+    );
+
+    res.json({
+      message: 'Logs exported successfully',
+      count: logs.length,
+      logs
+    });
+
+  } catch (error) {
+    console.error('Export logs error:', error);
+    res.status(500).json({ error: 'Failed to export logs' });
+  }
+});
+
+// Security Monitoring Routes
+
+// Get security overview
+app.get('/api/super-admin/security', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    // Get security statistics for last 24 hours
+    const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    const failedLogins = await SecurityEvent.countDocuments({ 
+      type: 'failed_login', 
+      timestamp: { $gte: last24Hours } 
+    });
+    
+    const suspiciousIPs = await SecurityEvent.countDocuments({ 
+      type: 'suspicious_ip',
+      timestamp: { $gte: last24Hours }
+    });
+    
+    const bruteForceAttempts = await SecurityEvent.countDocuments({ 
+      type: 'brute_force',
+      timestamp: { $gte: last24Hours }
+    });
+
+    // Get active sessions (this would need session management implementation)
+    const activeSessions = 3; // Placeholder
+
+    // Get locked accounts
+    const lockedAccounts = await AdminUser.countDocuments({ 
+      lockedUntil: { $gt: new Date() } 
+    });
+
+    // Get password expiry (this would need password policy implementation)
+    const passwordExpiry = 2; // Placeholder
+
+    // Get blocked IPs (this would need IP blocking implementation)
+    const blockedIPs = 2; // Placeholder
+    const whitelistedIPs = 5; // Placeholder
+
+    res.json({
+      securityStats: {
+        failedLogins,
+        suspiciousIPs,
+        bruteForceAttempts,
+        activeSessions,
+        lockedAccounts,
+        passwordExpiry,
+        blockedIPs,
+        whitelistedIPs,
+        recentBlocked: 1 // Placeholder
+      }
+    });
+
+  } catch (error) {
+    console.error('Security overview error:', error);
+    res.status(500).json({ error: 'Failed to fetch security overview' });
+  }
+});
+
+// Get active sessions (placeholder)
+app.get('/api/super-admin/security/sessions', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    // This would need actual session management implementation
+    // For now, return placeholder data
+    const activeSessions = [
+      { id: '1', user: 'john_a', ip: '192.168.1.5', location: 'Office', lastActivity: '2 min ago' },
+      { id: '2', user: 'sarah_m', ip: '192.168.1.10', location: 'Office', lastActivity: '15 min ago' },
+      { id: '3', user: 'mike_k', ip: '192.168.1.15', location: 'Remote', lastActivity: '1 hour ago' }
+    ];
+
+    res.json(activeSessions);
+
+  } catch (error) {
+    console.error('Get sessions error:', error);
+    res.status(500).json({ error: 'Failed to fetch active sessions' });
+  }
+});
+
+// Force logout all users (placeholder)
+app.post('/api/super-admin/security/force-logout-all', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    // This would need actual session management implementation
+    // For now, just log the action
+    
+    await logSystemActivity(
+      req.user.username,
+      'Force Logout All',
+      req.ip,
+      'security',
+      'high',
+      'Force logout all users initiated'
+    );
+
+    res.json({ message: 'Force logout initiated for all users' });
+
+  } catch (error) {
+    console.error('Force logout error:', error);
+    res.status(500).json({ error: 'Failed to force logout users' });
+  }
 });
 
 // Auth endpoints
@@ -1367,29 +2150,7 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
   res.json({ url: `/uploads/${req.file.filename}` });
 });
 
-// Test endpoint to verify MongoDB connection
-app.post('/api/test-customer', async (req, res) => {
-  try {
-    console.log('Creating test customer...');
-    const testCustomer = new Customer({
-      name: 'Test Customer ' + Date.now(),
-      phone: '123-456-7890',
-      address: 'Test Address',
-      defaultCans: 1,
-      pricePerCan: 50,
-      notes: 'Test customer created via API',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
 
-    const savedCustomer = await testCustomer.save();
-    console.log('Test customer created:', savedCustomer);
-    res.json({ success: true, customer: savedCustomer });
-  } catch (err) {
-    console.error('Error creating test customer:', err);
-    res.status(500).json({ error: 'Failed to create test customer', details: err.message });
-  }
-});
 
 // Admin backfill endpoint: set integer id on customers and customerIntId on delivery requests
 app.post('/api/admin/backfill-customer-ids', async (req, res) => {
@@ -1474,5 +2235,5 @@ app.get('/api/health', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Backend running on http://localhost:${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/api/health`);
-  console.log(`Test customer: http://localhost:${PORT}/api/test-customer`);
+
 }); 
