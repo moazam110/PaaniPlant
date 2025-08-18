@@ -739,201 +739,240 @@ app.put('/api/delivery-requests/:id', async (req, res) => {
   }
 });
 
-// Dashboard metrics
-app.get('/api/dashboard/metrics', async (req, res) => {
+// Test endpoint to verify PKT date calculation
+app.get('/api/test-pkt-dates', (req, res) => {
   try {
-    const { start, end } = req.query;
-    let timeLabel = 'Today';
-    
-    console.log('📊 Fetching dashboard metrics...');
-    console.log('📅 Query parameters:', { start, end, timeLabel });
-    
-    // Pakistan Timezone (UTC+5) helper function
-    const PKT_OFFSET = 5 * 60; // minutes
-    
-    function getDayBoundsInPKT(dateString) {
-      const date = new Date(dateString);
-      
-      // Start of day in PKT (00:00 PKT)
-      const startOfDay = new Date(Date.UTC(
-        date.getUTCFullYear(),
-        date.getUTCMonth(),
-        date.getUTCDate(),
-        0 - PKT_OFFSET / 60, 0, 0, 0
-      ));
-      
-      // End of day in PKT (23:59:59.999 PKT)
-      const endOfDay = new Date(Date.UTC(
-        date.getUTCFullYear(),
-        date.getUTCMonth(),
-        date.getUTCDate(),
-        23 - PKT_OFFSET / 60, 59, 59, 999
-      ));
-      
-      return { startOfDay, endOfDay };
-    }
-    
-    // First, get ALL delivery requests to see what's available
-    const allDeliveryRequests = await DeliveryRequest.find();
-    console.log('📊 Total delivery requests in database:', allDeliveryRequests.length);
-    
-    // Show sample data for debugging
-    if (allDeliveryRequests.length > 0) {
-      console.log('📋 Sample delivery request:', {
-        id: allDeliveryRequests[0]._id,
-        createdAt: allDeliveryRequests[0].createdAt,
-        numberOfCans: allDeliveryRequests[0].numberOfCans,
-        amount: allDeliveryRequests[0].amount,
-        status: allDeliveryRequests[0].status
-      });
-    }
-    
-    let startOfDay, endOfDay;
     const now = new Date();
     
-    if (start && end) {
-      // Both start and end provided
-      startOfDay = new Date(start);
-      endOfDay = new Date(end);
-      console.log('📅 Using provided start and end dates');
-    } else if (start) {
-      // Only start provided - smart date parsing
-      const startStr = start.toString();
-      console.log('📅 Smart parsing start date:', startStr);
+    // Helper function to create PKT date boundaries
+    const createPKTDateBoundaries = (year, month, day) => {
+      // For PKT (UTC+05:00), we need to create UTC boundaries that represent
+      // the PKT business day from 00:00:00 to 23:59:59
       
-      if (startStr.length === 4) {
-        // Year only (e.g., "2025")
-        startOfDay = new Date(parseInt(startStr), 0, 1); // January 1st
-        endOfDay = new Date(parseInt(startStr), 11, 31, 23, 59, 59, 999); // December 31st
-        timeLabel = `Year ${startStr}`;
-        console.log('📅 Parsed as year:', timeLabel);
-      } else if (startStr.length === 7 && startStr.includes('-')) {
-        // Month + Year (e.g., "2025-08")
-        const [year, month] = startStr.split('-');
-        startOfDay = new Date(parseInt(year), parseInt(month) - 1, 1); // 1st of month
-        endOfDay = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59, 999); // Last day of month
-        timeLabel = `${new Date(parseInt(year), parseInt(month) - 1).toLocaleString('default', { month: 'long' })} ${year}`;
-        console.log('📅 Parsed as month + year:', timeLabel);
-      } else if (startStr.length === 10 && startStr.includes('-')) {
-        // Date + Month + Year (e.g., "2025-08-18") - Use PKT
-        const { startOfDay: startPKT, endOfDay: endPKT } = getDayBoundsInPKT(startStr);
-        startOfDay = startPKT;
-        endOfDay = endPKT;
-        timeLabel = `${startStr} (PKT)`;
-        console.log('📅 Parsed as specific date with PKT:', timeLabel);
-      } else {
-        // Fallback to single date - Use PKT
-        const { startOfDay: startPKT, endOfDay: endPKT } = getDayBoundsInPKT(start);
-        startOfDay = startPKT;
-        endOfDay = endPKT;
-        timeLabel = `${start} (PKT)`;
-        console.log('📅 Parsed as single date with PKT:', timeLabel);
+      // PKT 00:00:00 = UTC 19:00:00 (previous day)
+      const startUTC = new Date(Date.UTC(year, month - 1, day - 1, 19, 0, 0, 0));
+      
+      // PKT 23:59:59 = UTC 18:59:59 (same day)
+      const endUTC = new Date(Date.UTC(year, month - 1, day, 18, 59, 59, 999));
+      
+      return { startUTC, endUTC };
+    };
+    
+    // Get current PKT time
+    const pktOffset = 5 * 60 * 60 * 1000; // 5 hours in milliseconds
+    const pktNow = new Date(now.getTime() + pktOffset);
+    
+    // Get PKT date components
+    const pktYear = pktNow.getUTCFullYear();
+    const pktMonth = pktNow.getUTCMonth() + 1;
+    const pktDay = pktNow.getUTCDate();
+    
+    // Create boundaries for today in PKT
+    const boundaries = createPKTDateBoundaries(pktYear, pktMonth, pktDay);
+    
+    const testData = {
+      currentUTC: now.toISOString(),
+      currentPKT: pktNow.toISOString(),
+      pktDate: `${pktYear}-${pktMonth.toString().padStart(2, '0')}-${pktDay.toString().padStart(2, '0')}`,
+      pktBoundaries: {
+        start: boundaries.startUTC.toISOString(),
+        end: boundaries.endUTC.toISOString(),
+        startPKT: boundaries.startUTC.toLocaleString('en-US', { timeZone: 'Asia/Karachi' }),
+        endPKT: boundaries.endUTC.toLocaleString('en-US', { timeZone: 'Asia/Karachi' })
+      },
+      explanation: {
+        pktStart: `PKT ${pktYear}-${pktMonth}-${pktDay} 00:00:00`,
+        pktEnd: `PKT ${pktYear}-${pktMonth}-${pktDay} 23:59:59`,
+        utcStart: `UTC ${boundaries.startUTC.toISOString()}`,
+        utcEnd: `UTC ${boundaries.endUTC.toISOString()}`
       }
-    } else {
-      // Default to today - automatically use current date in PKT
-      const today = new Date();
-      const { startOfDay: startPKT, endOfDay: endPKT } = getDayBoundsInPKT(today.toISOString().split('T')[0]);
-      startOfDay = startPKT;
-      endOfDay = endPKT;
-      timeLabel = `Today (${today.toLocaleDateString()}) - PKT`;
-      console.log('📅 Using default: today in PKT -', timeLabel);
-      console.log('📅 PKT Date range: 00:00 PKT to 23:59:59 PKT');
+    };
+    
+    res.json(testData);
+  } catch (err) {
+    res.status(500).json({ error: 'Test failed', details: err.message });
+  }
+});
+
+// Dashboard metrics endpoint
+app.get('/api/dashboard/metrics', async (req, res) => {
+  try {
+    const now = new Date();
+    const { day, month, year } = req.query;
+    
+    let startOfDay, endOfDay, timeLabel;
+    
+    // Helper function to create PKT date boundaries
+    const createPKTDateBoundaries = (year, month, day) => {
+      // For PKT (UTC+05:00), we need to create UTC boundaries that represent
+      // the PKT business day from 00:00:00 to 23:59:59
+      
+      // PKT 00:00:00 = UTC 19:00:00 (previous day)
+      const startUTC = new Date(Date.UTC(year, month - 1, day - 1, 19, 0, 0, 0));
+      
+      // PKT 23:59:59 = UTC 18:59:59 (same day)
+      const endUTC = new Date(Date.UTC(year, month - 1, day, 18, 59, 59, 999));
+      
+      return { startUTC, endUTC };
+    };
+    
+    if (day && month && year) {
+      // Specific date selected
+      const dayNum = parseInt(day);
+      const monthNum = parseInt(month);
+      const yearNum = parseInt(year);
+      
+      if (!isNaN(dayNum) && !isNaN(monthNum) && !isNaN(yearNum)) {
+        // Create PKT date boundaries
+        const boundaries = createPKTDateBoundaries(yearNum, monthNum, dayNum);
+        startOfDay = boundaries.startUTC;
+        endOfDay = boundaries.endUTC;
+        timeLabel = `${dayNum}/${monthNum}/${yearNum}`;
+      }
+    } else if (month && year) {
+      // Month view selected
+      const monthNum = parseInt(month);
+      const yearNum = parseInt(year);
+      
+      if (!isNaN(monthNum) && !isNaN(yearNum)) {
+        const boundaries = createPKTDateBoundaries(yearNum, monthNum, 1);
+        startOfDay = boundaries.startUTC;
+        
+        // Last day of month
+        const lastDay = new Date(yearNum, monthNum, 0).getDate();
+        const endBoundaries = createPKTDateBoundaries(yearNum, monthNum, lastDay);
+        endOfDay = endBoundaries.endUTC;
+        
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        timeLabel = `${monthNames[monthNum - 1]} ${yearNum}`;
+      }
+    } else if (year) {
+      // Year view selected
+      const yearNum = parseInt(year);
+      
+      if (!isNaN(yearNum)) {
+        const boundaries = createPKTDateBoundaries(yearNum, 1, 1);
+        startOfDay = boundaries.startUTC;
+        
+        const endBoundaries = createPKTDateBoundaries(yearNum, 12, 31);
+        endOfDay = endBoundaries.endUTC;
+        
+        timeLabel = `${yearNum}`;
+      }
+    }
+    
+    // Default to today in PKT if no specific date provided
+    if (!startOfDay || !endOfDay) {
+      // Get current UTC time
+      const utcNow = new Date();
+      
+      // Calculate current PKT time (UTC+05:00)
+      const pktOffset = 5 * 60 * 60 * 1000; // 5 hours in milliseconds
+      const pktNow = new Date(utcNow.getTime() + pktOffset);
+      
+      // Get PKT date components
+      const pktYear = pktNow.getUTCFullYear();
+      const pktMonth = pktNow.getUTCMonth() + 1;
+      const pktDay = pktNow.getUTCDate();
+      
+      // Create boundaries for today in PKT
+      const boundaries = createPKTDateBoundaries(pktYear, pktMonth, pktDay);
+      startOfDay = boundaries.startUTC;
+      endOfDay = boundaries.endUTC;
+      timeLabel = 'Today';
     }
 
     console.log(`📅 Dashboard metrics for: ${timeLabel}`);
     console.log(`📅 Date range: ${startOfDay.toISOString()} to ${endOfDay.toISOString()}`);
-    console.log(`📅 PKT Date range: ${startOfDay.toLocaleString('en-US', { timeZone: 'Asia/Karachi' })} to ${endOfDay.toLocaleString('en-US', { timeZone: 'Asia/Karachi' })}`);
+    console.log(`📅 PKT Time: ${startOfDay.toLocaleString('en-US', { timeZone: 'Asia/Karachi' })} to ${endOfDay.toLocaleString('en-US', { timeZone: 'Asia/Karachi' })}`);
     console.log(`📅 Current UTC: ${now.toISOString()}`);
-    console.log(`📅 Current PKT: ${now.toLocaleString('en-US', { timeZone: 'Asia/Karachi' })}`);
 
-    // Use MongoDB aggregation pipeline for better performance and accuracy
-    const match = {
-      createdAt: { $gte: startOfDay, $lte: endOfDay }
-    };
+    // Get all delivery requests (excluding cancelled ones from all counts)
+    const allRequests = await DeliveryRequest.find({ status: { $ne: 'cancelled' } });
+    
+    // Get deliveries for the selected period (excluding cancelled)
+    const periodDeliveries = await DeliveryRequest.find({
+      status: 'delivered',
+      $or: [
+        { deliveredAt: { $gte: startOfDay, $lte: endOfDay } },
+        { completedAt: { $gte: startOfDay, $lte: endOfDay } }
+      ]
+    });
 
-    console.log('🔍 MongoDB match query:', JSON.stringify(match, null, 2));
+    // Get pending requests (excluding cancelled) - always current
+    const pendingRequests = await DeliveryRequest.find({
+      status: { $in: ['pending', 'pending_confirmation'] }
+    });
 
-    const pipeline = [
-      { $match: match },
-      {
-        $group: {
-          _id: null,
-          deliveries: { $sum: 1 },
-          totalCans: { $sum: '$numberOfCans' },
-          totalAmount: { $sum: '$amount' },
-          cashAmount: { $sum: { $cond: [{ $eq: ['$paymentMethod', 'cash'] }, '$amount', 0] } },
-          accountAmount: { $sum: { $cond: [{ $eq: ['$paymentMethod', 'account'] }, '$amount', 0] } }
-        }
+    // Get processing requests (excluding cancelled) - always current
+    const processingRequests = await DeliveryRequest.find({
+      status: 'processing'
+    });
+
+    // Get urgent requests (excluding cancelled) - always current
+    const urgentRequests = await DeliveryRequest.find({
+      priority: 'urgent',
+      status: { $in: ['pending', 'pending_confirmation', 'processing'] }
+    });
+
+    // Calculate total cans delivered for the period (excluding cancelled)
+    const totalCansForPeriod = periodDeliveries.reduce((sum, req) => sum + (req.cans || 0), 0);
+
+    // Calculate total generated amount and cash amount for the period (excluding cancelled)
+    let totalAmountGenerated = 0;
+    let totalCashAmountGenerated = 0;
+    let cashDeliveries = 0;
+    let accountDeliveries = 0;
+
+    for (const delivery of periodDeliveries) {
+      // Get unit price from delivery request or customer
+      const unitPrice = delivery.pricePerCan || 0;
+      const payType = delivery.paymentType || 'cash';
+      const amount = delivery.cans * unitPrice;
+      
+      totalAmountGenerated += amount;
+      
+      if (payType === 'cash') {
+        totalCashAmountGenerated += amount;
+        cashDeliveries++;
+      } else if (payType === 'account') {
+        accountDeliveries++;
       }
-    ];
+    }
 
-    console.log('🔍 Aggregation pipeline:', JSON.stringify(pipeline, null, 2));
+    // Get total customers
+    const totalCustomers = await Customer.countDocuments();
 
-    const results = await DeliveryRequest.aggregate(pipeline);
-    console.log('🔍 Aggregation results:', results);
-
-    // Extract metrics from aggregation results
-    const metrics = results[0] || {
-      deliveries: 0,
-      totalCans: 0,
-      totalAmount: 0,
-      cashAmount: 0,
-      accountAmount: 0
+    const metrics = {
+      totalCustomers,
+      pendingRequests: pendingRequests.length,
+      processingRequests: processingRequests.length,
+      urgentRequests: urgentRequests.length,
+      deliveries: periodDeliveries.length,
+      totalCans: totalCansForPeriod,
+      totalAmountGenerated,
+      totalCashAmountGenerated,
+      cashDeliveries,
+      accountDeliveries,
+      timeLabel,
+      startDate: startOfDay.toISOString(),
+      endDate: endOfDay.toISOString(),
+      timestamp: now.toISOString()
     };
 
-    console.log('📊 Aggregated metrics:', metrics);
-
-    // Also get individual records for debugging
-    const deliveryRequests = await DeliveryRequest.find(match).limit(5);
-    console.log(`📊 Individual delivery requests found in date range:`, deliveryRequests.length);
-    
-    // Debug: Show sample records
-    if (deliveryRequests.length > 0) {
-      console.log('📋 Sample delivery request in range:', {
-        id: deliveryRequests[0]._id,
-        createdAt: deliveryRequests[0].createdAt,
-        numberOfCans: deliveryRequests[0].numberOfCans,
-        amount: deliveryRequests[0].amount,
-        paymentMethod: deliveryRequests[0].paymentMethod
-      });
-    }
-    
-    // Check recent records from database for comparison
-    if (allDeliveryRequests.length > 0) {
-      const recentRequests = allDeliveryRequests.slice(0, 3);
-      console.log('📋 Recent delivery requests in database:', recentRequests.map(req => ({
-        id: req._id,
-        createdAt: req.createdAt,
-        numberOfCans: req.numberOfCans,
-        amount: req.amount,
-        paymentMethod: req.paymentMethod
-      })));
-    }
-
-    const finalMetrics = {
-      success: true,
+    console.log(`📊 Metrics calculated:`, {
       deliveries: metrics.deliveries,
       totalCans: metrics.totalCans,
-      totalAmount: metrics.totalAmount,
-      cashAmount: metrics.cashAmount,
-      accountAmount: metrics.accountAmount,
-      timeLabel,
-      periodDeliveriesCount: metrics.deliveries,
-      totalInDatabase: allDeliveryRequests.length,
-      dateRange: { start: startOfDay, end: endOfDay },
-      message: 'Dashboard metrics fetched successfully'
-    };
-
-    console.log(`📊 Final metrics calculated:`, finalMetrics);
-
-    res.json(finalMetrics);
-  } catch (error) {
-    console.error('❌ Error fetching dashboard metrics:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Failed to fetch metrics',
-      details: error.message 
+      totalAmount: metrics.totalAmountGenerated,
+      cashAmount: metrics.totalCashAmountGenerated,
+      timeLabel: metrics.timeLabel,
+      periodDeliveriesCount: periodDeliveries.length
     });
+
+    res.json(metrics);
+  } catch (err) {
+    console.error('Error fetching dashboard metrics:', err);
+    res.status(500).json({ error: 'Failed to fetch dashboard metrics', details: err.message });
   }
 });
 
