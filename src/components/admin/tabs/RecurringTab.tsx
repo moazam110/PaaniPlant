@@ -354,8 +354,27 @@ export default function RecurringTab() {
           fetch(buildApiUrl(API_ENDPOINTS.RECURRING_REQUESTS)),
         ]);
         if (custRes.ok) {
-          const c = await custRes.json();
-          if (isActive) setAllCustomers(c);
+          const responseData = await custRes.json();
+          console.log('RecurringTab: Raw customers API response:', responseData);
+          
+          // Handle different response formats
+          let customers: Customer[];
+          if (Array.isArray(responseData)) {
+            // Direct array response
+            customers = responseData;
+          } else if (responseData && Array.isArray(responseData.data)) {
+            // Object with data property containing array
+            customers = responseData.data;
+          } else if (responseData && responseData.customers && Array.isArray(responseData.customers)) {
+            // Object with customers property containing array
+            customers = responseData.customers;
+          } else {
+            console.error('❌ RecurringTab: Unexpected customers data format:', responseData);
+            customers = [];
+          }
+          
+          console.log('RecurringTab: Parsed customers data:', customers.length);
+          if (isActive) setAllCustomers(customers);
         }
         if (recRes.ok) {
           const r = (await recRes.json()) as RecurringRequest[];

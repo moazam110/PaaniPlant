@@ -57,16 +57,29 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
-      const data: Customer[] = await response.json();
-      console.log('Fetched customers:', data.length);
+      const responseData = await response.json();
+      console.log('Raw API response:', responseData);
       
-      // Validate data structure
-      if (!Array.isArray(data)) {
-        console.error('❌ CustomerList: API returned non-array data:', data);
+      // Handle different response formats
+      let data: Customer[];
+      if (Array.isArray(responseData)) {
+        // Direct array response
+        data = responseData;
+      } else if (responseData && Array.isArray(responseData.data)) {
+        // Object with data property containing array
+        data = responseData.data;
+      } else if (responseData && responseData.customers && Array.isArray(responseData.customers)) {
+        // Object with customers property containing array
+        data = responseData.customers;
+      } else {
+        // Unknown format
+        console.error('❌ CustomerList: API returned unexpected data format:', responseData);
         setAllCustomers([]);
         setError('Invalid data format received from server.');
         return;
       }
+      
+      console.log('Parsed customers data:', data.length);
       
       // Ensure descending order by id (fallback createdAt) with error handling
       const sorted = [...data].sort((a, b) => {
@@ -89,11 +102,15 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
 
       // Fetch aggregated cans for current activeFilter
       await fetchAndBuildCansMap(activeFilter.start, activeFilter.end);
-    } catch (err) {
-      console.error('Error fetching customers:', err);
-      setError('Failed to fetch customers.');
-      setAllCustomers([]);
-    } finally {
+          } catch (err) {
+        console.error('❌ CustomerList: Error fetching customers:', err);
+        console.error('❌ CustomerList: Error details:', {
+          message: err instanceof Error ? err.message : 'Unknown error',
+          stack: err instanceof Error ? err.stack : undefined
+        });
+        setError('Failed to fetch customers.');
+        setAllCustomers([]);
+      } finally {
       setIsLoading(false);
     }
   };
