@@ -742,7 +742,8 @@ app.put('/api/delivery-requests/:id', async (req, res) => {
 // Dashboard metrics
 app.get('/api/dashboard/metrics', async (req, res) => {
   try {
-    const { start, end, timeLabel = 'Today' } = req.query;
+    const { start, end } = req.query;
+    let timeLabel = 'Today';
     
     console.log('📊 Fetching dashboard metrics...');
     console.log('📅 Query parameters:', { start, end, timeLabel });
@@ -802,10 +803,12 @@ app.get('/api/dashboard/metrics', async (req, res) => {
         console.log('📅 Parsed as single date:', timeLabel);
       }
     } else {
-      // Default to today
-      startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      // Default to today - automatically use current date
+      const today = new Date();
+      startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
       endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000 - 1);
-      console.log('📅 Using default: today');
+      timeLabel = `Today (${today.toLocaleDateString()})`;
+      console.log('📅 Using default: today -', timeLabel);
     }
 
     console.log(`📅 Dashboard metrics for: ${timeLabel}`);
@@ -813,11 +816,34 @@ app.get('/api/dashboard/metrics', async (req, res) => {
     console.log(`📅 Current UTC: ${now.toISOString()}`);
 
     // Get delivery requests for the period
+    console.log(`🔍 Searching for delivery requests between: ${startOfDay.toISOString()} and ${endOfDay.toISOString()}`);
+    
     const deliveryRequests = await DeliveryRequest.find({
       createdAt: { $gte: startOfDay, $lte: endOfDay }
     });
     
     console.log(`📊 Delivery requests found in date range:`, deliveryRequests.length);
+    
+    // Debug: Show a few sample records to understand the data structure
+    if (deliveryRequests.length > 0) {
+      console.log('📋 Sample delivery request in range:', {
+        id: deliveryRequests[0]._id,
+        createdAt: deliveryRequests[0].createdAt,
+        numberOfCans: deliveryRequests[0].numberOfCans,
+        amount: deliveryRequests[0].amount
+      });
+    }
+    
+    // Also check if there are any delivery requests at all and their dates
+    if (allDeliveryRequests.length > 0) {
+      const recentRequests = allDeliveryRequests.slice(0, 3);
+      console.log('📋 Recent delivery requests in database:', recentRequests.map(req => ({
+        id: req._id,
+        createdAt: req.createdAt,
+        numberOfCans: req.numberOfCans,
+        amount: req.amount
+      })));
+    }
 
     const deliveries = deliveryRequests.length;
     const totalCans = deliveryRequests.reduce((sum, req) => sum + (req.numberOfCans || 0), 0);
