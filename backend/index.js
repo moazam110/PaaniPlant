@@ -744,50 +744,111 @@ app.get('/api/dashboard/metrics', async (req, res) => {
   try {
     const { start, end, timeLabel = 'Today' } = req.query;
     
+    console.log('📊 Fetching dashboard metrics...');
+    console.log('📅 Query parameters:', { start, end, timeLabel });
+    
+    // First, get ALL delivery requests to see what's available
+    const allDeliveryRequests = await DeliveryRequest.find();
+    console.log('📊 Total delivery requests in database:', allDeliveryRequests.length);
+    
+    // Show sample data for debugging
+    if (allDeliveryRequests.length > 0) {
+      console.log('📋 Sample delivery request:', {
+        id: allDeliveryRequests[0]._id,
+        createdAt: allDeliveryRequests[0].createdAt,
+        numberOfCans: allDeliveryRequests[0].numberOfCans,
+        amount: allDeliveryRequests[0].amount,
+        status: allDeliveryRequests[0].status
+      });
+    }
+    
     let startOfDay, endOfDay;
     const now = new Date();
     
     if (start && end) {
+      // Both start and end provided
       startOfDay = new Date(start);
       endOfDay = new Date(end);
+      console.log('📅 Using provided start and end dates');
+    } else if (start) {
+      // Only start provided - smart date parsing
+      const startStr = start.toString();
+      console.log('📅 Smart parsing start date:', startStr);
+      
+      if (startStr.length === 4) {
+        // Year only (e.g., "2025")
+        startOfDay = new Date(parseInt(startStr), 0, 1); // January 1st
+        endOfDay = new Date(parseInt(startStr), 11, 31, 23, 59, 59, 999); // December 31st
+        timeLabel = `Year ${startStr}`;
+        console.log('📅 Parsed as year:', timeLabel);
+      } else if (startStr.length === 7 && startStr.includes('-')) {
+        // Month + Year (e.g., "2025-08")
+        const [year, month] = startStr.split('-');
+        startOfDay = new Date(parseInt(year), parseInt(month) - 1, 1); // 1st of month
+        endOfDay = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59, 999); // Last day of month
+        timeLabel = `${new Date(parseInt(year), parseInt(month) - 1).toLocaleString('default', { month: 'long' })} ${year}`;
+        console.log('📅 Parsed as month + year:', timeLabel);
+      } else if (startStr.length === 10 && startStr.includes('-')) {
+        // Date + Month + Year (e.g., "2025-08-18")
+        startOfDay = new Date(startStr);
+        endOfDay = new Date(startStr + 'T23:59:59.999Z');
+        timeLabel = startOfDay.toLocaleDateString();
+        console.log('📅 Parsed as specific date:', timeLabel);
       } else {
+        // Fallback to single date
+        startOfDay = new Date(start);
+        endOfDay = new Date(start + 'T23:59:59.999Z');
+        timeLabel = startOfDay.toLocaleDateString();
+        console.log('📅 Parsed as single date:', timeLabel);
+      }
+    } else {
       // Default to today
       startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000 - 1);
+      console.log('📅 Using default: today');
     }
 
     console.log(`📅 Dashboard metrics for: ${timeLabel}`);
     console.log(`📅 Date range: ${startOfDay.toISOString()} to ${endOfDay.toISOString()}`);
-    console.log(`📅 PKT Time: ${startOfDay.toLocaleString('en-US', { timeZone: 'Asia/Karachi' })} to ${endOfDay.toLocaleString('en-US', { timeZone: 'Asia/Karachi' })}`);
     console.log(`📅 Current UTC: ${now.toISOString()}`);
 
     // Get delivery requests for the period
     const deliveryRequests = await DeliveryRequest.find({
       createdAt: { $gte: startOfDay, $lte: endOfDay }
     });
+    
+    console.log(`📊 Delivery requests found in date range:`, deliveryRequests.length);
 
     const deliveries = deliveryRequests.length;
-    const totalCans = deliveryRequests.reduce((sum, req) => sum + req.numberOfCans, 0);
-    const totalAmount = deliveryRequests.reduce((sum, req) => sum + req.amount, 0);
+    const totalCans = deliveryRequests.reduce((sum, req) => sum + (req.numberOfCans || 0), 0);
+    const totalAmount = deliveryRequests.reduce((sum, req) => sum + (req.amount || 0), 0);
     const cashAmount = deliveryRequests
       .filter(req => req.paymentMethod === 'cash')
-      .reduce((sum, req) => sum + req.amount, 0);
+      .reduce((sum, req) => sum + (req.amount || 0), 0);
 
     const metrics = {
+      success: true,
       deliveries,
       totalCans,
       totalAmount,
       cashAmount,
       timeLabel,
-      periodDeliveriesCount: deliveries
+      periodDeliveriesCount: deliveries,
+      totalInDatabase: allDeliveryRequests.length,
+      dateRange: { start: startOfDay, end: endOfDay },
+      message: 'Dashboard metrics fetched successfully'
     };
 
-    console.log(`📊 Metrics calculated:`, metrics);
+    console.log(`📊 Final metrics calculated:`, metrics);
 
     res.json(metrics);
   } catch (error) {
-    console.error('Error fetching dashboard metrics:', error);
-    res.status(500).json({ error: 'Failed to fetch metrics' });
+    console.error('❌ Error fetching dashboard metrics:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch metrics',
+      details: error.message 
+    });
   }
 });
 
