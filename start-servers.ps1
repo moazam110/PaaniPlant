@@ -23,11 +23,11 @@ function Stop-NodeProcesses {
 }
 
 # Check if ports are in use and kill processes if needed
-$backendRunning = Test-Port -Port 4000
+$backendRunning = Test-Port -Port 5000
 $frontendRunning = Test-Port -Port 9002
 
 if ($backendRunning -or $frontendRunning) {
-    Write-Host "⚠️  Ports 4000 or 9002 are in use. Cleaning up..." -ForegroundColor Yellow
+    Write-Host "⚠️  Ports 5000 or 9002 are in use. Cleaning up..." -ForegroundColor Yellow
     Stop-NodeProcesses
 }
 
@@ -41,7 +41,7 @@ Start-Sleep 5
 # Verify backend is running
 Write-Host "🔍 Checking backend health..." -ForegroundColor Blue
 try {
-    $response = Invoke-RestMethod -Uri "http://localhost:4000/api/health" -Method Get -TimeoutSec 10
+    $response = Invoke-RestMethod -Uri "http://localhost:5000/api/health" -Method Get -TimeoutSec 10
     if ($response.status -eq "OK") {
         Write-Host "✅ Backend is running and healthy!" -ForegroundColor Green
         Write-Host "📊 Database status: $($response.database)" -ForegroundColor Green
@@ -62,13 +62,13 @@ Write-Host "🌟 Startup complete!" -ForegroundColor Green
 Write-Host ""
 Write-Host "🔗 Access your application:" -ForegroundColor White
 Write-Host "   Frontend: http://localhost:9002" -ForegroundColor Cyan
-Write-Host "   Backend:  http://localhost:4000" -ForegroundColor Cyan
-Write-Host "   Health:   http://localhost:4000/api/health" -ForegroundColor Cyan
+Write-Host "   Backend:  http://localhost:5000" -ForegroundColor Cyan
+Write-Host "   Health:   http://localhost:5000/api/health" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "📋 Troubleshooting:" -ForegroundColor White
 Write-Host "   - If you see 'Failed to fetch' errors, run this script again" -ForegroundColor Gray
 Write-Host "   - Check both PowerShell windows for error messages" -ForegroundColor Gray
-Write-Host "   - Visit http://localhost:4000/api/health to verify backend" -ForegroundColor Gray
+Write-Host "   - Visit http://localhost:5000/api/health to verify backend" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Press any key to exit this window..." -ForegroundColor Yellow
 Read-Host 

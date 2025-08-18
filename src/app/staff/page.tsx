@@ -390,7 +390,7 @@ export default function StaffPage() {
               <div>
                 <p className="text-sm font-medium">⚠️ Backend server is not connected</p>
                 <p className="text-xs mt-1">
-                  Make sure the backend is running on port 4000. 
+                  Make sure the backend is running on port 5000. 
                   <a href={buildApiUrl(API_ENDPOINTS.HEALTH)} target="_blank" rel="noopener noreferrer" className="underline ml-1">
                     Test backend health
                   </a>

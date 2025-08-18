@@ -16,7 +16,7 @@ This project no longer uses Firebase. All data and authentication are handled by
    npm install
    npm run dev
    ```
-   The backend will run on [http://localhost:4000](http://localhost:4000)
+   The backend will run on [http://localhost:5000](http://localhost:5000)
 
 3. **Start the frontend:**
    ```bash
@@ -34,8 +34,8 @@ This error occurs when the frontend cannot reach the backend server. Follow thes
 
 #### Step 1: Check if Backend is Running
 ```bash
-# Check if port 4000 is in use
-netstat -ano | findstr ":4000"
+# Check if port 5000 is in use
+netstat -ano | findstr ":5000"
 ```
 - If you see output, backend is running ✅
 - If no output, backend is not running ❌
@@ -49,9 +49,9 @@ npm start
 ```
 
 #### Step 3: Verify Backend Health
-Visit or curl: [http://localhost:4000/api/health](http://localhost:4000/api/health)
+Visit or curl: [http://localhost:5000/api/health](http://localhost:5000/api/health)
 ```bash
-curl http://localhost:4000/api/health
+curl http://localhost:5000/api/health
 ```
 Should return: `{"status":"OK","timestamp":"...","database":"connected"}`
 
@@ -77,7 +77,7 @@ npm run dev
 ### Common Issues & Solutions
 
 1. **Port Conflicts:**
-   - Backend (4000): Kill process with `taskkill /f /im node.exe`
+   - Backend (5000): Kill process with `taskkill /f /im node.exe`
    - Frontend (9002): Kill process with `taskkill /f /im node.exe`
 
 2. **MongoDB Connection Issues:**
@@ -86,7 +86,7 @@ npm run dev
    - Check backend logs for connection errors
 
 3. **CORS Errors:**
-   - Ensure backend is running on port 4000
+   - Ensure backend is running on port 5000
    - Frontend should be on port 9002
    - Check that backend has `cors()` middleware enabled
 

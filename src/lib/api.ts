@@ -13,10 +13,9 @@ const getApiBaseUrl = () => {
     return envUrl;
   }
   
-  // Fallback to localhost for development
+  // For development, use localhost:5000 (current backend port)
   if (process.env.NODE_ENV === 'development') {
-    const port = process.env.NEXT_PUBLIC_BACKEND_PORT || '4000';
-    return `http://localhost:${port}`;
+    return 'http://localhost:5000';
   }
   
   // Throw error if no environment variable is set in production

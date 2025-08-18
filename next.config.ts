@@ -3,6 +3,9 @@ import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
   /* config options here */
+  env: {
+    NEXT_PUBLIC_API_BASE_URL: 'http://72.60.89.107:5000',
+  },
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -29,7 +32,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'https://paani-b.onrender.com/api/:path*',
+        destination: 'http://72.60.89.107:5000/api/:path*',
       },
     ];
   },

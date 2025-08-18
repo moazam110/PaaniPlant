@@ -34,11 +34,11 @@ if (Test-Path "env.example") {
 # Edit these values for your setup
 
 # API Configuration (REQUIRED)
-NEXT_PUBLIC_API_BASE_URL=http://localhost:4000
+NEXT_PUBLIC_API_BASE_URL=http://localhost:5000
 
 # Development Ports (Optional)
 NEXT_PUBLIC_FRONTEND_PORT=9002
-NEXT_PUBLIC_BACKEND_PORT=4000
+NEXT_PUBLIC_BACKEND_PORT=5000
 
 # Feature Flags (Optional)
 NEXT_PUBLIC_ENABLE_DEBUG_LOGGING=false
@@ -59,7 +59,7 @@ if (Test-Path "backend\env.example") {
 # Edit these values for your setup
 
 # Server Configuration
-PORT=4000
+PORT=5000
 NODE_ENV=development
 
 # Database Configuration (REQUIRED)

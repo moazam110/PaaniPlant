@@ -9,17 +9,16 @@ const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 5000;
 
 // CORS configuration
 app.use(cors({
   origin: [
     'https://paani.online', 
-    'http://72.60.89.107:4000',
     'http://72.60.89.107:5000',
     'http://72.60.89.107',
-    'http://localhost:4000',
-    'http://localhost:5000'
+    'http://localhost:5000',
+    'http://localhost:3000'
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
