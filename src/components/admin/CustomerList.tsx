@@ -61,8 +61,8 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
       console.log('Fetched customers:', data.length);
       // Ensure descending order by id (fallback createdAt)
       const sorted = [...data].sort((a, b) => {
-        const aId = (a as any).id ?? 0;
-        const bId = (b as any).id ?? 0;
+        const aId = (a as any).id ?? (a as any)._id ?? 0;
+        const bId = (b as any).id ?? (b as any)._id ?? 0;
         if (aId !== bId) return bId - aId;
         const aTime = a.createdAt ? new Date(a.createdAt as any).getTime() : 0;
         const bTime = b.createdAt ? new Date(b.createdAt as any).getTime() : 0;
@@ -141,21 +141,29 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
   };
 
   const filteredCustomers = useMemo(() => {
+    if (!allCustomers || !Array.isArray(allCustomers)) {
+      return [];
+    }
+    
     if (!searchTerm) {
       return allCustomers;
     }
     
     return allCustomers.filter(customer => {
       return (
-        fuzzyMatch(customer.name, searchTerm) ||
+        fuzzyMatch(customer.name || '', searchTerm) ||
         (customer.phone && fuzzyMatch(customer.phone, searchTerm)) ||
-        fuzzyMatch(customer.address, searchTerm)
+        fuzzyMatch(customer.address || '', searchTerm)
       );
     });
   }, [allCustomers, searchTerm]);
 
   // Apply filters to customers using aggregated cans and optional price
   const filteredAndAggregatedCustomers = useMemo(() => {
+    if (!filteredCustomers || !Array.isArray(filteredCustomers)) {
+      return [];
+    }
+    
     const list = filteredCustomers; // name/phone/address fuzzy filter applied
     const { start, end, cans, cansOp, price, priceOp, ptCash, ptAccount } = activeFilter;
     const cansVal = cans && /^\d{1,6}$/.test(cans) ? Number(cans) : null;

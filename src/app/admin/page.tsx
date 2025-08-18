@@ -32,6 +32,7 @@ import DeliveryTab from '@/components/admin/tabs/DeliveryTab';
 import RecurringTab from '@/components/admin/tabs/RecurringTab';
 import StatsTab from '@/components/admin/tabs/StatsTab';
 import CustomersTab from '@/components/admin/tabs/CustomersTab';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 export default function AdminDashboardPage() {
   const router = useRouter();
@@ -507,31 +508,39 @@ export default function AdminDashboardPage() {
            </div>
          )}
         
-        <TabNavigation activeTab={activeTab} onTabChange={setActiveTab}>
-          <DeliveryTab 
-            deliveryRequests={deliveryRequests}
-            setDeliveryRequests={setDeliveryRequests}
-            onInitiateNewRequest={handleInitiateNewRequest}
-            onEditRequest={handleEditRequest}
-          />
-          <RecurringTab />
-          
-          <StatsTab 
-            totalCustomers={totalCustomers}
-            pendingDeliveries={pendingDeliveries}
-            deliveriesTodayCount={deliveriesTodayCount}
-            totalCansToday={totalCansToday}
-            totalAmountGenerated={totalAmountGenerated}
-            totalCashAmountGenerated={totalCashAmountGenerated}
-            currentTimeLabel={currentTimeLabel}
-          />
-          
-          <CustomersTab 
-            customerListRef={customerListRef}
-            onEditCustomer={handleEditCustomer}
-            onAddNewCustomer={handleAddNewCustomer}
-          />
-        </TabNavigation>
+                 <TabNavigation activeTab={activeTab} onTabChange={setActiveTab}>
+           <ErrorBoundary>
+             <DeliveryTab 
+               deliveryRequests={deliveryRequests}
+               setDeliveryRequests={setDeliveryRequests}
+               onInitiateNewRequest={handleInitiateNewRequest}
+               onEditRequest={handleEditRequest}
+             />
+           </ErrorBoundary>
+           <ErrorBoundary>
+             <RecurringTab />
+           </ErrorBoundary>
+           
+           <ErrorBoundary>
+             <StatsTab 
+               totalCustomers={totalCustomers}
+               pendingDeliveries={pendingDeliveries}
+               deliveriesTodayCount={deliveriesTodayCount}
+               totalCansToday={totalCansToday}
+               totalAmountGenerated={totalAmountGenerated}
+               totalCashAmountGenerated={totalCashAmountGenerated}
+               currentTimeLabel={currentTimeLabel}
+             />
+           </ErrorBoundary>
+           
+           <ErrorBoundary>
+             <CustomersTab 
+               customerListRef={customerListRef}
+               onEditCustomer={handleEditCustomer}
+               onAddNewCustomer={handleAddNewCustomer}
+             />
+           </ErrorBoundary>
+         </TabNavigation>
 
             {/* Dialog for Adding/Editing Customer */}
             <Dialog open={isCustomerFormDialogOpen} onOpenChange={setIsCustomerFormDialogOpen}>

@@ -196,16 +196,23 @@ export default function RecurringTab() {
   }, []);
 
   const customersOptions = useMemo(() => {
+    if (!allCustomers || allCustomers.length === 0) {
+      return [];
+    }
     return allCustomers.map(c => ({
-      value: String((c as any)._id || (c as any).customerId),
-      label: (c as any).id ? `${(c as any).id} - ${c.name}` : c.name,
-      intId: (c as any).id,
-      name: c.name,
-      address: c.address,
+      value: String((c as any)._id || (c as any).customerId || ''),
+      label: (c as any).id ? `${(c as any).id} - ${c.name || 'Unknown'}` : (c.name || 'Unknown'),
+      intId: (c as any).id || 0,
+      name: c.name || 'Unknown',
+      address: c.address || '',
     }));
   }, [allCustomers]);
 
   const filtered = useMemo(() => {
+    if (!recurringRequests || !Array.isArray(recurringRequests)) {
+      return [];
+    }
+    
     const s = search.trim().toLowerCase();
     const allowTypes: RecurringType[] = ([] as RecurringType[]).concat(
       filterType.daily ? ['daily'] : [],
@@ -217,7 +224,7 @@ export default function RecurringTab() {
     const prelim = recurringRequests.filter(r => {
       if (typesActive && !allowTypes.includes(r.type)) return false;
       if (!s) return true;
-      const idName = r.customerIntId ? `${r.customerIntId} - ${r.customerName}` : r.customerName;
+      const idName = r.customerIntId ? `${r.customerIntId} - ${r.customerName || 'Unknown'}` : (r.customerName || 'Unknown');
       return idName.toLowerCase().includes(s);
     });
     if (!addressSortOrder) return prelim;
