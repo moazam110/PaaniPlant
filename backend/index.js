@@ -13,7 +13,14 @@ const PORT = process.env.PORT || 4000;
 
 // CORS configuration
 app.use(cors({
-  origin: ['https://paani.online', 'http://72.60.89.107:4000'],
+  origin: [
+    'https://paani.online', 
+    'http://72.60.89.107:4000',
+    'http://72.60.89.107:5000',
+    'http://72.60.89.107',
+    'http://localhost:4000',
+    'http://localhost:5000'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
 }));
@@ -195,11 +202,27 @@ deliveryRequestSchema.index({ customerId: 1, status: 1 }, { unique: true, partia
 
 // Routes
 app.get('/api/health', (req, res) => {
+  // Check actual database connection status
+  const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+  const dbName = mongoose.connection.db ? mongoose.connection.db.databaseName : 'unknown';
+  
+  res.json({
+    status: dbStatus === 'connected' ? 'OK' : 'ERROR',
+    timestamp: new Date().toISOString(),
+    database: dbStatus,
+    databaseName: dbName,
+    message: 'Paani Delivery System Backend API',
+    version: '1.0.0'
+  });
+});
+
+// Detailed API info endpoint
+app.get('/api/info', (req, res) => {
   res.json({
     message: 'Paani Delivery System Backend API',
     version: '1.0.0',
     status: 'Running',
-    database: 'Connected',
+    database: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected',
     endpoints: {
       health: '/api/health',
       customers: '/api/customers',
