@@ -918,37 +918,80 @@ app.get('/api/dashboard/metrics', async (req, res) => {
     // Only count 'delivered' status as truly completed deliveries
     // Note: 'pending_confirmation' status is excluded from all counts as it represents
     // a transitional state that shouldn't be counted as either pending or completed
-    let periodDeliveries = await DeliveryRequest.find({
-      status: 'delivered', // Only truly completed deliveries
-      $or: [
-        { deliveredAt: { $gte: startOfDay, $lte: endOfDay } },
-        { completedAt: { $gte: startOfDay, $lte: endOfDay } }
-      ]
-    });
+    let periodDeliveries = [];
+    
+    try {
+      periodDeliveries = await DeliveryRequest.find({
+        status: 'delivered', // Only truly completed deliveries
+        $or: [
+          { deliveredAt: { $gte: startOfDay, $lte: endOfDay } },
+          { completedAt: { $gte: startOfDay, $lte: endOfDay } }
+        ]
+      });
+    } catch (error) {
+      console.error('❌ Error fetching completed deliveries:', error);
+      periodDeliveries = [];
+    }
 
     // If no deliveries found with deliveredAt/completedAt, try using createdAt as fallback
     if (periodDeliveries.length === 0) {
       console.log('⚠️ No completed deliveries found with deliveredAt/completedAt, trying createdAt fallback...');
-      periodDeliveries = await DeliveryRequest.find({
-        status: 'delivered', // Only truly completed deliveries
-        createdAt: { $gte: startOfDay, $lte: endOfDay }
-      });
-      console.log(`🔍 Found ${periodDeliveries.length} completed deliveries using createdAt fallback`);
+      try {
+        const fallbackDeliveries = await DeliveryRequest.find({
+          status: 'delivered', // Only truly completed deliveries
+          createdAt: { $gte: startOfDay, $lte: endOfDay }
+        });
+        periodDeliveries = fallbackDeliveries;
+        console.log(`🔍 Found ${periodDeliveries.length} completed deliveries using createdAt fallback`);
+      } catch (error) {
+        console.error('❌ Error in createdAt fallback query:', error);
+      }
     }
 
     // If still no deliveries found, try a broader date range (last 7 days) as final fallback
     if (periodDeliveries.length === 0) {
       console.log('⚠️ Still no completed deliveries found, trying broader date range fallback...');
-      const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
-      periodDeliveries = await DeliveryRequest.find({
-        status: 'delivered', // Only truly completed deliveries
-        $or: [
-          { deliveredAt: { $gte: sevenDaysAgo } },
-          { completedAt: { $gte: sevenDaysAgo } },
-          { createdAt: { $gte: sevenDaysAgo } }
-        ]
+      try {
+        const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+        const broaderFallbackDeliveries = await DeliveryRequest.find({
+          status: 'delivered', // Only truly completed deliveries
+          $or: [
+            { deliveredAt: { $gte: sevenDaysAgo } },
+            { completedAt: { $gte: sevenDaysAgo } },
+            { createdAt: { $gte: sevenDaysAgo } }
+          ]
+        });
+        periodDeliveries = broaderFallbackDeliveries;
+        console.log(`🔍 Found ${periodDeliveries.length} completed deliveries using broader date range fallback`);
+      } catch (error) {
+        console.error('❌ Error in broader date range fallback query:', error);
+      }
+    }
+
+    // Get pending requests (excluding cancelled) - always current
+    // Only count 'pending' status as truly pending (not pending_confirmation)
+    let pendingRequests = [];
+    let processingRequests = [];
+    let urgentRequests = [];
+    
+    try {
+      pendingRequests = await DeliveryRequest.find({
+        status: 'pending' // Only truly pending requests
       });
-      console.log(`🔍 Found ${periodDeliveries.length} completed deliveries using broader date range fallback`);
+
+      // Get processing requests (excluding cancelled) - always current
+      processingRequests = await DeliveryRequest.find({
+        status: 'processing'
+      });
+
+      // Get urgent requests (excluding cancelled) - always current
+      urgentRequests = await DeliveryRequest.find({
+        priority: 'urgent',
+        status: { $in: ['pending', 'processing'] } // Exclude pending_confirmation from urgent
+      });
+    } catch (error) {
+      console.error('❌ Error fetching request statuses:', error);
+      // Continue with empty arrays if there's an error
     }
 
     console.log(`🔍 Found ${periodDeliveries.length} COMPLETED deliveries for period`);
@@ -968,23 +1011,6 @@ app.get('/api/dashboard/metrics', async (req, res) => {
         paymentMethod: periodDeliveries[0].paymentMethod
       });
     }
-
-    // Get pending requests (excluding cancelled) - always current
-    // Only count 'pending' status as truly pending (not pending_confirmation)
-    const pendingRequests = await DeliveryRequest.find({
-      status: 'pending' // Only truly pending requests
-    });
-
-    // Get processing requests (excluding cancelled) - always current
-    const processingRequests = await DeliveryRequest.find({
-      status: 'processing'
-    });
-
-    // Get urgent requests (excluding cancelled) - always current
-    const urgentRequests = await DeliveryRequest.find({
-      priority: 'urgent',
-      status: { $in: ['pending', 'processing'] } // Exclude pending_confirmation from urgent
-    });
 
     // Calculate total cans delivered for the period (excluding cancelled)
     const totalCansForPeriod = periodDeliveries.reduce((sum, req) => sum + (req.numberOfCans || 0), 0);
@@ -1011,7 +1037,12 @@ app.get('/api/dashboard/metrics', async (req, res) => {
     }
 
     // Get total customers
-    const totalCustomers = await Customer.countDocuments();
+    let totalCustomers = 0;
+    try {
+      totalCustomers = await Customer.countDocuments();
+    } catch (error) {
+      console.error('❌ Error counting customers:', error);
+    }
 
     const metrics = {
       totalCustomers,
