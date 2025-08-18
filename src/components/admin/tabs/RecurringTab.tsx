@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -34,79 +34,158 @@ interface RecurringRequest {
 }
 
 // Compute the next run time based on recurrence settings
+// Fixed timezone issues and improved time handling
 const computeNextRun = (payload: { type: RecurringType; days?: number[]; date?: string; time: string; }): string => {
-  const now = new Date();
-  const [h, m] = (payload.time || '09:00').split(':').map(n => parseInt(n || '0', 10));
-  if (payload.type === 'one_time' && payload.date) {
-    // Parse yyyy-mm-dd as local date to preserve selected time exactly
-    const parts = String(payload.date).split('-').map(x => parseInt(x, 10));
-    const year = parts[0];
-    const monthZero = (parts[1] || 1) - 1;
-    const day = parts[2] || 1;
-    const dLocal = new Date(year, monthZero, day, h, m, 0, 0);
-    return dLocal.toISOString();
-  }
-  if (payload.type === 'daily') {
-    const d = new Date();
-    d.setHours(h, m, 0, 0);
-    if (d <= now) d.setDate(d.getDate() + 1);
-    return d.toISOString();
-  }
-  if (payload.type === 'alternating_days') {
-    const d = new Date();
-    d.setHours(h, m, 0, 0);
-    if (d <= now) d.setDate(d.getDate() + 2); // Every other day
-    return d.toISOString();
-  }
-  // weekly
-  const days = (payload.days || []).slice().sort();
-  if (days.length === 0) {
-    const d = new Date(); d.setHours(h, m, 0, 0); if (d <= now) d.setDate(d.getDate() + 7); return d.toISOString();
-  }
-  const today = now.getDay();
-  for (let i = 0; i < 7; i++) {
-    const cand = new Date();
-    cand.setDate(now.getDate() + i);
-    const dow = (today + i) % 7;
-    if (days.includes(dow)) {
-      cand.setHours(h, m, 0, 0);
-      if (cand > now) return cand.toISOString();
+  try {
+    const now = new Date();
+    const [h, m] = (payload.time || '09:00').split(':').map(n => parseInt(n || '0', 10));
+    
+    // Validate time values
+    if (isNaN(h) || isNaN(m) || h < 0 || h > 23 || m < 0 || m > 59) {
+      console.warn('Invalid time format, using default 09:00');
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 0, 0, 0).toISOString();
     }
+    
+    if (payload.type === 'one_time' && payload.date) {
+      // Parse yyyy-mm-dd and create date in local timezone
+      const parts = String(payload.date).split('-').map(x => parseInt(x, 10));
+      if (parts.length !== 3 || parts.some(p => isNaN(p))) {
+        console.warn('Invalid date format, using current date');
+        const d = new Date();
+        d.setHours(h, m, 0, 0);
+        return d.toISOString();
+      }
+      
+      const year = parts[0];
+      const monthZero = (parts[1] || 1) - 1;
+      const day = parts[2] || 1;
+      
+      // Create date in local timezone to avoid timezone conversion issues
+      const dLocal = new Date(year, monthZero, day, h, m, 0, 0);
+      
+      // Validate the created date
+      if (isNaN(dLocal.getTime())) {
+        console.warn('Invalid date created, using current date');
+        const d = new Date();
+        d.setHours(h, m, 0, 0);
+        return d.toISOString();
+      }
+      
+      return dLocal.toISOString();
+    }
+    
+    if (payload.type === 'daily') {
+      const d = new Date();
+      d.setHours(h, m, 0, 0);
+      // If the time has already passed today, schedule for tomorrow
+      if (d <= now) {
+        d.setDate(d.getDate() + 1);
+      }
+      return d.toISOString();
+    }
+    
+    if (payload.type === 'alternating_days') {
+      const d = new Date();
+      d.setHours(h, m, 0, 0);
+      // If the time has already passed today, schedule for day after tomorrow
+      if (d <= now) {
+        d.setDate(d.getDate() + 2);
+      }
+      return d.toISOString();
+    }
+    
+    // weekly
+    const days = (payload.days || []).slice().sort();
+    if (days.length === 0) {
+      const d = new Date();
+      d.setHours(h, m, 0, 0);
+      if (d <= now) {
+        d.setDate(d.getDate() + 7);
+      }
+      return d.toISOString();
+    }
+    
+    const today = now.getDay();
+    for (let i = 0; i < 7; i++) {
+      const cand = new Date();
+      cand.setDate(now.getDate() + i);
+      const dow = (today + i) % 7;
+      if (days.includes(dow)) {
+        cand.setHours(h, m, 0, 0);
+        if (cand > now) {
+          return cand.toISOString();
+        }
+      }
+    }
+    
+    // If no suitable day found this week, schedule for next week
+    const cand = new Date();
+    cand.setDate(now.getDate() + 7);
+    cand.setHours(h, m, 0, 0);
+    return cand.toISOString();
+  } catch (error) {
+    console.error('Error in computeNextRun:', error);
+    // Fallback: return current time + 1 hour
+    const fallback = new Date();
+    fallback.setHours(fallback.getHours() + 1);
+    return fallback.toISOString();
   }
-  const cand = new Date(); cand.setDate(now.getDate() + 7); cand.setHours(h, m, 0, 0); return cand.toISOString();
 };
 
 // Ensure time string is always in 24-hour HH:mm format
+// Improved time validation and timezone handling
 const normalizeTime24 = (raw: string): string => {
   try {
     if (!raw) return '09:00';
     const trimmed = String(raw).trim();
-    // Handle AM/PM variants like "1:05 PM"
+    
+    // Handle AM/PM variants like "1:05 PM", "1:05:30 PM"
     const ampm = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i);
     if (ampm) {
       let hh = parseInt(ampm[1] || '0', 10);
       const mm = parseInt(ampm[2] || '0', 10);
       const suffix = (ampm[4] || '').toUpperCase();
+      
+      // Validate hour and minute values
+      if (isNaN(hh) || isNaN(mm) || hh < 1 || hh > 12 || mm < 0 || mm > 59) {
+        console.warn('Invalid AM/PM time format, using default 09:00');
+        return '09:00';
+      }
+      
+      // Convert to 24-hour format
       if (suffix === 'PM' && hh < 12) hh += 12;
       if (suffix === 'AM' && hh === 12) hh = 0;
+      
       const h2 = hh.toString().padStart(2, '0');
       const m2 = mm.toString().padStart(2, '0');
       return `${h2}:${m2}`;
     }
+    
     // Handle HH:mm or HH:mm:ss
     const parts = trimmed.split(':');
     if (parts.length >= 2) {
       let hh = parseInt(parts[0] || '0', 10);
       let mm = parseInt(parts[1] || '0', 10);
-      if (isNaN(hh)) hh = 0; if (isNaN(mm)) mm = 0;
+      
+      // Validate hour and minute values
+      if (isNaN(hh) || isNaN(mm)) {
+        console.warn('Invalid time format, using default 09:00');
+        return '09:00';
+      }
+      
+      // Ensure values are within valid ranges
       hh = Math.max(0, Math.min(23, hh));
       mm = Math.max(0, Math.min(59, mm));
+      
       const h2 = hh.toString().padStart(2, '0');
       const m2 = mm.toString().padStart(2, '0');
       return `${h2}:${m2}`;
     }
+    
+    console.warn('Unrecognized time format, using default 09:00');
     return '09:00';
-  } catch {
+  } catch (error) {
+    console.error('Error normalizing time:', error);
     return '09:00';
   }
 };
@@ -133,6 +212,116 @@ export default function RecurringTab() {
   const [editingId, setEditingId] = useState<string | null>(null);
   // Prevent duplicate client-side triggers within a short window
   const clientTriggerCacheRef = useRef<Map<string, number>>(new Map());
+
+  // Client-side fallback autopilot: create delivery when nextRun is due, then advance nextRun
+  const triggerDueIfNeeded = useCallback(async (list: RecurringRequest[]) => {
+    const now = Date.now();
+    for (const r of list) {
+      if (!r.nextRun) continue;
+      const dueAt = new Date(r.nextRun).getTime();
+      if (isNaN(dueAt)) continue;
+      if (dueAt > now) continue;
+      const key = String(r._id || `${r.customerId}-${r.type}`);
+      const last = clientTriggerCacheRef.current.get(key) || 0;
+      if (now - last < 4 * 60 * 1000) continue; // debounce 4 minutes
+
+      // Mark as attempted early to minimize races
+      clientTriggerCacheRef.current.set(key, now);
+
+      try {
+        // Create delivery request
+        const body = {
+          customerId: r.customerId,
+          customerName: r.customerName,
+          address: r.address,
+          cans: r.cans,
+          orderDetails: '',
+          priority: r.priority || 'normal',
+        } as any;
+        const createRes = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!createRes.ok) {
+          // If server rejected (e.g., active exists), still advance nextRun to avoid piling up
+          // Fall through to advance nextRun
+        }
+
+        // Advance or clear nextRun on the recurring rule
+        if (r._id) {
+          if (r.type === 'one_time') {
+            // Remove one-time after firing
+            await fetch(buildApiUrl(`${API_ENDPOINTS.RECURRING_REQUESTS}/${r._id}`), { method: 'DELETE' });
+            setRecurringRequests(prev => {
+              const next = prev.filter(x => x._id !== r._id);
+              try { localStorage.setItem('paani_recurring_requests', JSON.stringify(next)); } catch {}
+              return next;
+            });
+          } else {
+            // Advance strictly based on previous nextRun to preserve time-of-day
+            const prev = r.nextRun ? new Date(r.nextRun) : null;
+            let nextRun: string = computeNextRun({ type: r.type, days: r.days, date: r.date, time: r.time });
+            if (prev && !isNaN(prev.getTime())) {
+              const hours = prev.getHours();
+              const minutes = prev.getMinutes();
+              if (r.type === 'daily') {
+                const n = new Date(prev); n.setDate(prev.getDate() + 1); n.setHours(hours, minutes, 0, 0); nextRun = n.toISOString();
+              } else if (r.type === 'weekly') {
+                const allowed = Array.isArray(r.days) ? r.days.slice().sort() : [];
+                if (allowed.length === 0) {
+                  const n = new Date(prev); n.setDate(prev.getDate() + 7); n.setHours(hours, minutes, 0, 0); nextRun = n.toISOString();
+                } else {
+                  const prevDow = prev.getDay();
+                  let daysToAdd = 1;
+                  while (daysToAdd <= 7) {
+                    const nextDate = new Date(prev);
+                    nextDate.setDate(prev.getDate() + daysToAdd);
+                    const nextDow = nextDate.getDay();
+                    if (allowed.includes(nextDow)) {
+                      nextDate.setHours(hours, minutes, 0, 0);
+                      nextRun = nextDate.toISOString();
+                      break;
+                    }
+                    daysToAdd++;
+                  }
+                  if (daysToAdd > 7) {
+                    // Fallback: add 7 days and preserve time
+                    const n = new Date(prev); n.setDate(prev.getDate() + 7); n.setHours(hours, minutes, 0, 0); nextRun = n.toISOString();
+                  }
+                }
+              } else if (r.type === 'alternating_days') {
+                const n = new Date(prev); n.setDate(prev.getDate() + 2); n.setHours(hours, minutes, 0, 0); nextRun = n.toISOString();
+              }
+            }
+            // Update the recurring request with new nextRun
+            const updateRes = await fetch(buildApiUrl(`${API_ENDPOINTS.RECURRING_REQUESTS}/${r._id}`), {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...r, nextRun }),
+            });
+            if (updateRes.ok) {
+              const updated = await updateRes.json();
+              setRecurringRequests(prev => {
+                const next = prev.map(x => (x._id === r._id ? updated : x));
+                try { localStorage.setItem('paani_recurring_requests', JSON.stringify(next)); } catch {}
+                return next;
+              });
+            } else {
+              // Offline/local fallback update
+              setRecurringRequests(prev => {
+                const next = prev.map(x => (x._id === r._id ? { ...x, nextRun } : x));
+                try { localStorage.setItem('paani_recurring_requests', JSON.stringify(next)); } catch {}
+                return next;
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Error processing due recurring request:', e);
+      }
+    }
+  }, []); // Empty dependency array since this function doesn't depend on any state
 
   useEffect(() => {
     let isActive = true;
@@ -193,51 +382,118 @@ export default function RecurringTab() {
     // No separate refresh interval - admin dashboard refreshes every 3 seconds
     // Recurring data will be updated through the main admin dashboard refresh system
     return () => { isActive = false; };
-  }, []);
+  }, [triggerDueIfNeeded]);
 
   const customersOptions = useMemo(() => {
-    if (!allCustomers || allCustomers.length === 0) {
+    try {
+      if (!allCustomers || !Array.isArray(allCustomers)) {
+        console.log('⚠️ RecurringTab: allCustomers is not a valid array:', allCustomers);
+        return [];
+      }
+      
+      return allCustomers.map((c, index) => {
+        try {
+          // Ensure c is a valid object
+          if (!c || typeof c !== 'object') {
+            console.warn(`⚠️ RecurringTab: Invalid customer at index ${index}:`, c);
+            return {
+              value: `invalid-${index}`,
+              label: 'Invalid Customer',
+              intId: 0,
+              name: 'Invalid Customer',
+              address: '',
+            };
+          }
+          
+          // Safe property access with fallbacks
+          const customerId = c._id || c.customerId || c.id || `unknown-${index}`;
+          const customerName = c.name || 'Unknown Customer';
+          const customerIntId = typeof c.id === 'number' ? c.id : 0;
+          const customerAddress = c.address || '';
+          
+          return {
+            value: String(customerId),
+            label: customerIntId ? `${customerIntId} - ${customerName}` : customerName,
+            intId: customerIntId,
+            name: customerName,
+            address: customerAddress,
+          };
+        } catch (error) {
+          console.error(`❌ RecurringTab: Error processing customer at index ${index}:`, error, c);
+          return {
+            value: `error-${index}`,
+            label: 'Error Loading Customer',
+            intId: 0,
+            name: 'Error Loading Customer',
+            address: '',
+          };
+        }
+      });
+    } catch (error) {
+      console.error('❌ RecurringTab: Critical error in customersOptions:', error);
       return [];
     }
-    return allCustomers.map(c => ({
-      value: String((c as any)._id || (c as any).customerId || ''),
-      label: (c as any).id ? `${(c as any).id} - ${c.name || 'Unknown'}` : (c.name || 'Unknown'),
-      intId: (c as any).id || 0,
-      name: c.name || 'Unknown',
-      address: c.address || '',
-    }));
   }, [allCustomers]);
 
   const filtered = useMemo(() => {
-    if (!recurringRequests || !Array.isArray(recurringRequests)) {
+    try {
+      if (!recurringRequests || !Array.isArray(recurringRequests)) {
+        console.log('⚠️ RecurringTab: recurringRequests is not a valid array:', recurringRequests);
+        return [];
+      }
+      
+      const s = (search || '').trim().toLowerCase();
+      const allowTypes: RecurringType[] = ([] as RecurringType[]).concat(
+        filterType.daily ? ['daily'] : [],
+        filterType.weekly ? ['weekly'] : [],
+        filterType.one_time ? ['one_time'] : [],
+        filterType.alternating_days ? ['alternating_days'] : [],
+      );
+      const typesActive = allowTypes.length > 0;
+      
+      const prelim = recurringRequests.filter((r, index) => {
+        try {
+          // Ensure r is a valid object
+          if (!r || typeof r !== 'object') {
+            console.warn(`⚠️ RecurringTab: Invalid recurring request at index ${index}:`, r);
+            return false;
+          }
+          
+          if (typesActive && !allowTypes.includes(r.type)) return false;
+          if (!s) return true;
+          
+          const customerIntId = r.customerIntId || 0;
+          const customerName = r.customerName || 'Unknown Customer';
+          const idName = customerIntId ? `${customerIntId} - ${customerName}` : customerName;
+          return idName.toLowerCase().includes(s);
+        } catch (error) {
+          console.error(`❌ RecurringTab: Error filtering recurring request at index ${index}:`, error, r);
+          return false;
+        }
+      });
+      
+      if (!addressSortOrder) return prelim;
+      
+      const dir = addressSortOrder === 'asc' ? 1 : -1;
+      return [...prelim].sort((a, b) => {
+        try {
+          const aAddr = (a.address || '').toString().toLowerCase();
+          const bAddr = (b.address || '').toString().toLowerCase();
+          if (aAddr < bAddr) return -1 * dir;
+          if (aAddr > bAddr) return 1 * dir;
+          
+          const ta = a.nextRun ? new Date(a.nextRun).getTime() : 0;
+          const tb = b.nextRun ? new Date(b.nextRun).getTime() : 0;
+          return ta - tb;
+        } catch (error) {
+          console.error('❌ RecurringTab: Error sorting recurring requests:', error);
+          return 0;
+        }
+      });
+    } catch (error) {
+      console.error('❌ RecurringTab: Critical error in filtered useMemo:', error);
       return [];
     }
-    
-    const s = search.trim().toLowerCase();
-    const allowTypes: RecurringType[] = ([] as RecurringType[]).concat(
-      filterType.daily ? ['daily'] : [],
-      filterType.weekly ? ['weekly'] : [],
-      filterType.one_time ? ['one_time'] : [],
-      filterType.alternating_days ? ['alternating_days'] : [],
-    );
-    const typesActive = allowTypes.length > 0;
-    const prelim = recurringRequests.filter(r => {
-      if (typesActive && !allowTypes.includes(r.type)) return false;
-      if (!s) return true;
-      const idName = r.customerIntId ? `${r.customerIntId} - ${r.customerName || 'Unknown'}` : (r.customerName || 'Unknown');
-      return idName.toLowerCase().includes(s);
-    });
-    if (!addressSortOrder) return prelim;
-    const dir = addressSortOrder === 'asc' ? 1 : -1;
-    return [...prelim].sort((a, b) => {
-      const aAddr = (a.address || '').toLowerCase();
-      const bAddr = (b.address || '').toLowerCase();
-      if (aAddr < bAddr) return -1 * dir;
-      if (aAddr > bAddr) return 1 * dir;
-      const ta = a.nextRun ? new Date(a.nextRun).getTime() : 0;
-      const tb = b.nextRun ? new Date(b.nextRun).getTime() : 0;
-      return ta - tb;
-    });
   }, [recurringRequests, search, filterType, addressSortOrder]);
 
   const resetForm = () => setForm({ customerId: '', type: 'daily', days: [], date: '', time: '09:00', priority: 'normal', cans: 1 });
@@ -371,101 +627,7 @@ export default function RecurringTab() {
     } catch {}
   };
 
-  // Client-side fallback autopilot: create delivery when nextRun is due, then advance nextRun
-  const triggerDueIfNeeded = async (list: RecurringRequest[]) => {
-    const now = Date.now();
-    for (const r of list) {
-      if (!r.nextRun) continue;
-      const dueAt = new Date(r.nextRun).getTime();
-      if (isNaN(dueAt)) continue;
-      if (dueAt > now) continue;
-      const key = String(r._id || `${r.customerId}-${r.type}`);
-      const last = clientTriggerCacheRef.current.get(key) || 0;
-      if (now - last < 4 * 60 * 1000) continue; // debounce 4 minutes
-
-      // Mark as attempted early to minimize races
-      clientTriggerCacheRef.current.set(key, now);
-
-      try {
-        // Create delivery request
-        const body = {
-          customerId: r.customerId,
-          customerName: r.customerName,
-          address: r.address,
-          cans: r.cans,
-          orderDetails: '',
-          priority: r.priority || 'normal',
-        } as any;
-        const createRes = await fetch(buildApiUrl(API_ENDPOINTS.DELIVERY_REQUESTS), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        if (!createRes.ok) {
-          // If server rejected (e.g., active exists), still advance nextRun to avoid piling up
-          // Fall through to advance nextRun
-        }
-
-        // Advance or clear nextRun on the recurring rule
-        if (r._id) {
-          if (r.type === 'one_time') {
-            // Remove one-time after firing
-            await fetch(buildApiUrl(`${API_ENDPOINTS.RECURRING_REQUESTS}/${r._id}`), { method: 'DELETE' });
-            setRecurringRequests(prev => {
-              const next = prev.filter(x => x._id !== r._id);
-              try { localStorage.setItem('paani_recurring_requests', JSON.stringify(next)); } catch {}
-              return next;
-            });
-          } else {
-            // Advance strictly based on previous nextRun to preserve time-of-day
-            const prev = r.nextRun ? new Date(r.nextRun) : null;
-            let nextRun: string = computeNextRun({ type: r.type, days: r.days, date: r.date, time: r.time });
-            if (prev && !isNaN(prev.getTime())) {
-              const hours = prev.getHours();
-              const minutes = prev.getMinutes();
-              if (r.type === 'daily') {
-                const n = new Date(prev); n.setDate(prev.getDate() + 1); n.setHours(hours, minutes, 0, 0); nextRun = n.toISOString();
-              } else if (r.type === 'weekly') {
-                const allowed = Array.isArray(r.days) ? r.days.slice().sort() : [];
-                if (allowed.length === 0) {
-                  const n = new Date(prev); n.setDate(prev.getDate() + 7); n.setHours(hours, minutes, 0, 0); nextRun = n.toISOString();
-                } else {
-                  const prevDow = prev.getDay();
-                  let found: Date | null = null;
-                  for (let i = 1; i <= 7; i++) {
-                    const candDow = (prevDow + i) % 7;
-                    if (allowed.includes(candDow)) {
-                      const n = new Date(prev); n.setDate(prev.getDate() + i); n.setHours(hours, minutes, 0, 0); found = n; break;
-                    }
-                  }
-                  if (found) nextRun = found.toISOString();
-                }
-              } else if (r.type === 'alternating_days') {
-                const n = new Date(prev);
-                n.setDate(prev.getDate() + 2); // Every other day
-                n.setHours(hours, minutes, 0, 0);
-                nextRun = n.toISOString();
-              }
-            }
-            const updRes = await fetch(buildApiUrl(`${API_ENDPOINTS.RECURRING_REQUESTS}/${r._id}`), {
-              method: 'PUT', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ nextRun })
-            });
-            if (updRes.ok) {
-              const updated = await updRes.json();
-              setRecurringRequests(prev => {
-                const next = prev.map(x => x._id === r._id ? updated : x);
-                try { localStorage.setItem('paani_recurring_requests', JSON.stringify(next)); } catch {}
-                return next;
-              });
-            }
-          }
-        }
-      } catch {
-        // ignore errors; will retry on next cycle
-      }
-    }
-  };
+ // Empty dependency array since this function doesn't depend on any state
 
   return (
     <div className="p-3 space-y-3">

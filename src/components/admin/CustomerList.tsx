@@ -59,15 +59,31 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
       
       const data: Customer[] = await response.json();
       console.log('Fetched customers:', data.length);
-      // Ensure descending order by id (fallback createdAt)
+      
+      // Validate data structure
+      if (!Array.isArray(data)) {
+        console.error('❌ CustomerList: API returned non-array data:', data);
+        setAllCustomers([]);
+        setError('Invalid data format received from server.');
+        return;
+      }
+      
+      // Ensure descending order by id (fallback createdAt) with error handling
       const sorted = [...data].sort((a, b) => {
-        const aId = (a as any).id ?? (a as any)._id ?? 0;
-        const bId = (b as any).id ?? (b as any)._id ?? 0;
-        if (aId !== bId) return bId - aId;
-        const aTime = a.createdAt ? new Date(a.createdAt as any).getTime() : 0;
-        const bTime = b.createdAt ? new Date(b.createdAt as any).getTime() : 0;
-        return bTime - aTime;
+        try {
+          const aId = (a as any).id ?? (a as any)._id ?? 0;
+          const bId = (b as any).id ?? (b as any)._id ?? 0;
+          if (aId !== bId) return bId - aId;
+          
+          const aTime = a.createdAt ? new Date(a.createdAt as any).getTime() : 0;
+          const bTime = b.createdAt ? new Date(b.createdAt as any).getTime() : 0;
+          return bTime - aTime;
+        } catch (error) {
+          console.error('❌ CustomerList: Error sorting customers:', error);
+          return 0;
+        }
       });
+      
       setAllCustomers(sorted);
       setError(null);
 
@@ -76,6 +92,7 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
     } catch (err) {
       console.error('Error fetching customers:', err);
       setError('Failed to fetch customers.');
+      setAllCustomers([]);
     } finally {
       setIsLoading(false);
     }
@@ -160,80 +177,103 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
 
   // Apply filters to customers using aggregated cans and optional price
   const filteredAndAggregatedCustomers = useMemo(() => {
-    if (!filteredCustomers || !Array.isArray(filteredCustomers)) {
+    try {
+      if (!filteredCustomers || !Array.isArray(filteredCustomers)) {
+        console.log('⚠️ CustomerList: filteredCustomers is not a valid array:', filteredCustomers);
+        return [];
+      }
+      
+      const list = filteredCustomers; // name/phone/address fuzzy filter applied
+      const { start, end, cans, cansOp, price, priceOp, ptCash, ptAccount } = activeFilter;
+      const cansVal = cans && /^\d{1,6}$/.test(cans) ? Number(cans) : null;
+      const priceVal = price && /^\d{1,3}$/.test(price) ? Number(price) : null;
+      const hasCansFilter = cansVal != null && cansOp;
+      const hasPriceFilter = priceVal != null;
+      const hasPtFilter = ptCash || ptAccount;
+      const hasDateFilter = start || end;
+
+      console.log('Filter state:', { start, end, cans, cansOp, price, priceOp, ptCash, ptAccount });
+      console.log('Filter booleans:', { hasCansFilter, hasPriceFilter, hasPtFilter, hasDateFilter });
+      console.log('Customer cans map size:', Object.keys(customerCansMap).length);
+      console.log('Customer cans map sample:', Object.entries(customerCansMap).slice(0, 3));
+
+      if (!hasDateFilter && !hasCansFilter && !hasPriceFilter && !hasPtFilter && !addressSortOrder) {
+        console.log('No filters active, returning all customers');
+        return list;
+      }
+
+      const filtered = list.filter((c: Customer, index: number) => {
+        try {
+          // Ensure c is a valid object
+          if (!c || typeof c !== 'object') {
+            console.warn(`⚠️ CustomerList: Invalid customer at index ${index}:`, c);
+            return false;
+          }
+          
+          // cans filter based on aggregated map
+          if (hasCansFilter) {
+            const customerId = c._id || (c as any).customerId || '';
+            const total = customerCansMap[customerId] || 0;
+            const op = cansOp || '=';
+            console.log(`Filtering customer ${c.name || 'Unknown'} (ID: ${customerId}): total cans = ${total}, filter = ${op} ${cansVal}`);
+            if (op === '<' && !(total < cansVal!)) {
+              console.log(`  Rejected: ${total} is not < ${cansVal}`);
+              return false;
+            }
+            if (op === '=' && !(total === cansVal!)) {
+              console.log(`  Rejected: ${total} is not = ${cansVal}`);
+              return false;
+            }
+            if (op === '>' && !(total > cansVal!)) {
+              console.log(`  Rejected: ${total} is not > ${cansVal}`);
+              return false;
+            }
+            console.log(`  Accepted: ${total} ${op} ${cansVal}`);
+          }
+          // price filter (per-can price from customer)
+          if (hasPriceFilter) {
+            const p = c.pricePerCan || 0;
+            const op = priceOp || '=';
+            if (op === '<' && !(p < priceVal!)) return false;
+            if (op === '=' && !(p === priceVal!)) return false;
+            if (op === '>' && !(p > priceVal!)) return false;
+          }
+          // payment type filter
+          if (hasPtFilter) {
+            const pt = ((c as any).paymentType || '').toString().toLowerCase();
+            if (ptCash && pt !== 'cash') return false;
+            if (ptAccount && pt !== 'account') return false;
+          }
+          return true;
+        } catch (error) {
+          console.error(`❌ CustomerList: Error filtering customer at index ${index}:`, error, c);
+          return false;
+        }
+      });
+
+      console.log(`Filtered ${list.length} customers down to ${filtered.length}`);
+      if (!addressSortOrder) return filtered;
+      
+      const dir = addressSortOrder === 'asc' ? 1 : -1;
+      return [...filtered].sort((a, b) => {
+        try {
+          const aAddr = (a.address || '').toString().toLowerCase();
+          const bAddr = (b.address || '').toString().toLowerCase();
+          if (aAddr < bAddr) return -1 * dir;
+          if (aAddr > bAddr) return 1 * dir;
+          // tie-breaker by createdAt newest first to keep list stable
+          const ta = a.createdAt ? new Date(a.createdAt as any).getTime() : 0;
+          const tb = b.createdAt ? new Date(b.createdAt as any).getTime() : 0;
+          return tb - ta;
+        } catch (error) {
+          console.error('❌ CustomerList: Error sorting customers by address:', error);
+          return 0;
+        }
+      });
+    } catch (error) {
+      console.error('❌ CustomerList: Critical error in filteredAndAggregatedCustomers:', error);
       return [];
     }
-    
-    const list = filteredCustomers; // name/phone/address fuzzy filter applied
-    const { start, end, cans, cansOp, price, priceOp, ptCash, ptAccount } = activeFilter;
-    const cansVal = cans && /^\d{1,6}$/.test(cans) ? Number(cans) : null;
-    const priceVal = price && /^\d{1,3}$/.test(price) ? Number(price) : null;
-    const hasCansFilter = cansVal != null && cansOp;
-    const hasPriceFilter = priceVal != null;
-    const hasPtFilter = ptCash || ptAccount;
-    const hasDateFilter = start || end;
-
-    console.log('Filter state:', { start, end, cans, cansOp, price, priceOp, ptCash, ptAccount });
-    console.log('Filter booleans:', { hasCansFilter, hasPriceFilter, hasPtFilter, hasDateFilter });
-    console.log('Customer cans map size:', Object.keys(customerCansMap).length);
-    console.log('Customer cans map sample:', Object.entries(customerCansMap).slice(0, 3));
-
-    if (!hasDateFilter && !hasCansFilter && !hasPriceFilter && !hasPtFilter && !addressSortOrder) {
-      console.log('No filters active, returning all customers');
-      return list;
-    }
-
-    const filtered = list.filter((c: Customer) => {
-      // cans filter based on aggregated map
-      if (hasCansFilter) {
-        const customerId = c._id || (c as any).customerId || '';
-        const total = customerCansMap[customerId] || 0;
-        const op = cansOp || '=';
-        console.log(`Filtering customer ${c.name} (ID: ${customerId}): total cans = ${total}, filter = ${op} ${cansVal}`);
-        if (op === '<' && !(total < cansVal!)) {
-          console.log(`  Rejected: ${total} is not < ${cansVal}`);
-          return false;
-        }
-        if (op === '=' && !(total === cansVal!)) {
-          console.log(`  Rejected: ${total} is not = ${cansVal}`);
-          return false;
-        }
-        if (op === '>' && !(total > cansVal!)) {
-          console.log(`  Rejected: ${total} is not > ${cansVal}`);
-          return false;
-        }
-        console.log(`  Accepted: ${total} ${op} ${cansVal}`);
-      }
-      // price filter (per-can price from customer)
-      if (hasPriceFilter) {
-        const p = c.pricePerCan || 0;
-        const op = priceOp || '=';
-        if (op === '<' && !(p < priceVal!)) return false;
-        if (op === '=' && !(p === priceVal!)) return false;
-        if (op === '>' && !(p > priceVal!)) return false;
-      }
-      // payment type filter
-      if (hasPtFilter) {
-        const pt = ((c as any).paymentType || '').toString().toLowerCase();
-        if (ptCash && pt !== 'cash') return false;
-        if (ptAccount && pt !== 'account') return false;
-      }
-      return true;
-    });
-
-    console.log(`Filtered ${list.length} customers down to ${filtered.length}`);
-    if (!addressSortOrder) return filtered;
-    const dir = addressSortOrder === 'asc' ? 1 : -1;
-    return [...filtered].sort((a, b) => {
-      const aAddr = (a.address || '').toString().toLowerCase();
-      const bAddr = (b.address || '').toString().toLowerCase();
-      if (aAddr < bAddr) return -1 * dir;
-      if (aAddr > bAddr) return 1 * dir;
-      // tie-breaker by createdAt newest first to keep list stable
-      const ta = a.createdAt ? new Date(a.createdAt as any).getTime() : 0;
-      const tb = b.createdAt ? new Date(b.createdAt as any).getTime() : 0;
-      return tb - ta;
-    });
   }, [filteredCustomers, activeFilter, customerCansMap, addressSortOrder]);
 
   if (isLoading) {
@@ -426,50 +466,83 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
             </TableHeader>
             <TableBody>
               {filteredAndAggregatedCustomers.map((customer, idx) => {
-                const isSindhiName = /[\u0621-\u064a]/.test(customer.name);
-                const nameClasses = cn(isSindhiName ? 'font-sindhi rtl' : 'ltr');
-                return (
-                  <TableRow 
-                    key={customer._id || customer.customerId || idx}
-                    className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => onEditCustomer && onEditCustomer(customer)}
-                  >
-                    <TableCell className={nameClasses}>
-                      <span>{(customer as any).id ? `${(customer as any).id} - ${customer.name}` : customer.name}</span>
-                      {typeof customer.pricePerCan === 'number' && customer.pricePerCan >= 100 && (
-                        <span aria-label="Premium" className="inline-flex ml-2 align-middle">
-                          <Star className="h-3 w-3 text-yellow-500" />
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell>{customer.phone || '-'}</TableCell>
-                    <TableCell className="whitespace-normal break-words max-w-xs">{customer.address}</TableCell>
-                    <TableCell className="w-[15%] text-center whitespace-nowrap">
-                      {(() => {
-                        const pt = ((customer as any).paymentType || '').toString().toLowerCase();
-                        const label = pt === 'account' ? 'Account' : 'Cash';
-                        return <Badge variant="outline" className="capitalize">{label}</Badge>;
-                      })()}
-                    </TableCell>
-                    <TableCell className="w-[12%] text-center whitespace-nowrap">{customer.defaultCans}</TableCell>
-                    <TableCell className="w-[12%] text-center whitespace-nowrap">{customer.pricePerCan ? `Rs. ${customer.pricePerCan}` : '-'}</TableCell>
-                    <TableCell className="text-right">
-                      {onEditCustomer && (
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onEditCustomer(customer);
-                          }} 
-                          title="Edit Customer"
-                        >
-                          <Pencil className="h-4 w-4 text-blue-600" />
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
+                try {
+                  // Validate customer object before rendering
+                  if (!customer || typeof customer !== 'object') {
+                    console.warn(`⚠️ CustomerList: Invalid customer at index ${idx}:`, customer);
+                    return (
+                      <TableRow key={`invalid-${idx}`} className="bg-red-50">
+                        <TableCell colSpan={7} className="text-center text-red-600">
+                          Invalid customer data
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }
+                  
+                  const isSindhiName = /[\u0621-\u064a]/.test(customer.name || '');
+                  const nameClasses = cn(isSindhiName ? 'font-sindhi rtl' : 'ltr');
+                  
+                  return (
+                    <TableRow 
+                      key={customer._id || customer.customerId || idx}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => onEditCustomer && onEditCustomer(customer)}
+                    >
+                      <TableCell className={nameClasses}>
+                        <span>{(customer as any).id ? `${(customer as any).id} - ${customer.name || 'Unknown'}` : (customer.name || 'Unknown')}</span>
+                        {typeof customer.pricePerCan === 'number' && customer.pricePerCan >= 100 && (
+                          <span aria-label="Premium" className="inline-flex ml-2 align-middle">
+                            <Star className="h-3 w-3 text-yellow-500" />
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell>{customer.phone || '-'}</TableCell>
+                      <TableCell className="whitespace-normal break-words max-w-xs">{customer.address || '-'}</TableCell>
+                      <TableCell className="w-[15%] text-center whitespace-nowrap">
+                        {(() => {
+                          try {
+                            const pt = ((customer as any).paymentType || '').toString().toLowerCase();
+                            const label = pt === 'account' ? 'Account' : 'Cash';
+                            return <Badge variant="outline" className="capitalize">{label}</Badge>;
+                          } catch (error) {
+                            console.error('❌ CustomerList: Error rendering payment type:', error);
+                            return <Badge variant="outline">Unknown</Badge>;
+                          }
+                        })()}
+                      </TableCell>
+                      <TableCell className="w-[12%] text-center whitespace-nowrap">{customer.defaultCans || 0}</TableCell>
+                      <TableCell className="w-[12%] text-center whitespace-nowrap">{customer.pricePerCan ? `Rs. ${customer.pricePerCan}` : '-'}</TableCell>
+                      <TableCell className="text-right">
+                        {onEditCustomer && (
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={(e) => {
+                              try {
+                                e.stopPropagation();
+                                onEditCustomer(customer);
+                              } catch (error) {
+                                console.error('❌ CustomerList: Error editing customer:', error);
+                              }
+                            }} 
+                            title="Edit Customer"
+                          >
+                            <Pencil className="h-4 w-4 text-blue-600" />
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                } catch (error) {
+                  console.error(`❌ CustomerList: Error rendering customer at index ${idx}:`, error, customer);
+                  return (
+                    <TableRow key={`error-${idx}`} className="bg-red-50">
+                      <TableCell colSpan={7} className="text-center text-red-600">
+                        Error rendering customer
+                      </TableCell>
+                    </TableRow>
+                  );
+                }
               })}
             </TableBody>
           </Table>
