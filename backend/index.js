@@ -815,59 +815,87 @@ app.get('/api/dashboard/metrics', async (req, res) => {
     console.log(`📅 Date range: ${startOfDay.toISOString()} to ${endOfDay.toISOString()}`);
     console.log(`📅 Current UTC: ${now.toISOString()}`);
 
-    // Get delivery requests for the period
-    console.log(`🔍 Searching for delivery requests between: ${startOfDay.toISOString()} and ${endOfDay.toISOString()}`);
-    
-    const deliveryRequests = await DeliveryRequest.find({
+    // Use MongoDB aggregation pipeline for better performance and accuracy
+    const match = {
       createdAt: { $gte: startOfDay, $lte: endOfDay }
-    });
+    };
+
+    console.log('🔍 MongoDB match query:', JSON.stringify(match, null, 2));
+
+    const pipeline = [
+      { $match: match },
+      {
+        $group: {
+          _id: null,
+          deliveries: { $sum: 1 },
+          totalCans: { $sum: '$numberOfCans' },
+          totalAmount: { $sum: '$amount' },
+          cashAmount: { $sum: { $cond: [{ $eq: ['$paymentMethod', 'cash'] }, '$amount', 0] } },
+          accountAmount: { $sum: { $cond: [{ $eq: ['$paymentMethod', 'account'] }, '$amount', 0] } }
+        }
+      }
+    ];
+
+    console.log('🔍 Aggregation pipeline:', JSON.stringify(pipeline, null, 2));
+
+    const results = await DeliveryRequest.aggregate(pipeline);
+    console.log('🔍 Aggregation results:', results);
+
+    // Extract metrics from aggregation results
+    const metrics = results[0] || {
+      deliveries: 0,
+      totalCans: 0,
+      totalAmount: 0,
+      cashAmount: 0,
+      accountAmount: 0
+    };
+
+    console.log('📊 Aggregated metrics:', metrics);
+
+    // Also get individual records for debugging
+    const deliveryRequests = await DeliveryRequest.find(match).limit(5);
+    console.log(`📊 Individual delivery requests found in date range:`, deliveryRequests.length);
     
-    console.log(`📊 Delivery requests found in date range:`, deliveryRequests.length);
-    
-    // Debug: Show a few sample records to understand the data structure
+    // Debug: Show sample records
     if (deliveryRequests.length > 0) {
       console.log('📋 Sample delivery request in range:', {
         id: deliveryRequests[0]._id,
         createdAt: deliveryRequests[0].createdAt,
         numberOfCans: deliveryRequests[0].numberOfCans,
-        amount: deliveryRequests[0].amount
+        amount: deliveryRequests[0].amount,
+        paymentMethod: deliveryRequests[0].paymentMethod
       });
     }
     
-    // Also check if there are any delivery requests at all and their dates
+    // Check recent records from database for comparison
     if (allDeliveryRequests.length > 0) {
       const recentRequests = allDeliveryRequests.slice(0, 3);
       console.log('📋 Recent delivery requests in database:', recentRequests.map(req => ({
         id: req._id,
         createdAt: req.createdAt,
         numberOfCans: req.numberOfCans,
-        amount: req.amount
+        amount: req.amount,
+        paymentMethod: req.paymentMethod
       })));
     }
 
-    const deliveries = deliveryRequests.length;
-    const totalCans = deliveryRequests.reduce((sum, req) => sum + (req.numberOfCans || 0), 0);
-    const totalAmount = deliveryRequests.reduce((sum, req) => sum + (req.amount || 0), 0);
-    const cashAmount = deliveryRequests
-      .filter(req => req.paymentMethod === 'cash')
-      .reduce((sum, req) => sum + (req.amount || 0), 0);
-
-    const metrics = {
+    const finalMetrics = {
       success: true,
-      deliveries,
-      totalCans,
-      totalAmount,
-      cashAmount,
+      deliveries: metrics.deliveries,
+      totalCans: metrics.totalCans,
+      totalAmount: metrics.totalAmount,
+      cashAmount: metrics.cashAmount,
+      accountAmount: metrics.accountAmount,
       timeLabel,
-      periodDeliveriesCount: deliveries,
+      periodDeliveriesCount: metrics.deliveries,
       totalInDatabase: allDeliveryRequests.length,
       dateRange: { start: startOfDay, end: endOfDay },
       message: 'Dashboard metrics fetched successfully'
     };
 
-    console.log(`📊 Final metrics calculated:`, metrics);
+    console.log(`📊 Final metrics calculated:`, finalMetrics);
 
-    res.json(metrics);
+    res.json(finalMetrics);
   } catch (error) {
     console.error('❌ Error fetching dashboard metrics:', error);
     res.status(500).json({ 
@@ -875,6 +903,19 @@ app.get('/api/dashboard/metrics', async (req, res) => {
       error: 'Failed to fetch metrics',
       details: error.message 
     });
+  }
+});
+
+// Test dashboard metrics endpoint
+app.get('/api/test-dashboard', async (req, res) => {
+  try {
+    res.json({
+      message: 'Dashboard metrics endpoint is working',
+      timestamp: new Date().toISOString(),
+      test: 'success'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
