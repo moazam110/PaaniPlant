@@ -610,12 +610,12 @@ app.post('/api/delivery-requests', async (req, res) => {
     }
 
     // Check if customer has active request
-    const existingActiveRequest = await DeliveryRequest.findOne({
+      const existingActiveRequest = await DeliveryRequest.findOne({
       customerId,
       status: { $in: ['pending', 'processing'] }
-    });
-
-    if (existingActiveRequest) {
+      });
+      
+      if (existingActiveRequest) {
       console.log('Duplicate prevention: Active request already exists for customer:', customerId);
       return res.status(400).json({ 
         error: 'Customer already has an active delivery request',
@@ -671,13 +671,13 @@ app.put('/api/delivery-requests/:id/status', async (req, res) => {
     if (status === 'delivered') {
       updateData.deliveredAt = new Date();
     }
-
+    
     const request = await DeliveryRequest.findByIdAndUpdate(
       req.params.id,
       updateData,
       { new: true }
     );
-
+    
     if (!request) {
       return res.status(404).json({ error: 'Delivery request not found' });
     }
@@ -723,7 +723,7 @@ app.get('/api/dashboard/metrics', async (req, res) => {
     if (start && end) {
       startOfDay = new Date(start);
       endOfDay = new Date(end);
-    } else {
+      } else {
       // Default to today
       startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000 - 1);
@@ -756,7 +756,7 @@ app.get('/api/dashboard/metrics', async (req, res) => {
     };
 
     console.log(`📊 Metrics calculated:`, metrics);
-    
+
     res.json(metrics);
   } catch (error) {
     console.error('Error fetching dashboard metrics:', error);
@@ -775,7 +775,7 @@ app.get('/api/customers/:id/stats', async (req, res) => {
     }
     
     console.log(`Customer found: ${customer.name}`);
-
+    
     const { start, end } = req.query;
     let startDate, endDate;
     
@@ -789,8 +789,8 @@ app.get('/api/customers/:id/stats', async (req, res) => {
       const yearNum = now.getFullYear();
       startDate = new Date(yearNum, monthNum - 1, 1);
       endDate = new Date(yearNum, monthNum, 0, 23, 59, 59, 999);
-      
-      console.log(`Filtering for month ${monthNum}/${yearNum}: ${startDate} to ${endDate}`);
+        
+        console.log(`Filtering for month ${monthNum}/${yearNum}: ${startDate} to ${endDate}`);
     }
 
     const deliveredRequests = await DeliveryRequest.find({
@@ -798,19 +798,19 @@ app.get('/api/customers/:id/stats', async (req, res) => {
       status: 'delivered',
       deliveredAt: { $gte: startDate, $lte: endDate }
     });
-
+    
     console.log(`Found ${deliveredRequests.length} delivered requests for customer ${customer.name}`);
-    console.log('Delivered requests:', deliveredRequests.map(r => ({
-      id: r._id,
+    console.log('Delivered requests:', deliveredRequests.map(r => ({ 
+      id: r._id, 
       cans: r.numberOfCans,
       amount: r.amount,
       date: r.deliveredAt
     })));
-
+    
     const totalCans = deliveredRequests.reduce((sum, req) => sum + req.numberOfCans, 0);
     const totalAmount = deliveredRequests.reduce((sum, req) => sum + req.amount, 0);
     const totalDeliveries = deliveredRequests.length;
-
+    
     const stats = {
       customerId: req.params.id,
       customerName: customer.name,
@@ -821,7 +821,7 @@ app.get('/api/customers/:id/stats', async (req, res) => {
       averageCansPerDelivery: totalDeliveries > 0 ? (totalCans / totalDeliveries).toFixed(2) : 0,
       averageAmountPerDelivery: totalDeliveries > 0 ? (totalAmount / totalDeliveries).toFixed(2) : 0
     };
-
+    
     console.log(`Customer ${customer.name} stats:`, stats);
     res.json(stats);
   } catch (error) {
@@ -873,7 +873,7 @@ app.get('/api/stats/summary', async (req, res) => {
     const results = await DeliveryRequest.aggregate(pipeline);
     console.log('Aggregation results count:', results.length);
     console.log('First 3 results:', results.slice(0, 3));
-
+    
     const data = results.length > 0 ? results[0] : {
       totalRequests: 0,
       totalCans: 0,
@@ -903,10 +903,10 @@ app.get('/api/customers/:id/active-requests', async (req, res) => {
       customerId: req.params.id,
       status: { $in: ['pending', 'processing'] }
     });
-
+    
     console.log(`Customer ${req.params.id} has ${activeRequests.length} active requests`);
     
-    res.json({
+    res.json({ 
       customerId: req.params.id,
       activeRequests: activeRequests.length,
       requests: activeRequests
@@ -966,6 +966,18 @@ app.post('/api/admin/backfill', async (req, res) => {
   } catch (err) {
     console.error('Backfill error:', err);
     return res.status(500).json({ success: false, error: 'Backfill failed', details: err.message });
+  }
+});
+
+// Recurring Requests routes
+app.get('/api/recurring-requests', async (req, res) => {
+  try {
+    console.log('Fetching recurring requests from database...');
+    const requests = await RecurringRequest.find().sort({ createdAt: -1 });
+    res.json(requests);
+  } catch (error) {
+    console.error('Error fetching recurring requests:', error);
+    res.status(500).json({ error: 'Failed to fetch recurring requests' });
   }
 });
 
