@@ -503,13 +503,40 @@ app.get('/api/super-admin/security', authenticateToken, requireSuperAdmin, async
 // Customer routes
 app.get('/api/customers', async (req, res) => {
   try {
-    console.log('Fetching customers from database...');
-    const customers = await Customer.find({ isActive: true }).sort({ createdAt: -1 });
-    console.log(`Found ${customers.length} customers`);
-    res.json(customers);
+    console.log(' Fetching customers...');
+    
+    // Try different query approaches
+    const allCustomers = await Customer.find();
+    console.log('📊 Total customers found:', allCustomers.length);
+    
+    // Try without the isActive filter first
+    const customers = await Customer.find().sort({ createdAt: -1 }).limit(50);
+    console.log(' First 50 customers:', customers.length);
+    
+    // Log some customer details for debugging
+    if (customers.length > 0) {
+      console.log(' Sample customer:', {
+        id: customers[0]._id,
+        name: customers[0].name,
+        phone: customers[0].phone
+      });
+    }
+    
+    res.json({
+      success: true,
+      count: customers.length,
+      total: allCustomers.length,
+      data: customers,
+      message: 'Customers fetched successfully'
+    });
+    
   } catch (error) {
-    console.error('Error fetching customers:', error);
-    res.status(500).json({ error: 'Failed to fetch customers' });
+    console.error('❌ Error fetching customers:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch customers',
+      details: error.message 
+    });
   }
 });
 
