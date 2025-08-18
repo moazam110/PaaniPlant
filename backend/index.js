@@ -748,6 +748,31 @@ app.get('/api/dashboard/metrics', async (req, res) => {
     console.log('📊 Fetching dashboard metrics...');
     console.log('📅 Query parameters:', { start, end, timeLabel });
     
+    // Pakistan Timezone (UTC+5) helper function
+    const PKT_OFFSET = 5 * 60; // minutes
+    
+    function getDayBoundsInPKT(dateString) {
+      const date = new Date(dateString);
+      
+      // Start of day in PKT (00:00 PKT)
+      const startOfDay = new Date(Date.UTC(
+        date.getUTCFullYear(),
+        date.getUTCMonth(),
+        date.getUTCDate(),
+        0 - PKT_OFFSET / 60, 0, 0, 0
+      ));
+      
+      // End of day in PKT (23:59:59.999 PKT)
+      const endOfDay = new Date(Date.UTC(
+        date.getUTCFullYear(),
+        date.getUTCMonth(),
+        date.getUTCDate(),
+        23 - PKT_OFFSET / 60, 59, 59, 999
+      ));
+      
+      return { startOfDay, endOfDay };
+    }
+    
     // First, get ALL delivery requests to see what's available
     const allDeliveryRequests = await DeliveryRequest.find();
     console.log('📊 Total delivery requests in database:', allDeliveryRequests.length);
@@ -790,30 +815,36 @@ app.get('/api/dashboard/metrics', async (req, res) => {
         timeLabel = `${new Date(parseInt(year), parseInt(month) - 1).toLocaleString('default', { month: 'long' })} ${year}`;
         console.log('📅 Parsed as month + year:', timeLabel);
       } else if (startStr.length === 10 && startStr.includes('-')) {
-        // Date + Month + Year (e.g., "2025-08-18")
-        startOfDay = new Date(startStr);
-        endOfDay = new Date(startStr + 'T23:59:59.999Z');
-        timeLabel = startOfDay.toLocaleDateString();
-        console.log('📅 Parsed as specific date:', timeLabel);
+        // Date + Month + Year (e.g., "2025-08-18") - Use PKT
+        const { startOfDay: startPKT, endOfDay: endPKT } = getDayBoundsInPKT(startStr);
+        startOfDay = startPKT;
+        endOfDay = endPKT;
+        timeLabel = `${startStr} (PKT)`;
+        console.log('📅 Parsed as specific date with PKT:', timeLabel);
       } else {
-        // Fallback to single date
-        startOfDay = new Date(start);
-        endOfDay = new Date(start + 'T23:59:59.999Z');
-        timeLabel = startOfDay.toLocaleDateString();
-        console.log('📅 Parsed as single date:', timeLabel);
+        // Fallback to single date - Use PKT
+        const { startOfDay: startPKT, endOfDay: endPKT } = getDayBoundsInPKT(start);
+        startOfDay = startPKT;
+        endOfDay = endPKT;
+        timeLabel = `${start} (PKT)`;
+        console.log('📅 Parsed as single date with PKT:', timeLabel);
       }
     } else {
-      // Default to today - automatically use current date
+      // Default to today - automatically use current date in PKT
       const today = new Date();
-      startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000 - 1);
-      timeLabel = `Today (${today.toLocaleDateString()})`;
-      console.log('📅 Using default: today -', timeLabel);
+      const { startOfDay: startPKT, endOfDay: endPKT } = getDayBoundsInPKT(today.toISOString().split('T')[0]);
+      startOfDay = startPKT;
+      endOfDay = endPKT;
+      timeLabel = `Today (${today.toLocaleDateString()}) - PKT`;
+      console.log('📅 Using default: today in PKT -', timeLabel);
+      console.log('📅 PKT Date range: 00:00 PKT to 23:59:59 PKT');
     }
 
     console.log(`📅 Dashboard metrics for: ${timeLabel}`);
     console.log(`📅 Date range: ${startOfDay.toISOString()} to ${endOfDay.toISOString()}`);
+    console.log(`📅 PKT Date range: ${startOfDay.toLocaleString('en-US', { timeZone: 'Asia/Karachi' })} to ${endOfDay.toLocaleString('en-US', { timeZone: 'Asia/Karachi' })}`);
     console.log(`📅 Current UTC: ${now.toISOString()}`);
+    console.log(`📅 Current PKT: ${now.toLocaleString('en-US', { timeZone: 'Asia/Karachi' })}`);
 
     // Use MongoDB aggregation pipeline for better performance and accuracy
     const match = {
@@ -1037,7 +1068,7 @@ app.get('/api/stats/summary', async (req, res) => {
       accountAmount: 0
     };
 
-    console.log('Mapped data count:', data.length);
+    console.log('Mapped data:', data);
 
     res.json({
       period: { start: startDate, end: endDate },
