@@ -28,7 +28,11 @@ export const API_BASE_URL = getApiBaseUrl();
 export const buildApiUrl = (endpoint: string): string => {
   // Remove leading slash if present to avoid double slashes
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
-  return `${API_BASE_URL}/${cleanEndpoint}`;
+  
+  // Always use the full backend URL for now
+  const fullUrl = `${API_BASE_URL}/${cleanEndpoint}`;
+  console.log('🔗 Building API URL:', { endpoint, cleanEndpoint, API_BASE_URL, fullUrl });
+  return fullUrl;
 };
 
 // Common API endpoints

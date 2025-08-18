@@ -16,6 +16,7 @@ app.use(cors({
   origin: [
     'https://paani.online', 
     'http://72.60.89.107:5000',
+    'http://72.60.89.107:3000',
     'http://72.60.89.107',
     'http://localhost:5000',
     'http://localhost:3000'

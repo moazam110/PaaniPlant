@@ -321,10 +321,12 @@ export default function AdminDashboardPage() {
     // Check backend connection
     const checkBackendConnection = async () => {
       try {
-        const healthUrl = buildApiUrl(API_ENDPOINTS.HEALTH);
-        console.log('🔍 Health check URL:', healthUrl);
-        console.log('🌐 API_BASE_URL:', API_BASE_URL);
-        console.log('🔧 Environment NEXT_PUBLIC_API_BASE_URL:', process.env.NEXT_PUBLIC_API_BASE_URL);
+                 const healthUrl = buildApiUrl(API_ENDPOINTS.HEALTH);
+         console.log('🔍 Health check URL:', healthUrl);
+         console.log('🌐 API_BASE_URL:', API_BASE_URL);
+         console.log('🔧 Environment NEXT_PUBLIC_API_BASE_URL:', process.env.NEXT_PUBLIC_API_BASE_URL);
+         console.log('🔗 Full health check URL:', healthUrl);
+         console.log('📱 Window object available:', typeof window !== 'undefined');
         
         const response = await fetch(healthUrl, {
           method: 'GET',

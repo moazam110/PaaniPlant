@@ -28,14 +28,15 @@ const nextConfig: NextConfig = {
       }
     ],
   },
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: 'http://72.60.89.107:5000/api/:path*',
-      },
-    ];
-  },
+  // Removed rewrites since we're making direct API calls to backend
+  // async rewrites() {
+  //   return [
+  //     {
+  //       source: '/api/:path*',
+  //       destination: 'http://72.60.89.107:5000/api/:path*',
+  //     },
+  //   ];
+  // },
 };
 
 export default nextConfig;
