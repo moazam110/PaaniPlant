@@ -102,15 +102,15 @@ const CustomerList = forwardRef<CustomerListRef, CustomerListProps>(({ onEditCus
 
       // Fetch aggregated cans for current activeFilter
       await fetchAndBuildCansMap(activeFilter.start, activeFilter.end);
-          } catch (err) {
-        console.error('❌ CustomerList: Error fetching customers:', err);
-        console.error('❌ CustomerList: Error details:', {
-          message: err instanceof Error ? err.message : 'Unknown error',
-          stack: err instanceof Error ? err.stack : undefined
-        });
-        setError('Failed to fetch customers.');
-        setAllCustomers([]);
-      } finally {
+    } catch (err) {
+      console.error('❌ CustomerList: Error fetching customers:', err);
+      console.error('❌ CustomerList: Error details:', {
+        message: err instanceof Error ? err.message : 'Unknown error',
+        stack: err instanceof Error ? err.stack : undefined
+      });
+      setError('Failed to fetch customers.');
+      setAllCustomers([]);
+    } finally {
       setIsLoading(false);
     }
   };
