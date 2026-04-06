@@ -1,0 +1,592 @@
+
+"use client";
+
+import React, { useState, useEffect, useRef } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { useToast } from "@/hooks/use-toast";
+import { Loader2 } from 'lucide-react';
+import type { Customer } from '@/types'; 
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
+
+// Schema without profilePicture
+const customerFormSchema = z.object({
+  name: z.string().min(1, { message: "Customer name is required." }),
+  phone: z.string().optional(),
+  address: z.string().min(1, { message: "Address is required." }),
+  defaultCans: z.coerce.number().min(0, { message: "Default cans cannot be negative." }).default(1),
+  pricePerCan: z.coerce.number().min(0, { message: "Price per can cannot be negative." }).max(999, { message: "Price cannot exceed 999." }),
+  notes: z.string().optional(),
+  paymentType: z.enum(['cash','account']).optional(),
+});
+
+type CustomerFormValues = z.infer<typeof customerFormSchema>;
+
+interface CustomerFormProps {
+  editingCustomer?: Customer | null;
+  onSuccess?: () => void;
+}
+
+export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFormProps) {
+  const { toast } = useToast();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [nameManuallySetRtl, setNameManuallySetRtl] = useState(false);
+  const isEditMode = !!editingCustomer;
+  const statsIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const [totalOrders, setTotalOrders] = useState<number | null>(null);
+  const [totalCansReceived, setTotalCansReceived] = useState<number | null>(null);
+  const [totalBill, setTotalBill] = useState<number | null>(null);
+  const [isLoadingStats, setIsLoadingStats] = useState(false);
+  
+  // Month and year state for filtering
+  const currentDate = new Date();
+  const [selectedMonth, setSelectedMonth] = useState<string>(String(currentDate.getMonth() + 1));
+  const [selectedYear, setSelectedYear] = useState<string>(String(currentDate.getFullYear()));
+  
+  // Months array for dropdown
+  const months = [
+    { value: '1', label: 'Jan' },
+    { value: '2', label: 'Feb' },
+    { value: '3', label: 'Mar' },
+    { value: '4', label: 'Apr' },
+    { value: '5', label: 'May' },
+    { value: '6', label: 'Jun' },
+    { value: '7', label: 'Jul' },
+    { value: '8', label: 'Aug' },
+    { value: '9', label: 'Sep' },
+    { value: '10', label: 'Oct' },
+    { value: '11', label: 'Nov' },
+    { value: '12', label: 'Dec' }
+  ];
+  
+  // Years array for dropdown (current year + 5 previous years)
+  const years = Array.from({ length: 6 }, (_, i) => {
+    const year = currentDate.getFullYear() - i;
+    return { value: String(year), label: String(year) };
+  });
+
+  const form = useForm<CustomerFormValues>({
+    resolver: zodResolver(customerFormSchema),
+    defaultValues: {
+      name: "",
+      phone: "",
+      address: "",
+      defaultCans: 1,
+      pricePerCan: 0, // Set to minimum allowed value
+      notes: "",
+      paymentType: 'account' as any,
+    },
+  });
+
+  useEffect(() => {
+    if (isEditMode && editingCustomer) {
+      form.reset({
+        name: editingCustomer.name,
+        phone: editingCustomer.phone || "",
+        address: editingCustomer.address,
+        defaultCans: editingCustomer.defaultCans,
+        pricePerCan: editingCustomer.pricePerCan || 1,
+        notes: editingCustomer.notes || "",
+        paymentType: (editingCustomer as any).paymentType || 'account',
+      });
+
+      const fetchCustomerStats = async (month?: string, year?: string) => {
+        if (!editingCustomer._id && !editingCustomer.customerId) {
+          console.log('No customer ID available for stats');
+          return;
+        }
+        setIsLoadingStats(true);
+        try {
+          const customerId = editingCustomer._id || editingCustomer.customerId;
+          console.log('=== CUSTOMER STATS DEBUG ===');
+          console.log('Fetching stats for customer ID:', customerId);
+          console.log('Customer ID type:', typeof customerId);
+          console.log('Full customer object:', editingCustomer);
+          console.log('Month:', month, 'Year:', year);
+          
+          // Build URL with optional month and year parameters
+          let statsUrl = buildApiUrl(`api/customers/${customerId}/stats`);
+          if (month && year) {
+            statsUrl += `?month=${month}&year=${year}`;
+          }
+          console.log('Stats URL:', statsUrl);
+          
+          const response = await fetch(statsUrl);
+          console.log('Customer stats response status:', response.status);
+          console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+          
+          if (response.ok) {
+            const stats = await response.json();
+            console.log('Customer stats received:', stats);
+            console.log('Setting totalOrders to:', stats.totalDeliveries || 0);
+            console.log('Setting totalCansReceived to:', stats.totalCansReceived || 0);
+            
+            setTotalOrders(stats.totalDeliveries || 0);
+            setTotalCansReceived(stats.totalCansReceived || 0);
+            setTotalBill(stats.totalPrice || 0);
+
+            // Set up real-time updates for customer stats every 60 seconds
+            if (!statsIntervalRef.current) {
+              console.log('Setting up stats refresh interval');
+              statsIntervalRef.current = setInterval(async () => {
+                try {
+                  let refreshStatsUrl = buildApiUrl(`api/customers/${customerId}/stats`);
+                  if (selectedMonth && selectedYear) {
+                    refreshStatsUrl += `?month=${selectedMonth}&year=${selectedYear}`;
+                  }
+                  const refreshResponse = await fetch(refreshStatsUrl);
+                  if (refreshResponse.ok) {
+                    const refreshStats = await refreshResponse.json();
+                    console.log('Stats refresh:', refreshStats);
+                    setTotalOrders(refreshStats.totalDeliveries || 0);
+                    setTotalCansReceived(refreshStats.totalCansReceived || 0);
+                    setTotalBill(refreshStats.totalPrice || 0);
+                  }
+                } catch (error) {
+                  console.log('Stats refresh error (silent):', error);
+                }
+              }, 60000);
+            }
+          } else {
+            const errorText = await response.text();
+            console.error('Failed to fetch customer stats:', response.status, errorText);
+            setTotalOrders(0);
+            setTotalCansReceived(0);
+            setTotalBill(0);
+          }
+        } catch (error) {
+          console.error("Error fetching customer stats:", error);
+          setTotalOrders(0);
+          setTotalCansReceived(0);
+          setTotalBill(0);
+          toast({ variant: "destructive", title: "Failed to load customer stats." });
+        } finally {
+          setIsLoadingStats(false);
+        }
+      };
+      fetchCustomerStats(selectedMonth, selectedYear);
+
+      // Cleanup interval when component unmounts or customer changes
+      return () => {
+        if (statsIntervalRef.current) {
+          clearInterval(statsIntervalRef.current);
+          statsIntervalRef.current = null;
+        }
+      };
+
+    } else {
+      form.reset({
+        name: "",
+        phone: "",
+        address: "",
+        defaultCans: 1,
+        pricePerCan: 0, // Set to minimum allowed value
+        notes: "",
+      });
+      setTotalOrders(null);
+      setTotalCansReceived(null);
+      setTotalBill(null);
+    }
+  }, [editingCustomer, form, isEditMode, toast]);
+
+  // Fetch stats when month or year changes
+  useEffect(() => {
+    if (isEditMode && editingCustomer && (editingCustomer._id || editingCustomer.customerId)) {
+      const fetchCustomerStats = async () => {
+        if (!editingCustomer._id && !editingCustomer.customerId) {
+          console.log('No customer ID available for stats');
+          return;
+        }
+        setIsLoadingStats(true);
+        try {
+          const customerId = editingCustomer._id || editingCustomer.customerId;
+          console.log('=== CUSTOMER STATS MONTH/YEAR CHANGE ===');
+          console.log('Fetching stats for month:', selectedMonth, 'year:', selectedYear);
+          
+          // Build URL with month and year parameters
+          let statsUrl = buildApiUrl(`api/customers/${customerId}/stats`);
+          if (selectedMonth && selectedYear) {
+            statsUrl += `?month=${selectedMonth}&year=${selectedYear}`;
+          }
+          console.log('Stats URL:', statsUrl);
+          
+          const response = await fetch(statsUrl);
+          
+          if (response.ok) {
+            const stats = await response.json();
+            console.log('Customer stats received:', stats);
+            setTotalOrders(stats.totalDeliveries || 0);
+            setTotalCansReceived(stats.totalCansReceived || 0);
+            setTotalBill(stats.totalPrice || 0);
+          } else {
+            const errorText = await response.text();
+            console.error('Failed to fetch customer stats:', response.status, errorText);
+            setTotalOrders(0);
+            setTotalCansReceived(0);
+            setTotalBill(0);
+          }
+        } catch (error) {
+          console.error("Error fetching customer stats:", error);
+          setTotalOrders(0);
+          setTotalCansReceived(0);
+          setTotalBill(0);
+        } finally {
+          setIsLoadingStats(false);
+        }
+      };
+
+      fetchCustomerStats();
+    }
+  }, [selectedMonth, selectedYear, editingCustomer, isEditMode]);
+
+  const handleNameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value;
+    form.setValue("name", value);
+    if (/[ء-ي]/.test(value) && !nameManuallySetRtl) {
+      event.target.dir = 'rtl';
+    } else if (!nameManuallySetRtl) {
+      event.target.dir = 'ltr';
+    }
+  };
+
+  const handleNameDirectionToggle = () => {
+    const nameInput = document.getElementById('customerName') as HTMLInputElement;
+    if (nameInput) {
+      nameInput.dir = nameInput.dir === 'rtl' ? 'ltr' : 'rtl';
+      setNameManuallySetRtl(true);
+    }
+  };
+
+  const onSubmit = async (data: CustomerFormValues) => {
+    setIsSubmitting(true);
+
+    try {
+      const customerDataToSave = {
+        name: data.name.trim(),
+        phone: data.phone?.trim() || "",
+        address: data.address.trim(),
+        defaultCans: Number(data.defaultCans) || 1,
+        pricePerCan: Number(data.pricePerCan) || 0, // Ensure 0 is properly handled
+        notes: data.notes?.trim() || "",
+        paymentType: (data as any).paymentType || 'account',
+      };
+
+      console.log('Submitting customer data:', customerDataToSave);
+
+      if (isEditMode && (editingCustomer?._id || editingCustomer?.customerId)) {
+        // Update existing customer
+        const customerId = editingCustomer._id || editingCustomer.customerId;
+        const response = await fetch(buildApiUrl(`api/customers/${customerId}`), {
+          method: 'PUT',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(customerDataToSave),
+        });
+
+        const result = await response.json();
+        console.log('Update response:', result);
+
+        if (!response.ok) {
+          throw new Error(result.error || result.details || `HTTP error! status: ${response.status}`);
+        }
+
+        toast({
+          title: "Customer Updated",
+          description: `Customer "${result.name}" updated successfully.`,
+        });
+      } else {
+        // Add new customer
+        const response = await fetch(buildApiUrl(API_ENDPOINTS.CUSTOMERS), {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(customerDataToSave),
+        });
+
+        const result = await response.json();
+        console.log('Add response:', result);
+
+        if (!response.ok) {
+          throw new Error(result.error || result.details || `HTTP error! status: ${response.status}`);
+        }
+
+        toast({
+          title: "Customer Added",
+          description: `Customer "${result.name}" added successfully.`,
+        });
+      }
+      
+      form.reset();
+      if (onSuccess) {
+        onSuccess();
+      }
+    } catch (error: any) {
+      console.error("Error saving customer:", error);
+      toast({
+        variant: "destructive",
+        title: `Failed to ${isEditMode ? 'Update' : 'Add'} Customer`,
+        description: error.message || "An unexpected error occurred.",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4"> {/* Reduced space-y from 6 to 4 */}
+        
+        {isEditMode && (
+          <Card className="mb-6 glass-card">
+            <CardContent className="pt-6">
+              {/* Month and Year Selectors */}
+              <div className="flex gap-3 mb-4">
+                <div className="flex-1">
+                  <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Month" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {months.map((month) => (
+                        <SelectItem key={month.value} value={month.value}>
+                          {month.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex-1">
+                  <Select value={selectedYear} onValueChange={setSelectedYear}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Year" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {years.map((year) => (
+                        <SelectItem key={year.value} value={year.value}>
+                          {year.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Statistics Grid */}
+              {isLoadingStats ? (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-8 w-3/4" />
+                  </div>
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-8 w-3/4" />
+                  </div>
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-8 w-3/4" />
+                  </div>
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-8 w-3/4" />
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4 sm:gap-6">
+                  <div className="text-center p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <p className="text-xs sm:text-sm text-muted-foreground font-medium mb-1">Total Deliveries</p>
+                    <p className="text-2xl sm:text-3xl font-bold text-primary">{totalOrders ?? 0}</p>
+                  </div>
+                  <div className="text-center p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <p className="text-xs sm:text-sm text-muted-foreground font-medium mb-1">Total Cans Received</p>
+                    <p className="text-2xl sm:text-3xl font-bold text-blue-600">{totalCansReceived ?? 0}</p>
+                  </div>
+                  <div className="text-center p-3 bg-green-50 rounded-lg border border-green-200">
+                    <p className="text-xs sm:text-sm text-muted-foreground font-medium mb-1">Price per Can</p>
+                    <p className="text-2xl sm:text-3xl font-bold text-green-600">Rs. {editingCustomer?.pricePerCan || 0}</p>
+                  </div>
+                  <div className="text-center p-3 bg-green-50 rounded-lg border border-green-200">
+                    <p className="text-xs sm:text-sm text-muted-foreground font-medium mb-1">Total Bill</p>
+                    <p className="text-2xl sm:text-3xl font-bold text-green-700">
+                      Rs. {(totalBill || 0).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        <FormField
+          control={form.control}
+          name="name"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Customer Name</FormLabel>
+              <div className="flex items-center gap-2">
+                <FormControl>
+                  <Input
+                    id="customerName"
+                    placeholder="e.g., سهيل احمد عباسي or Suhail Ahmed Abbasi"
+                    {...field}
+                    onChange={(e) => {
+                        field.onChange(e);
+                        handleNameChange(e);
+                    }}
+                    className="font-sindhi"
+                  />
+                </FormControl>
+                <Button type="button" variant="outline" size="sm" onClick={handleNameDirectionToggle} className="px-2 py-1 text-xs">
+                  Toggle RTL
+                </Button>
+              </div>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="phone"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Phone Number (Optional)</FormLabel>
+              <FormControl>
+                <Input type="tel" placeholder="+923337860444" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="address"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Address</FormLabel>
+              <FormControl>
+                <Textarea placeholder="Full address for delivery" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        {/* Profile Picture Field Removed */}
+
+        <FormField
+          control={form.control}
+          name="defaultCans"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Default Number of Cans</FormLabel>
+              <FormControl>
+                <Input type="number" min="0" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="pricePerCan"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Price per Can (Rs.) *</FormLabel>
+              <FormControl>
+                <Input 
+                  type="number" 
+                  placeholder="Enter price (0-999)" 
+                  min="0"
+                  max="999"
+                  step="1"
+                  value={field.value || ''}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === '' || (Number(value) >= 0 && Number(value) <= 999 && value.length <= 3)) {
+                      field.onChange(value);
+                    }
+                  }}
+                  onBlur={(e) => {
+                    // Ensure empty string is converted to 0
+                    if (e.target.value === '') {
+                      field.onChange('0');
+                    }
+                  }}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="notes"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Notes (Optional)</FormLabel>
+              <FormControl>
+                <Textarea placeholder="Any special instructions or notes about the customer" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="paymentType"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Payment Type</FormLabel>
+              <FormControl>
+                <div className="flex items-center gap-6">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      value="cash"
+                      checked={field.value === 'cash'}
+                      onChange={() => field.onChange('cash')}
+                    />
+                    Cash
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      value="account"
+                      checked={field.value === 'account'}
+                      onChange={() => field.onChange('account')}
+                    />
+                    Account
+                  </label>
+                </div>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <Button type="submit" className="w-full" disabled={isSubmitting}>
+          {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          {isSubmitting ? (isEditMode ? "Updating..." : "Adding...") : (isEditMode ? "Update Customer" : "Add Customer")}
+        </Button>
+      </form>
+    </Form>
+  );
+}
