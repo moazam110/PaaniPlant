@@ -8,7 +8,7 @@ import { createServer } from 'http';
 import { initializeWebSocket, broadcastUpdate } from './websocket.js';
 import dotenv from 'dotenv'; // Load environment variables from .env file
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
 // Load environment variables from .env file (if it exists)
 dotenv.config();
@@ -2284,24 +2284,16 @@ app.post('/api/register-request', async (req, res) => {
       return res.status(400).json({ error: 'Name, mobile, and address are required.' });
     }
 
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false,
-      auth: {
-        user: process.env.EMAIL_USER || 'moazam2k1@gmail.com',
-        pass: process.env.EMAIL_PASS,
-      },
-    });
+    const resend = new Resend(process.env.RESEND_API_KEY);
 
-    const mailOptions = {
-      from: `"The Paani" <${process.env.EMAIL_USER || 'paani.online786@gmail.com'}>`,
-      to: 'moazamabbasi2k1@gmail.com, jsoomro79@gmail.com, abbasi.suhail@icloud.com, fahadjanabro@gmail.com, paani.online786@gmail.com, suhail.abbasi@smbbmu.edu.pk',
+    await resend.emails.send({
+      from: 'The Paani <noreply@paani.online>',
+      to: ['moazamabbasi2k1@gmail.com', 'jsoomro79@gmail.com', 'abbasi.suhail@icloud.com', 'fahadjanabro@gmail.com', 'paani.online786@gmail.com', 'suhail.abbasi@smbbmu.edu.pk'],
       subject: '🆕 New Customer Registration Request',
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
           <div style="background: linear-gradient(135deg, #3f51b5, #303f9f); padding: 20px; text-align: center;">
-            <h2 style="color: white; margin: 0; font-size: 20px;">PAANI RO PLANT</h2>
+            <h2 style="color: white; margin: 0; font-size: 20px;">The Paani</h2>
             <p style="color: rgba(255,255,255,0.8); margin: 4px 0 0; font-size: 13px;">New Customer Registration Request</p>
           </div>
           <div style="padding: 24px;">
@@ -2329,13 +2321,12 @@ app.post('/api/register-request', async (req, res) => {
             </table>
           </div>
           <div style="background: #f9f9f9; padding: 12px 24px; text-align: center; border-top: 1px solid #e0e0e0;">
-            <p style="margin: 0; color: #999; font-size: 11px;">Sent via Paani RO Plant App · ${new Date().toLocaleString('en-PK', { timeZone: 'Asia/Karachi' })}</p>
+            <p style="margin: 0; color: #999; font-size: 11px;">Sent via The Paani App · ${new Date().toLocaleString('en-PK', { timeZone: 'Asia/Karachi' })}</p>
           </div>
         </div>
       `,
-    };
+    });
 
-    await transporter.sendMail(mailOptions);
     res.json({ success: true, message: 'Registration request sent successfully.' });
   } catch (err) {
     console.error('Error sending registration email:', err);
