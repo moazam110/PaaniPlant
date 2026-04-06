@@ -1,4 +1,4 @@
-# PAANI RO PLANT - Delivery Management System
+b# PAANI RO PLANT - Delivery Management System
 
 A comprehensive water delivery management system built with Next.js, React, and Express.js. This system provides separate dashboards for Admin, Staff, and Customers to manage water delivery requests efficiently.
 
@@ -28,7 +28,7 @@ A comprehensive water delivery management system built with Next.js, React, and 
 - **Date Filtering**: Filter requests by date range
 - **Real-time Updates**: Automatic status updates synchronized with admin dashboard
 
-## 🚀 Tech Stack
+## 🚀 Tech Stack .
 
 ### Frontend
 - **Framework**: Next.js 15.3.3 (React 18.3.1)
