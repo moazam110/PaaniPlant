@@ -3,8 +3,8 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
-  title: 'PAANI RO PLANT', 
-  description: 'Manage customer profiles and water delivery requests for PAANI RO PLANT.',
+  title: 'The Paani™',
+  description: 'The Paani™ Serving Larkano with pure mineral water. Register, place orders & track your deliveries online.',
   icons: {
     icon: '/icon.svg',
     shortcut: '/icon.svg',

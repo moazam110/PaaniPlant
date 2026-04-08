@@ -188,7 +188,7 @@ export default function CustomerLoginForm() {
                             type="text" 
                             placeholder="Enter your username" 
                             {...field} 
-                            className="bg-white border-2 border-primary/30 focus:border-primary focus:ring-2 focus:ring-primary/50 transition-all duration-300 h-12 text-base pr-4 pl-4 text-gray-900"
+                            className="bg-white border-2 border-primary/30 focus:border-primary focus:ring-0 focus:outline-none transition-all duration-300 h-12 text-base pr-4 pl-4 text-gray-900"
                           />
                           <div className="absolute inset-0 rounded-md bg-gradient-to-r from-primary/0 via-primary/10 to-primary/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
                         </div>
@@ -210,7 +210,7 @@ export default function CustomerLoginForm() {
                             type={showPassword ? "text" : "password"} 
                             placeholder="Enter your password" 
                             {...field} 
-                            className="bg-white border-2 border-primary/30 focus:border-primary focus:ring-2 focus:ring-primary/50 transition-all duration-300 h-12 text-base pr-12 pl-4 text-gray-900"
+                            className="bg-white border-2 border-primary/30 focus:border-primary focus:ring-0 focus:outline-none transition-all duration-300 h-12 text-base pr-12 pl-4 text-gray-900"
                           />
                           <div className="absolute inset-0 rounded-md bg-gradient-to-r from-primary/0 via-primary/10 to-primary/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
                           <button
@@ -403,7 +403,7 @@ export default function CustomerLoginForm() {
                       <FormLabel className="text-gray-700 font-semibold text-xs">Full Name *</FormLabel>
                       <FormControl>
                         <Input placeholder="Enter your full name" {...field}
-                          className="bg-white border-2 border-primary/30 focus:border-primary h-9 text-sm text-gray-900" />
+                          className="bg-white border-2 border-primary/30 focus:border-primary focus:ring-0 focus:outline-none h-9 text-sm text-gray-900" />
                       </FormControl>
                       <FormMessage className="text-red-400 text-xs" />
                     </FormItem>
@@ -414,7 +414,7 @@ export default function CustomerLoginForm() {
                       <FormLabel className="text-gray-700 font-semibold text-xs">WhatsApp / Mobile *</FormLabel>
                       <FormControl>
                         <Input placeholder="e.g. 03001234567" {...field}
-                          className="bg-white border-2 border-primary/30 focus:border-primary h-9 text-sm text-gray-900" />
+                          className="bg-white border-2 border-primary/30 focus:border-primary focus:ring-0 focus:outline-none h-9 text-sm text-gray-900" />
                       </FormControl>
                       <FormMessage className="text-red-400 text-xs" />
                     </FormItem>
@@ -425,7 +425,7 @@ export default function CustomerLoginForm() {
                       <FormLabel className="text-gray-700 font-semibold text-xs">Address *</FormLabel>
                       <FormControl>
                         <Textarea placeholder="Enter your full address" {...field}
-                          className="bg-white border-2 border-primary/30 focus:border-primary text-sm text-gray-900 resize-none min-h-0" rows={1} />
+                          className="bg-white border-2 border-primary/30 focus:border-primary focus:ring-0 focus:outline-none text-sm text-gray-900 resize-none min-h-0" rows={1} />
                       </FormControl>
                       <FormMessage className="text-red-400 text-xs" />
                     </FormItem>
@@ -461,7 +461,7 @@ export default function CustomerLoginForm() {
                       <FormLabel className="text-gray-700 font-semibold text-xs">Any Note <span className="text-gray-400 font-normal">(optional)</span></FormLabel>
                       <FormControl>
                         <Textarea placeholder="Any special instructions..." {...field}
-                          className="bg-white border-2 border-primary/30 focus:border-primary text-sm text-gray-900 resize-none min-h-0" rows={1} />
+                          className="bg-white border-2 border-primary/30 focus:border-primary focus:ring-0 focus:outline-none text-sm text-gray-900 resize-none min-h-0" rows={1} />
                       </FormControl>
                     </FormItem>
                   )} />

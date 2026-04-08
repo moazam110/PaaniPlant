@@ -47,7 +47,7 @@ export default function LandingPage() {
               <h2 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-normal text-primary mb-4 text-center" style={{ fontFamily: 'Georgia, serif' }}>
                 The Paani<sup className="text-base font-normal">™</sup>
               </h2>
-              <p className="text-lg md:text-xl text-primary font-semibold text-center tracking-wide" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>
+              <p className="text-lg md:text-xl font-normal text-center tracking-wide" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic', color: 'hsl(var(--primary) / 0.45)' }}>
                 Simple Access to Your PAANI™ Orders
               </p>
             </div>
