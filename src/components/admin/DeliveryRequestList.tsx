@@ -14,7 +14,10 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, AlertTriangle, PlusCircle, Pencil, CheckCircle, XCircle, ArrowUpAZ, ArrowDownAZ, X } from 'lucide-react';
+import { Search, AlertTriangle, PlusCircle, Pencil, CheckCircle, XCircle, ArrowUpAZ, ArrowDownAZ, X, CalendarIcon, FileBarChart2, ReceiptText } from 'lucide-react';
+import AdminDeliveriesReportDialog from './AdminDeliveriesReportDialog';
+import AdminBulkBillsDialog from './AdminBulkBillsDialog';
+import { Calendar } from '@/components/ui/calendar';
 import { Input } from '@/components/ui/input';
 import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 import { format } from 'date-fns';
@@ -59,8 +62,13 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
   const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [filterDraft, setFilterDraft] = useState<{ start: string; end: string; cash: boolean; account: boolean; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>'; cancelled: boolean }>({ start: '', end: '', cash: false, account: false, cans: '', cansOp: '=', price: '', priceOp: '>', cancelled: false });
-  const [activeFilter, setActiveFilter] = useState<{ start: string; end: string; cash: boolean; account: boolean; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>'; cancelled: boolean }>({ start: '', end: '', cash: false, account: false, cans: '', cansOp: '=', price: '', priceOp: '>', cancelled: false });
+  const [filterStartOpen, setFilterStartOpen] = useState(false);
+  const [filterEndOpen, setFilterEndOpen] = useState(false);
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const [filterDraft, setFilterDraft] = useState<{ start: string; end: string; cash: boolean; account: boolean; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>'; cancelled: boolean; pending: boolean; processing: boolean; customerCreated: boolean }>({ start: '', end: '', cash: false, account: false, cans: '', cansOp: '=', price: '', priceOp: '>', cancelled: false, pending: false, processing: false, customerCreated: false });
+  const [activeFilter, setActiveFilter] = useState<{ start: string; end: string; cash: boolean; account: boolean; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>'; cancelled: boolean; pending: boolean; processing: boolean; customerCreated: boolean }>({ start: '', end: '', cash: false, account: false, cans: '', cansOp: '=', price: '', priceOp: '>', cancelled: false, pending: false, processing: false, customerCreated: false });
+  const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
+  const [isBulkBillsOpen, setIsBulkBillsOpen] = useState(false);
   const [addressSortOrder, setAddressSortOrder] = useState<'asc' | 'desc' | null>(null);
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
@@ -202,7 +210,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
   useEffect(() => {
     // Skip if initial load hasn't happened yet, or if cancelled/date filter is active
     const hasDateFilter = activeFilter.start || activeFilter.end;
-    if (isInitialLoadRef.current || activeFilter.cancelled || hasDateFilter) {
+    if (isInitialLoadRef.current || activeFilter.cancelled || activeFilter.pending || activeFilter.processing || activeFilter.customerCreated || hasDateFilter) {
       return;
     }
 
@@ -374,49 +382,47 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
     };
   }, [searchTerm, allCustomers]);
 
-  // Fetch ALL cancelled requests from backend when cancelled filter is active (NO PAGINATION)
+  // Fetch ALL records from backend when any status/customerCreated filter is active
   useEffect(() => {
-    if (activeFilter.cancelled) {
-      const fetchAllCancelledRequests = async () => {
+    const { cancelled, pending, processing, customerCreated } = activeFilter;
+    const hasStatusFilter = cancelled || pending || processing || customerCreated;
+
+    if (hasStatusFilter) {
+      const fetchStatusRequests = async () => {
         setIsLoading(true);
         try {
-          // Fetch all cancelled requests with a very high limit (no pagination)
-          const res = await fetch(buildApiUrl(`${API_ENDPOINTS.DELIVERY_REQUESTS}?page=1&limit=10000&status=cancelled`));
+          const params: string[] = ['page=1', 'limit=10000'];
+          if (pending) { params.push('status=pending'); params.push('status=pending_confirmation'); }
+          if (processing) params.push('status=processing');
+          if (cancelled) params.push('status=cancelled');
+          if (customerCreated) params.push('createdBy=customer_portal');
+
+          const res = await fetch(buildApiUrl(`${API_ENDPOINTS.DELIVERY_REQUESTS}?${params.join('&')}`));
           if (res.ok) {
             const result = await res.json();
             const data = Array.isArray(result) ? result : (result?.data || []);
-            
-            // Set all cancelled requests
             setLoadedRequests(data);
-            console.log('📦 Loaded ALL cancelled requests:', data.length);
           }
         } catch (err) {
-          console.error('Error fetching cancelled requests:', err);
-          toast({
-            variant: 'destructive',
-            title: 'Error',
-            description: 'Failed to fetch cancelled requests.'
-          });
+          console.error('Error fetching filtered requests:', err);
+          toast({ variant: 'destructive', title: 'Error', description: 'Failed to fetch requests.' });
         } finally {
           setIsLoading(false);
         }
       };
-      fetchAllCancelledRequests();
+      fetchStatusRequests();
       prevCancelledFilterRef.current = true;
     } else if (prevCancelledFilterRef.current) {
-      // Cancelled filter was just turned OFF - reset to normal data (100 most recent by creation time)
-      console.log('📦 Cancelled filter turned off - resetting to normal data');
+      // All filters turned OFF — reset to normal top-100
       const sortedByDate = [...deliveryRequests].sort((a, b) => {
         const timeA = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
         const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
-        return timeB - timeA; // Newest first
+        return timeB - timeA;
       });
-      const first100 = sortedByDate.slice(0, 100);
-      setLoadedRequests(first100);
+      setLoadedRequests(sortedByDate.slice(0, 100));
       prevCancelledFilterRef.current = false;
     }
-    // This prevents real-time updates from interfering with the cancelled filter
-  }, [activeFilter.cancelled]); // Removed deliveryRequests dependency to prevent reset on real-time updates
+  }, [activeFilter.cancelled, activeFilter.pending, activeFilter.processing, activeFilter.customerCreated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch ALL records for selected date range from backend when date filter is active (NO PAGINATION)
   useEffect(() => {
@@ -498,34 +504,18 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
     // This prevents real-time updates from interfering with the date filter
   }, [activeFilter.start, activeFilter.end]); // Removed deliveryRequests dependency to prevent reset on real-time updates
   
-  // Reset pagination when other filters change (but not cancelled - handled above)
-  // Also reset when cancelled filter is turned OFF
+  // Reset pagination when other filters change (status filters handled by their own useEffect above)
   useEffect(() => {
-    // If cancelled filter was just turned off, reset to normal data
-    if (!activeFilter.cancelled && loadedRequests.length > 0) {
-      // Check if we're currently showing cancelled-only data by checking if all requests are cancelled
-      const allCancelled = loadedRequests.every(req => req.status === 'cancelled');
-      if (allCancelled && loadedRequests.length > 100) {
-        // Likely showing cancelled-only data, reset to normal (100 most recent by creation time)
-        const sortedByDate = [...deliveryRequests].sort((a, b) => {
-          const timeA = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
-          const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
-          return timeB - timeA; // Newest first
-        });
-        const first100 = sortedByDate.slice(0, 100);
-        setLoadedRequests(first100);
-      }
+    const hasStatusFilter = activeFilter.cancelled || activeFilter.pending || activeFilter.processing;
+    if (!hasStatusFilter && loadedRequests.length > 100) {
+      const sortedByDate = [...deliveryRequests].sort((a, b) => {
+        const timeA = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
+        const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
+        return timeB - timeA;
+      });
+      setLoadedRequests(sortedByDate.slice(0, 100));
     }
-    
-    // Reset when other filters change (but not cancelled - handled above)
-    // NOTE: Don't reset loadedRequests to deliveryRequests here - that would lose paginated data
-    // Instead, let the filtering logic handle it
-    const { cancelled, ...otherFilters } = activeFilter;
-    if (Object.values(otherFilters).some(v => v !== false && v !== '' && v !== null)) {
-      // Filter change detected - but don't reset loadedRequests, just let filtering work
-      // The fullyFilteredRequests will handle the filtering
-    }
-  }, [activeFilter.start, activeFilter.end, activeFilter.cash, activeFilter.account, activeFilter.cans, activeFilter.price, activeFilter.cancelled]);
+  }, [activeFilter.start, activeFilter.end, activeFilter.cash, activeFilter.account, activeFilter.cans, activeFilter.price, activeFilter.cancelled, activeFilter.pending, activeFilter.processing]);
 
   // Cancellation state
   const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
@@ -658,28 +648,27 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
   // NOTE: Date filtering is now handled by backend fetch, so we don't need to filter here
   const fullyFilteredRequests = useMemo(() => {
     const list = filteredDeliveryRequests;
-    const { start, end, cash, account, cans, cansOp, price, priceOp, cancelled } = activeFilter;
+    const { start, end, cash, account, cans, cansOp, price, priceOp, cancelled, pending, processing, customerCreated } = activeFilter;
 
     // Early return if no filters are active (date filter is handled by backend fetch)
     const hasDateFilter = start || end;
     const hasPaymentFilter = cash || account;
     const cansFilterVal = cans && /^\d{1,2}$/.test(cans) ? Number(cans) : null;
     const priceFilterVal = price && /^\d{1,3}$/.test(price) ? Number(price) : null;
-    
+    const hasStatusFilter = cancelled || pending || processing;
+
     // If only date filter is active, return list as-is (already filtered by backend)
-    if (hasDateFilter && !hasPaymentFilter && cansFilterVal == null && priceFilterVal == null && !cancelled) {
+    if (hasDateFilter && !hasPaymentFilter && cansFilterVal == null && priceFilterVal == null && !hasStatusFilter && !customerCreated) {
       return list;
     }
-    
+
     // If no filters are active, return list
-    if (!hasDateFilter && !hasPaymentFilter && cansFilterVal == null && priceFilterVal == null && !cancelled) {
+    if (!hasDateFilter && !hasPaymentFilter && cansFilterVal == null && priceFilterVal == null && !hasStatusFilter && !customerCreated) {
       return list;
     }
 
     // Apply other filters (date filter already applied by backend)
     return list.filter(req => {
-      // Date filter is handled by backend, so we skip it here
-
       // Payment filter
       if (hasPaymentFilter) {
         const pt = ((req as any).paymentType || '').toString().toLowerCase();
@@ -708,10 +697,17 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
         if (op === '>' && !(p > priceFilterVal)) return false;
       }
 
-      // Cancelled filter
-      if (cancelled) {
-        if (req.status !== 'cancelled') return false;
+      // Status filters — any checked status is shown
+      if (hasStatusFilter) {
+        const s = req.status;
+        const matchesCancelled = cancelled && s === 'cancelled';
+        const matchesPending = pending && (s === 'pending' || s === 'pending_confirmation');
+        const matchesProcessing = processing && s === 'processing';
+        if (!matchesCancelled && !matchesPending && !matchesProcessing) return false;
       }
+
+      // Customer created filter
+      if (customerCreated && (req as any).createdBy !== 'customer_portal') return false;
 
       return true;
     });
@@ -1089,6 +1085,15 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
     return null;
   }
 
+  const formatDuration = (ms: number): string => {
+    if (ms <= 0) return '—';
+    const totalMinutes = Math.floor(ms / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours === 0) return `${minutes}m`;
+    return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-3 mt-4">
@@ -1139,8 +1144,28 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
             />
           </div>
           <div className="flex items-center gap-2">
-            <Button 
-              variant="default" 
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsReportDialogOpen(true)}
+              title="Deliveries Report"
+              className="px-2 md:px-3 border-primary text-primary hover:bg-primary hover:text-primary-foreground"
+            >
+              <FileBarChart2 className="h-4 w-4 md:mr-2" />
+              <span className="hidden md:inline">Report</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsBulkBillsOpen(true)}
+              title="Bulk Bills"
+              className="px-2 md:px-3 border-primary text-primary hover:bg-primary hover:text-primary-foreground"
+            >
+              <ReceiptText className="h-4 w-4 md:mr-2" />
+              <span className="hidden md:inline">Bulk Bills</span>
+            </Button>
+            <Button
+              variant="default"
               size="sm"
               onClick={fetchAllCustomers}
               disabled={isLoadingAllCustomers}
@@ -1162,26 +1187,71 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label className="mb-2 block">From Date (optional)</Label>
-                    <Input
-                      id="flt-start"
-                      type="date"
-                      value={filterDraft.start}
-                      onChange={(e) => setFilterDraft(prev => ({ ...prev, start: e.target.value }))}
-                    />
+                    <Label className="mb-2 block">From</Label>
+                    <Popover open={filterStartOpen} onOpenChange={setFilterStartOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn("w-full justify-start text-left font-normal text-sm h-9", !filterDraft.start && "text-muted-foreground")}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+                          {filterDraft.start ? format(new Date(filterDraft.start), "MMM d, yyyy") : "Pick date"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={filterDraft.start ? new Date(filterDraft.start) : undefined}
+                          onSelect={(date) => {
+                            setFilterDraft(prev => ({
+                              ...prev,
+                              start: date ? format(date, 'yyyy-MM-dd') : '',
+                              end: prev.end || (date ? todayStr : ''),
+                            }));
+                            setFilterStartOpen(false);
+                          }}
+                          initialFocus
+                        />
+                        {filterDraft.start && (
+                          <div className="p-2 border-t">
+                            <Button variant="ghost" size="sm" className="w-full text-xs" onClick={() => { setFilterDraft(prev => ({ ...prev, start: '' })); setFilterStartOpen(false); }}>Clear</Button>
+                          </div>
+                        )}
+                      </PopoverContent>
+                    </Popover>
                   </div>
                   <div>
-                    <Label className="mb-2 block">To Date (optional)</Label>
-                    <Input
-                      id="flt-end"
-                      type="date"
-                      value={filterDraft.end}
-                      onChange={(e) => setFilterDraft(prev => ({ ...prev, end: e.target.value }))}
-                    />
+                    <Label className="mb-2 block">To</Label>
+                    <Popover open={filterEndOpen} onOpenChange={setFilterEndOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn("w-full justify-start text-left font-normal text-sm h-9", !filterDraft.end && "text-muted-foreground")}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+                          {filterDraft.end ? format(new Date(filterDraft.end), "MMM d, yyyy") : "Pick date"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={filterDraft.end ? new Date(filterDraft.end) : undefined}
+                          onSelect={(date) => {
+                            setFilterDraft(prev => ({ ...prev, end: date ? format(date, 'yyyy-MM-dd') : '' }));
+                            setFilterEndOpen(false);
+                          }}
+                          initialFocus
+                        />
+                        {filterDraft.end && (
+                          <div className="p-2 border-t">
+                            <Button variant="ghost" size="sm" className="w-full text-xs" onClick={() => { setFilterDraft(prev => ({ ...prev, end: '' })); setFilterEndOpen(false); }}>Clear</Button>
+                          </div>
+                        )}
+                      </PopoverContent>
+                    </Popover>
                   </div>
                 </div>
                 <div>
-                  <Label className="mb-2 block">Payment Type</Label>
                   <div className="flex items-center gap-6">
                     <div className="flex items-center gap-2">
                       <Checkbox id="flt-cash" checked={filterDraft.cash} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, cash: !!v }))} />
@@ -1193,70 +1263,23 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
                     </div>
                   </div>
                 </div>
-                <div>
-                  <Label className="mb-2 block">Cans (optional)</Label>
+                <div className="flex flex-col gap-y-2">
                   <div className="flex items-center gap-2">
-                    <div className="w-24">
-                      <Select value={filterDraft.cansOp} onValueChange={(v) => setFilterDraft(prev => ({ ...prev, cansOp: v as any }))}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value=">">Greater</SelectItem>
-                          <SelectItem value="=">Equal</SelectItem>
-                          <SelectItem value="<">Less</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <Input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      maxLength={2}
-                      placeholder="e.g., 12"
-                      value={filterDraft.cans}
-                      onChange={(e) => {
-                        const digits = e.target.value.replace(/\D+/g, '').slice(0, 2);
-                        setFilterDraft(prev => ({ ...prev, cans: digits }));
-                      }}
-                    />
+                    <Checkbox id="flt-pending" checked={filterDraft.pending} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, pending: !!v, processing: false, cancelled: false }))} />
+                    <Label htmlFor="flt-pending">Only Show Pending</Label>
                   </div>
-                </div>
-                <div>
-                  <Label className="mb-2 block">Price (optional)</Label>
                   <div className="flex items-center gap-2">
-                    <div className="w-24">
-                      <Select value={filterDraft.priceOp} onValueChange={(v) => setFilterDraft(prev => ({ ...prev, priceOp: v as any }))}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value=">">Greater</SelectItem>
-                          <SelectItem value="=">Equal</SelectItem>
-                          <SelectItem value="<">Less</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <Input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      maxLength={3}
-                      placeholder="e.g., 100"
-                      value={filterDraft.price}
-                      onChange={(e) => {
-                        const digits = e.target.value.replace(/\D+/g, '').slice(0, 3);
-                        setFilterDraft(prev => ({ ...prev, price: digits }));
-                      }}
-                    />
+                    <Checkbox id="flt-processing" checked={filterDraft.processing} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, processing: !!v, pending: false, cancelled: false }))} />
+                    <Label htmlFor="flt-processing">Only Show Processing</Label>
                   </div>
-                </div>
-                <div>
-                  <Label className="mb-2 block">Cancelled</Label>
                   <div className="flex items-center gap-2">
-                    <Checkbox id="flt-cancelled" checked={filterDraft.cancelled} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, cancelled: !!v }))} />
+                    <Checkbox id="flt-cancelled" checked={filterDraft.cancelled} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, cancelled: !!v, pending: false, processing: false }))} />
                     <Label htmlFor="flt-cancelled">Only Show Cancelled</Label>
                   </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox id="flt-customer-created" checked={filterDraft.customerCreated} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, customerCreated: !!v }))} />
+                  <Label htmlFor="flt-customer-created">Customer Created</Label>
                 </div>
                 <div>
                   <Label className="mb-2 block">Address Sort</Label>
@@ -1282,8 +1305,8 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
                   </div>
                 </div>
                 <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => { 
-                    const clearedFilter = { start: '', end: '', cash: false, account: false, cans: '', cansOp: '=' as const, price: '', priceOp: '>' as const, cancelled: false };
+                  <Button variant="outline" onClick={() => {
+                    const clearedFilter = { start: '', end: '', cash: false, account: false, cans: '', cansOp: '=' as const, price: '', priceOp: '>' as const, cancelled: false, pending: false, processing: false, customerCreated: false };
                     setFilterDraft(clearedFilter);
                     setActiveFilter(clearedFilter);
                     setIsFilterOpen(false);
@@ -1574,7 +1597,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
                     <TableHead className="w-[15%] text-center whitespace-nowrap">Notes</TableHead>
                   </>
                 )}
-                <TableHead className="w-[10%] text-center whitespace-nowrap">Edit</TableHead>
+                <TableHead className="w-[10%] text-center whitespace-nowrap">Edit / Time</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1645,14 +1668,31 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
                         <Button variant="ghost" size="icon" title="Edit Request" onClick={() => onEditRequest(request)}>
                             <Pencil className="h-4 w-4 text-blue-600" />
                         </Button>
+                      ) : isDelivered ? (
+                        (() => {
+                          const deliveredMs = (request as any).deliveredAt && request.requestedAt
+                            ? new Date((request as any).deliveredAt).getTime() - new Date(request.requestedAt).getTime()
+                            : 0;
+                          const processingMs = (request as any).processingAt && request.requestedAt
+                            ? new Date((request as any).processingAt).getTime() - new Date(request.requestedAt).getTime()
+                            : 0;
+                          return (
+                            <div className="text-xs text-left inline-block">
+                              <div className="font-bold">{deliveredMs > 0 ? formatDuration(deliveredMs) : '—'}</div>
+                              {processingMs > 0 && (
+                                <div className="text-muted-foreground text-[10px]">{formatDuration(processingMs)}</div>
+                              )}
+                            </div>
+                          );
+                        })()
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
                       {(request.status === 'pending' || request.status === 'pending_confirmation' || request.status === 'processing') && (
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          title="Cancel Request" 
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Cancel Request"
                           onClick={() => openCancelDialog(request)}
                           className="text-red-600 hover:text-red-700"
                         >
@@ -1807,6 +1847,15 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AdminDeliveriesReportDialog
+        open={isReportDialogOpen}
+        onOpenChange={setIsReportDialogOpen}
+      />
+      <AdminBulkBillsDialog
+        open={isBulkBillsOpen}
+        onOpenChange={setIsBulkBillsOpen}
+      />
     </div>
   );
 });

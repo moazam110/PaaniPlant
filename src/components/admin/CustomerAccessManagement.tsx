@@ -19,7 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Eye, EyeOff, Key, UserPlus, Save, X, CheckCircle2, MapPin, Phone, User } from 'lucide-react';
+import { Eye, EyeOff, Key, UserPlus, Save, X, CheckCircle2, MapPin, Phone, User, Search } from 'lucide-react';
 import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 import type { Customer } from '@/types';
 import {
@@ -54,6 +54,7 @@ export default function CustomerAccessManagement({ onClose }: CustomerAccessMana
   const [editingCredential, setEditingCredential] = useState<{ customerId: string; username: string; password: string } | null>(null);
   const [showPassword, setShowPassword] = useState<Set<string>>(new Set());
   const [generatingPassword, setGeneratingPassword] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Load all customers without pagination when Grant Access is clicked
   const fetchAllCustomers = async () => {
@@ -368,16 +369,15 @@ export default function CustomerAccessManagement({ onClose }: CustomerAccessMana
   // Display customers based on showAllCustomers state
   // MUST be before any conditional returns (Rules of Hooks)
   const displayCustomers = useMemo(() => {
+    let list: Customer[];
     if (showAllCustomers) {
-      // Show all customers sorted by ID ascending
-      return [...allCustomers].sort((a, b) => {
+      list = [...allCustomers].sort((a, b) => {
         const aId = (a as any).id || 0;
         const bId = (b as any).id || 0;
-        return aId - bId; // Ascending order
+        return aId - bId;
       });
     } else {
-      // Show only customers with active dashboard access
-      return allCustomers.filter(customer => {
+      list = allCustomers.filter(customer => {
         const rawCustomerId = customer._id || (customer as any).customerId;
         const customerId = rawCustomerId && typeof rawCustomerId === 'object'
           ? String(rawCustomerId._id || rawCustomerId)
@@ -385,7 +385,12 @@ export default function CustomerAccessManagement({ onClose }: CustomerAccessMana
         return credentials.has(customerId) && credentials.get(customerId)?.hasDashboardAccess;
       });
     }
-  }, [allCustomers, credentials, showAllCustomers]);
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      list = list.filter(c => String((c as any).id || '').toLowerCase().includes(q));
+    }
+    return list;
+  }, [allCustomers, credentials, showAllCustomers, searchQuery]);
 
   // Loading state - must be after all hooks
   if (isLoading) {
@@ -412,6 +417,17 @@ export default function CustomerAccessManagement({ onClose }: CustomerAccessMana
           <UserPlus className="mr-2 h-4 w-4" />
           {isLoadingCustomers ? "Loading..." : showAllCustomers ? "Hide All Customers" : "Grant Access"}
         </Button>
+      </div>
+
+      {/* Search Bar */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search by Customer ID..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-9"
+        />
       </div>
 
       {/* Customers List */}

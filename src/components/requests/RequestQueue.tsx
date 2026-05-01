@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, memo } from 'react';
+import React, { useState, useMemo } from 'react';
 import type { DeliveryRequest } from '@/types';
 import RequestCard from './RequestCard';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -10,10 +10,10 @@ interface RequestQueueProps {
   onMarkAsDone: (requestId: string) => void;
   onCancel?: (requestId: string) => void;
   addressSortOrder?: 'asc' | 'desc' | null;
+  fcfs?: boolean;
 }
 
-// PHASE 5: Memoized component to prevent unnecessary re-renders
-const RequestQueue: React.FC<RequestQueueProps> = memo(({ requests, onMarkAsDone, onCancel, addressSortOrder }) => {
+const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onCancel, addressSortOrder, fcfs }) => {
   const [expandedDelivered, setExpandedDelivered] = useState<Record<string, boolean>>({});
   
   const toggleDelivered = (key: string) => {
@@ -44,33 +44,29 @@ const RequestQueue: React.FC<RequestQueueProps> = memo(({ requests, onMarkAsDone
     return requests
       .filter(req => (req.status === 'pending' || req.status === 'pending_confirmation'))
       .sort((a, b) => {
-        if (addressSortOrder) {
-          return compareByAddress(a, b, addressSortOrder);
-        }
-        if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
-        if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
-        
+        if (addressSortOrder) return compareByAddress(a, b, addressSortOrder);
         const timeA = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
         const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
-        return timeB - timeA; // Newest first (new requests at top)
+        if (fcfs) return timeA - timeB; // FCFS: pure time order, no priority grouping
+        if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
+        if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
+        return timeB - timeA;
       });
-  }, [requests, addressSortOrder]);
+  }, [requests, addressSortOrder, fcfs]);
 
   const processingRequests = useMemo(() => {
     return requests
       .filter(req => req.status === 'processing')
       .sort((a, b) => {
-        if (addressSortOrder) {
-          return compareByAddress(a, b, addressSortOrder);
-        }
-        if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
-        if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
-        
+        if (addressSortOrder) return compareByAddress(a, b, addressSortOrder);
         const timeA = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
         const timeB = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
-        return timeB - timeA; // Newest first (new requests at top)
+        if (fcfs) return timeA - timeB;
+        if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
+        if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
+        return timeB - timeA;
       });
-  }, [requests, addressSortOrder]);
+  }, [requests, addressSortOrder, fcfs]);
 
   const deliveredRequests = useMemo(() => {
     // Pre-compute date boundaries
@@ -198,16 +194,6 @@ const RequestQueue: React.FC<RequestQueueProps> = memo(({ requests, onMarkAsDone
       </Accordion>
     </div>
   );
-}, (prevProps, nextProps) => {
-  // PHASE 5: Custom comparison - only re-render if props actually change
-  return (
-    prevProps.requests === nextProps.requests &&
-    prevProps.onMarkAsDone === nextProps.onMarkAsDone &&
-    prevProps.onCancel === nextProps.onCancel &&
-    prevProps.addressSortOrder === nextProps.addressSortOrder
-  );
-});
-
-RequestQueue.displayName = 'RequestQueue';
+};
 
 export default RequestQueue;

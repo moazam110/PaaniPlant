@@ -25,7 +25,7 @@ const customerFormSchema = z.object({
   defaultCans: z.coerce.number().min(0, { message: "Default cans cannot be negative." }).default(1),
   pricePerCan: z.coerce.number().min(0, { message: "Price per can cannot be negative." }).max(999, { message: "Price cannot exceed 999." }),
   notes: z.string().optional(),
-  paymentType: z.enum(['cash','account']).optional(),
+  paymentType: z.enum(['cash','account'], { required_error: 'Please select a payment type.' }),
 });
 
 type CustomerFormValues = z.infer<typeof customerFormSchema>;
@@ -83,7 +83,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
       defaultCans: 1,
       pricePerCan: 0, // Set to minimum allowed value
       notes: "",
-      paymentType: 'account' as any,
+      paymentType: undefined as any,
     },
   });
 
@@ -94,9 +94,9 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
         phone: editingCustomer.phone || "",
         address: editingCustomer.address,
         defaultCans: editingCustomer.defaultCans,
-        pricePerCan: editingCustomer.pricePerCan || 1,
+        pricePerCan: editingCustomer.pricePerCan ?? 0,
         notes: editingCustomer.notes || "",
-        paymentType: (editingCustomer as any).paymentType || 'account',
+        paymentType: (editingCustomer as any).paymentType,
       });
 
       const fetchCustomerStats = async (month?: string, year?: string) => {
@@ -277,7 +277,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
         defaultCans: Number(data.defaultCans) || 1,
         pricePerCan: Number(data.pricePerCan) || 0, // Ensure 0 is properly handled
         notes: data.notes?.trim() || "",
-        paymentType: (data as any).paymentType || 'account',
+        paymentType: data.paymentType,
       };
 
       console.log('Submitting customer data:', customerDataToSave);
@@ -554,7 +554,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
           name="paymentType"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Payment Type</FormLabel>
+              <FormLabel>Payment Type <span className="text-destructive">*</span></FormLabel>
               <FormControl>
                 <div className="flex items-center gap-6">
                   <label className="flex items-center gap-2 text-sm">

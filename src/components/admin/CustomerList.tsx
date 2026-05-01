@@ -15,7 +15,8 @@ import {
 } from "@/components/ui/table";
 // Removed Avatar imports to save space
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Pencil, Star, ArrowUpAZ, ArrowDownAZ } from 'lucide-react';
+import { Search, Pencil, Star, ArrowUpAZ, ArrowDownAZ, FileText, FileSpreadsheet } from 'lucide-react';
+import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
@@ -27,7 +28,7 @@ import { Input as TextInput } from '@/components/ui/input';
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
 import { Calendar } from '@/components/ui/calendar';
 import { Label } from '@/components/ui/label';
-import { ListFilter } from 'lucide-react';
+import { ListFilter, CalendarIcon } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 
 interface CustomerListProps {
@@ -59,7 +60,13 @@ const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEd
   const [activeFilter, setActiveFilter] = useState<{ start: string; end: string; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>'; ptCash: boolean; ptAccount: boolean }>({ start: '', end: '', cans: '', cansOp: '<', price: '', priceOp: '=', ptCash: false, ptAccount: false });
   const [customerCansMap, setCustomerCansMap] = useState<Record<string, number>>({});
   const [addressSortOrder, setAddressSortOrder] = useState<'asc' | 'desc' | null>(null);
-  const [idSortOrder, setIdSortOrder] = useState<'asc' | null>(null); // Only ascending for ID sort
+  const [idSortOrder, setIdSortOrder] = useState<'asc' | null>(null);
+  const [showInactive, setShowInactive] = useState(false);
+  const [lastDeliveryMap, setLastDeliveryMap] = useState<Record<string, string>>({});
+  const [inactiveSortCol, setInactiveSortCol] = useState<'name' | 'address' | 'price' | 'days'>('name');
+  const [inactiveSortDir, setInactiveSortDir] = useState<'asc' | 'desc'>('asc');
+  const [filterStartOpen, setFilterStartOpen] = useState(false);
+  const [filterEndOpen, setFilterEndOpen] = useState(false);
   
   const fetchCustomers = async (page: number = 1, append: boolean = false) => {
     if (append) {
@@ -156,10 +163,35 @@ const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEd
 
   useEffect(() => {
     fetchCustomers();
-    
-    // No separate refresh interval - admin dashboard refreshes every 3 seconds
-    // Customer data will be updated through the main admin dashboard refresh system
   }, []);
+
+  // Fetch last delivery dates when inactive checkbox is toggled on
+  useEffect(() => {
+    if (!showInactive) return;
+    const fetchLastDeliveries = async () => {
+      try {
+        const res = await fetch(buildApiUrl('api/customers/last-delivery'));
+        if (!res.ok) return;
+        const json = await res.json();
+        const map: Record<string, string> = {};
+        for (const row of json.data || []) {
+          map[row.customerId] = row.lastDeliveryDate;
+        }
+        setLastDeliveryMap(map);
+        // Also fetch ALL customers so we don't miss any inactive ones
+        const allRes = await fetch(`${buildApiUrl(API_ENDPOINTS.CUSTOMERS)}?page=1&limit=10000`);
+        if (allRes.ok) {
+          const allResult = await allRes.json();
+          const allData: Customer[] = Array.isArray(allResult) ? allResult : (allResult?.data || []);
+          setAllCustomers(allData);
+          setHasMore(false);
+        }
+      } catch (e) {
+        console.warn('Failed to fetch last deliveries:', e);
+      }
+    };
+    fetchLastDeliveries();
+  }, [showInactive]);
 
   // When ascending filter is activated, fetch ALL customers (no pagination)
   useEffect(() => {
@@ -280,7 +312,7 @@ const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEd
     console.log('Customer cans map size:', Object.keys(customerCansMap).length);
     console.log('Customer cans map sample:', Object.entries(customerCansMap).slice(0, 3));
 
-    if (!hasDateFilter && !hasCansFilter && !hasPriceFilter && !hasPtFilter && !addressSortOrder && !idSortOrder) {
+    if (!hasDateFilter && !hasCansFilter && !hasPriceFilter && !hasPtFilter && !addressSortOrder && !idSortOrder && !showInactive) {
       console.log('No filters active, returning all customers');
       return list;
     }
@@ -349,8 +381,205 @@ const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEd
     });
     }
     
+    // Inactive customers — show all, sorted by selected column
+    if (showInactive) {
+      const dir = inactiveSortDir === 'asc' ? 1 : -1;
+      return [...allCustomers].sort((a, b) => {
+        if (inactiveSortCol === 'name') {
+          const aId = (a as any).id ?? 0;
+          const bId = (b as any).id ?? 0;
+          return (aId - bId) * dir;
+        }
+        if (inactiveSortCol === 'address') {
+          const aA = (a.address || '').toString().toLowerCase();
+          const bA = (b.address || '').toString().toLowerCase();
+          return aA < bA ? -dir : aA > bA ? dir : 0;
+        }
+        if (inactiveSortCol === 'price') {
+          return ((a.pricePerCan || 0) - (b.pricePerCan || 0)) * dir;
+        }
+        // days
+        const now = Date.now();
+        const getAge = (c: Customer) => {
+          const lastDate = lastDeliveryMap[String(c._id || (c as any).customerId || '')];
+          return lastDate ? now - new Date(lastDate).getTime() : Infinity;
+        };
+        return (getAge(a) - getAge(b)) * dir;
+      });
+    }
+
     return filtered;
-  }, [filteredCustomers, activeFilter, customerCansMap, addressSortOrder, idSortOrder]);
+  }, [filteredCustomers, activeFilter, customerCansMap, addressSortOrder, idSortOrder, showInactive, lastDeliveryMap, allCustomers, inactiveSortCol, inactiveSortDir]);
+
+  const buildFilterDescription = () => {
+    const parts: string[] = [];
+    if (showInactive) parts.push('Deactivated Customers');
+    if (searchTerm.trim()) parts.push(`Search: "${searchTerm.trim()}"`);
+    if (activeFilter.ptCash) parts.push('Cash only');
+    if (activeFilter.ptAccount) parts.push('Account only');
+    if (idSortOrder === 'asc') parts.push('Sort: ID Ascending');
+    if (addressSortOrder === 'asc') parts.push('Sort: Address A→Z');
+    if (addressSortOrder === 'desc') parts.push('Sort: Address Z→A');
+    if (inactiveSortCol !== 'name' || inactiveSortDir !== 'asc') {
+      const colLabel = inactiveSortCol === 'address' ? 'Address' : inactiveSortCol === 'price' ? 'Price/Can' : inactiveSortCol === 'days' ? 'Days Inactive' : 'Name';
+      if (showInactive) parts.push(`Sort: ${colLabel} ${inactiveSortDir === 'asc' ? '↑' : '↓'}`);
+    }
+    return parts.length > 0 ? parts.join(' · ') : 'All Customers';
+  };
+
+  const buildPdfDoc = async () => {
+    const { default: jsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
+
+    const doc = new jsPDF({ orientation: 'landscape' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const lx = 14;
+
+    doc.setFontSize(20); doc.setFont('helvetica', 'bold'); doc.setTextColor(63, 81, 181);
+    doc.text('The Paani™', lx, 18);
+    doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(90);
+    doc.text('RAHMATPUR LATIF COLONY, NEAR ARFAT MASJID, LARKANO', lx, 24);
+    doc.text('TEL: 0333 786 0 444', lx, 29);
+    doc.setTextColor(63, 81, 181);
+    doc.textWithLink('www.paani.online', lx, 34, { url: 'https://www.paani.online' });
+
+    doc.setFontSize(14); doc.setFont('helvetica', 'bold'); doc.setTextColor(63, 81, 181);
+    doc.text('CUSTOMERS REPORT', pageW - lx, 18, { align: 'right' });
+    doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(60);
+    doc.text(`Filter: ${buildFilterDescription()}`, pageW - lx, 24, { align: 'right' });
+    doc.text(`Total: ${filteredAndAggregatedCustomers.length} customers`, pageW - lx, 29, { align: 'right' });
+    doc.text(`Generated: ${format(new Date(), 'MMM d, yyyy HH:mm')}`, pageW - lx, 34, { align: 'right' });
+
+    doc.setDrawColor(63, 81, 181); doc.setLineWidth(0.5); doc.line(lx, 38, pageW - lx, 38);
+
+    // Landscape 269mm total
+    const headRow = showInactive
+      ? [
+          { content: 'ID', styles: { halign: 'center' } },
+          { content: 'Name', styles: { halign: 'left' } },
+          { content: 'Phone', styles: { halign: 'left' } },
+          { content: 'Address', styles: { halign: 'left' } },
+          { content: 'Payment Type', styles: { halign: 'center' } },
+          { content: 'Default Cans', styles: { halign: 'center' } },
+          { content: 'Price / Can', styles: { halign: 'right' } },
+          { content: 'Days Inactive', styles: { halign: 'center' } },
+        ]
+      : [
+          { content: 'ID', styles: { halign: 'center' } },
+          { content: 'Name', styles: { halign: 'left' } },
+          { content: 'Phone', styles: { halign: 'left' } },
+          { content: 'Address', styles: { halign: 'left' } },
+          { content: 'Payment Type', styles: { halign: 'center' } },
+          { content: 'Default Cans', styles: { halign: 'center' } },
+          { content: 'Price / Can', styles: { halign: 'right' } },
+        ];
+
+    const bodyRows = filteredAndAggregatedCustomers.map((c) => {
+      const cid = String(c._id || (c as any).customerId || '');
+      const lastDate = lastDeliveryMap[cid];
+      const days = lastDate ? Math.floor((Date.now() - new Date(lastDate).getTime()) / 86400000) : null;
+      const base = [
+        String((c as any).id || '-'),
+        c.name,
+        c.phone || '-',
+        c.address,
+        ((c as any).paymentType === 'account' ? 'Account' : 'Cash'),
+        String(c.defaultCans),
+        typeof c.pricePerCan === 'number' ? `Rs. ${c.pricePerCan}` : '-',
+      ];
+      if (showInactive) base.push(days === null ? 'Never' : `${days}d`);
+      return base;
+    });
+
+    const colStyles = showInactive
+      ? { 0: { cellWidth: 12, halign: 'center' as const }, 1: { cellWidth: 60, halign: 'left' as const }, 2: { cellWidth: 28, halign: 'left' as const }, 3: { cellWidth: 72, halign: 'left' as const }, 4: { cellWidth: 24, halign: 'center' as const }, 5: { cellWidth: 18, halign: 'center' as const }, 6: { cellWidth: 20, halign: 'right' as const }, 7: { cellWidth: 35, halign: 'center' as const } }
+      : { 0: { cellWidth: 12, halign: 'center' as const }, 1: { cellWidth: 75, halign: 'left' as const }, 2: { cellWidth: 30, halign: 'left' as const }, 3: { cellWidth: 85, halign: 'left' as const }, 4: { cellWidth: 25, halign: 'center' as const }, 5: { cellWidth: 20, halign: 'center' as const }, 6: { cellWidth: 22, halign: 'right' as const } };
+
+    autoTable(doc, {
+      startY: 43,
+      head: [headRow],
+      body: bodyRows,
+      headStyles: { fillColor: [63, 81, 181], fontSize: 9, fontStyle: 'bold' },
+      styles: { fontSize: 8.5, cellPadding: 3 },
+      columnStyles: colStyles,
+      alternateRowStyles: { fillColor: [248, 249, 255] },
+    });
+
+    const disclaimer = 'This is a system-generated report and does not require a signature.';
+    doc.setFontSize(9.5); doc.setFont('helvetica', 'italic'); doc.setTextColor(150, 150, 150);
+    const dw = doc.getTextWidth(disclaimer);
+    doc.text(disclaimer, (pageW - dw) / 2, pageH - 6);
+
+    return doc;
+  };
+
+  const handleExportPDF = async () => {
+    const doc = await buildPdfDoc();
+    doc.save(`ThePaani_Customers_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+  };
+
+  const handleExportExcel = async () => {
+    const XLSX = await import('xlsx');
+    const header = [
+      ['The Paani™ — Customers Report'],
+      ['RAHMATPUR LATIF COLONY, NEAR ARFAT MASJID, LARKANO'],
+      ['TEL: 0333 786 0 444  |  www.paani.online'],
+      [],
+      [`Filter: ${buildFilterDescription()}`],
+      [`Total: ${filteredAndAggregatedCustomers.length} customers`],
+      [`Generated: ${format(new Date(), 'MMM d, yyyy HH:mm')}`],
+      [],
+      showInactive
+        ? ['ID', 'Name', 'Phone', 'Address', 'Payment Type', 'Default Cans', 'Price / Can (Rs)', 'Days Inactive']
+        : ['ID', 'Name', 'Phone', 'Address', 'Payment Type', 'Default Cans', 'Price / Can (Rs)'],
+    ];
+    const rows = filteredAndAggregatedCustomers.map((c) => {
+      const cid = String(c._id || (c as any).customerId || '');
+      const lastDate = lastDeliveryMap[cid];
+      const days = lastDate ? Math.floor((Date.now() - new Date(lastDate).getTime()) / 86400000) : null;
+      const base = [
+        (c as any).id || '-',
+        c.name,
+        c.phone || '-',
+        c.address,
+        ((c as any).paymentType === 'account' ? 'Account' : 'Cash'),
+        c.defaultCans,
+        typeof c.pricePerCan === 'number' ? c.pricePerCan : '-',
+      ];
+      if (showInactive) base.push(days === null ? 'Never' : `${days}d`);
+      return base;
+    });
+    const ws = XLSX.utils.aoa_to_sheet([...header, ...rows]);
+    ws['!cols'] = showInactive
+      ? [{ wch: 5 }, { wch: 28 }, { wch: 14 }, { wch: 32 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 14 }]
+      : [{ wch: 5 }, { wch: 28 }, { wch: 14 }, { wch: 32 }, { wch: 14 }, { wch: 12 }, { wch: 12 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Customers');
+    XLSX.writeFile(wb, `ThePaani_Customers_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+  };
+
+  const handleWhatsAppShare = async () => {
+    const text =
+      `*The Paani™ — Customers Report*\n\n` +
+      `*Filter:* ${buildFilterDescription()}\n` +
+      `*Total Customers:* ${filteredAndAggregatedCustomers.length}\n` +
+      `*Generated:* ${format(new Date(), 'MMM d, yyyy HH:mm')}`;
+
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        const doc = await buildPdfDoc();
+        const pdfBlob = doc.output('blob');
+        const pdfFile = new File([pdfBlob], `ThePaani_Customers_${format(new Date(), 'yyyy-MM-dd')}.pdf`, { type: 'application/pdf' });
+        if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+          await navigator.share({ files: [pdfFile], title: 'The Paani™ Customers Report' });
+          return;
+        }
+      } catch { /* fall through */ }
+      try { await navigator.share({ text }); return; } catch { /* fall through */ }
+    }
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+  };
 
   if (isLoading) {
     return (
@@ -383,7 +612,7 @@ const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEd
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center space-x-2">
+      <div className="flex items-center flex-wrap gap-2">
         <Search className="h-4 w-4 text-muted-foreground" />
         <Input
           placeholder="Search all customers by name, phone, or address..."
@@ -391,6 +620,15 @@ const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEd
           onChange={(e) => setSearchTerm(e.target.value)}
           className={`max-w-sm ${isSearching ? 'opacity-70' : ''}`}
         />
+        <label className="flex items-center gap-1.5 cursor-pointer select-none bg-orange-50 border border-orange-300 rounded-lg px-2.5 py-1.5 ml-1">
+          <input
+            type="checkbox"
+            checked={showInactive}
+            onChange={e => setShowInactive(e.target.checked)}
+            className="w-3.5 h-3.5 accent-orange-500"
+          />
+          <span className="text-xs font-medium text-orange-700">Deactivated Customers</span>
+        </label>
         <Button onClick={() => fetchCustomers(1, false)} variant="outline" size="sm">
           Refresh
         </Button>
@@ -405,21 +643,33 @@ const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEd
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <Label className="mb-2 block text-xs md:text-sm">Start Date (optional)</Label>
-                  <TextInput
-                    type="date"
-                    value={filterDraft.start}
-                    onChange={(e) => setFilterDraft(prev => ({ ...prev, start: e.target.value }))}
-                    className="h-9 md:h-10 text-sm"
-                  />
+                  <Popover open={filterStartOpen} onOpenChange={setFilterStartOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className={cn('w-full justify-start text-left font-normal text-sm h-9 md:h-10', !filterDraft.start && 'text-muted-foreground')}>
+                        <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+                        {filterDraft.start ? format(new Date(filterDraft.start + 'T00:00:00'), 'MMM d, yyyy') : 'Pick date'}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar mode="single" selected={filterDraft.start ? new Date(filterDraft.start + 'T00:00:00') : undefined}
+                        onSelect={(date) => { setFilterDraft(prev => ({ ...prev, start: date ? format(date, 'yyyy-MM-dd') : '' })); setFilterStartOpen(false); }} initialFocus />
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div>
                   <Label className="mb-2 block text-xs md:text-sm">End Date (optional)</Label>
-                  <TextInput
-                    type="date"
-                    value={filterDraft.end}
-                    onChange={(e) => setFilterDraft(prev => ({ ...prev, end: e.target.value }))}
-                    className="h-9 md:h-10 text-sm"
-                  />
+                  <Popover open={filterEndOpen} onOpenChange={setFilterEndOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className={cn('w-full justify-start text-left font-normal text-sm h-9 md:h-10', !filterDraft.end && 'text-muted-foreground')}>
+                        <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+                        {filterDraft.end ? format(new Date(filterDraft.end + 'T00:00:00'), 'MMM d, yyyy') : 'Pick date'}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar mode="single" selected={filterDraft.end ? new Date(filterDraft.end + 'T00:00:00') : undefined}
+                        onSelect={(date) => { setFilterDraft(prev => ({ ...prev, end: date ? format(date, 'yyyy-MM-dd') : '' })); setFilterEndOpen(false); }} initialFocus />
+                    </PopoverContent>
+                  </Popover>
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -431,9 +681,9 @@ const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEd
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="<">Less than</SelectItem>
-                        <SelectItem value="=">Equal to</SelectItem>
-                        <SelectItem value=">">Greater than</SelectItem>
+                        <SelectItem value="<">&lt;</SelectItem>
+                        <SelectItem value="=">=</SelectItem>
+                        <SelectItem value=">">&gt;</SelectItem>
                       </SelectContent>
                     </Select>
                     <TextInput
@@ -453,9 +703,9 @@ const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEd
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="<">Less than</SelectItem>
-                        <SelectItem value="=">Equal to</SelectItem>
-                        <SelectItem value=">">Greater than</SelectItem>
+                        <SelectItem value="<">&lt;</SelectItem>
+                        <SelectItem value="=">=</SelectItem>
+                        <SelectItem value=">">&gt;</SelectItem>
                       </SelectContent>
                     </Select>
                     <TextInput
@@ -561,6 +811,25 @@ const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEd
             </div>
           </PopoverContent>
         </Popover>
+
+        {filteredAndAggregatedCustomers.length > 0 && (
+          <>
+            <Button variant="outline" size="sm" onClick={handleExportPDF} title="Export PDF" className="border-primary text-primary hover:bg-primary hover:text-primary-foreground px-2">
+              <FileText className="h-4 w-4 md:mr-1.5" />
+              <span className="hidden md:inline text-xs">PDF</span>
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleExportExcel} title="Export Excel" className="border-green-600 text-green-700 hover:bg-green-600 hover:text-white px-2">
+              <FileSpreadsheet className="h-4 w-4 md:mr-1.5" />
+              <span className="hidden md:inline text-xs">Excel</span>
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleWhatsAppShare} title="Share on WhatsApp" className="px-2" style={{ borderColor: '#25D36650', color: '#25D366' }}>
+              <svg viewBox="0 0 24 24" className="h-4 w-4 fill-[#25D366]" xmlns="http://www.w3.org/2000/svg">
+                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+              </svg>
+              <span className="hidden md:inline text-xs ml-1.5">WhatsApp</span>
+            </Button>
+          </>
+        )}
       </div>
 
       {filteredAndAggregatedCustomers.length === 0 ? (
@@ -573,12 +842,49 @@ const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEd
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
+                <TableHead>
+                  {showInactive ? (
+                    <button
+                      onClick={() => { if (inactiveSortCol === 'name') { setInactiveSortDir(d => d === 'asc' ? 'desc' : 'asc'); } else { setInactiveSortCol('name'); setInactiveSortDir('asc'); } }}
+                      className="inline-flex items-center gap-1 hover:opacity-70 transition-opacity text-orange-600 font-semibold"
+                    >
+                      Name {inactiveSortCol === 'name' ? (inactiveSortDir === 'asc' ? <ArrowUpAZ className="h-3.5 w-3.5" /> : <ArrowDownAZ className="h-3.5 w-3.5" />) : <ArrowUpAZ className="h-3.5 w-3.5 opacity-20" />}
+                    </button>
+                  ) : 'Name'}
+                </TableHead>
                 <TableHead>Phone</TableHead>
-                <TableHead>Address</TableHead>
+                <TableHead>
+                  {showInactive ? (
+                    <button
+                      onClick={() => { if (inactiveSortCol === 'address') { setInactiveSortDir(d => d === 'asc' ? 'desc' : 'asc'); } else { setInactiveSortCol('address'); setInactiveSortDir('asc'); } }}
+                      className="inline-flex items-center gap-1 hover:opacity-70 transition-opacity text-orange-600 font-semibold"
+                    >
+                      Address {inactiveSortCol === 'address' ? (inactiveSortDir === 'asc' ? <ArrowUpAZ className="h-3.5 w-3.5" /> : <ArrowDownAZ className="h-3.5 w-3.5" />) : <ArrowUpAZ className="h-3.5 w-3.5 opacity-20" />}
+                    </button>
+                  ) : 'Address'}
+                </TableHead>
                 <TableHead className="w-[15%] text-center whitespace-nowrap">Payment Type</TableHead>
                 <TableHead className="w-[12%] text-center whitespace-nowrap">Default Cans</TableHead>
-                <TableHead className="w-[12%] text-center whitespace-nowrap">Price/Can</TableHead>
+                <TableHead className="w-[12%] text-center whitespace-nowrap">
+                  {showInactive ? (
+                    <button
+                      onClick={() => { if (inactiveSortCol === 'price') { setInactiveSortDir(d => d === 'asc' ? 'desc' : 'asc'); } else { setInactiveSortCol('price'); setInactiveSortDir('asc'); } }}
+                      className="inline-flex items-center gap-1 hover:opacity-70 transition-opacity text-orange-600 font-semibold"
+                    >
+                      Price/Can {inactiveSortCol === 'price' ? (inactiveSortDir === 'asc' ? <ArrowUpAZ className="h-3.5 w-3.5" /> : <ArrowDownAZ className="h-3.5 w-3.5" />) : <ArrowUpAZ className="h-3.5 w-3.5 opacity-20" />}
+                    </button>
+                  ) : 'Price/Can'}
+                </TableHead>
+                {showInactive && (
+                  <TableHead className="w-[14%] text-center whitespace-nowrap text-orange-600">
+                    <button
+                      onClick={() => { if (inactiveSortCol === 'days') { setInactiveSortDir(d => d === 'asc' ? 'desc' : 'asc'); } else { setInactiveSortCol('days'); setInactiveSortDir('asc'); } }}
+                      className="inline-flex items-center gap-1 hover:opacity-70 transition-opacity font-semibold"
+                    >
+                      Days Inactive {inactiveSortCol === 'days' ? (inactiveSortDir === 'asc' ? <ArrowUpAZ className="h-3.5 w-3.5" /> : <ArrowDownAZ className="h-3.5 w-3.5" />) : <ArrowUpAZ className="h-3.5 w-3.5 opacity-20" />}
+                    </button>
+                  </TableHead>
+                )}
                 <TableHead className="text-right">Edit</TableHead>
               </TableRow>
             </TableHeader>
@@ -610,7 +916,19 @@ const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEd
                       })()}
                     </TableCell>
                     <TableCell className="w-[12%] text-center whitespace-nowrap">{customer.defaultCans}</TableCell>
-                    <TableCell className="w-[12%] text-center whitespace-nowrap">{customer.pricePerCan ? `Rs. ${customer.pricePerCan}` : '-'}</TableCell>
+                    <TableCell className="w-[12%] text-center whitespace-nowrap">{typeof customer.pricePerCan === 'number' ? `Rs. ${customer.pricePerCan}` : '-'}</TableCell>
+                    {showInactive && (() => {
+                      const cid = String(customer._id || (customer as any).customerId || '');
+                      const lastDate = lastDeliveryMap[cid];
+                      const days = lastDate ? Math.floor((Date.now() - new Date(lastDate).getTime()) / (24 * 60 * 60 * 1000)) : null;
+                      return (
+                        <TableCell className="w-[14%] text-center whitespace-nowrap">
+                          <span className={cn('font-semibold text-sm', days === null ? 'text-gray-400' : days > 30 ? 'text-red-600' : 'text-orange-500')}>
+                            {days === null ? 'Never' : `${days}d`}
+                          </span>
+                        </TableCell>
+                      );
+                    })()}
                     <TableCell className="text-right">
                       {onEditCustomer && (
                         <Button 
@@ -633,7 +951,7 @@ const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEd
           </Table>
         </div>
           {/* Load More Button */}
-          {!searchTerm && !isSearching && hasMore && !idSortOrder && (
+          {!searchTerm && !isSearching && hasMore && !idSortOrder && !showInactive && (
             <div className="mt-4 flex justify-center">
               <Button 
                 onClick={loadMoreCustomers} 

@@ -38,4 +38,5 @@ export const API_ENDPOINTS = {
   UPLOAD: '/api/upload',
   CUSTOMER_CREDENTIALS: '/api/customer-credentials',
   CUSTOMER_LOGIN: '/api/customer-credentials/login',
+  PAYMENTS: '/api/payments',
 } as const;

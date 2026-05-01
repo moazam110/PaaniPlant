@@ -1,12 +1,11 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
@@ -40,6 +39,23 @@ export default function CustomerLoginForm() {
   const [showRegister, setShowRegister] = useState(false);
   const [isSubmittingRegister, setIsSubmittingRegister] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isNewCustomer, setIsNewCustomer] = useState<'YES' | 'NO' | null>(null);
+  const [showSuccessPopup, setShowSuccessPopup] = useState(false);
+
+  // Auto-redirect if session already exists
+  useEffect(() => {
+    const session = localStorage.getItem('customer_session');
+    if (session) {
+      try {
+        const parsed = JSON.parse(session);
+        if (parsed.customerId && parsed.customer) {
+          router.replace('/customer/dashboard');
+        }
+      } catch {
+        localStorage.removeItem('customer_session');
+      }
+    }
+  }, [router]);
 
   const registerForm = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
@@ -47,24 +63,25 @@ export default function CustomerLoginForm() {
   });
 
   const onRegisterSubmit = async (data: RegisterFormValues) => {
+    if (!isNewCustomer) {
+      toast({ variant: 'destructive', title: 'Required', description: 'Please select YES or NO for new customer.' });
+      return;
+    }
     setIsSubmittingRegister(true);
     try {
       const response = await fetch(buildApiUrl('api/register-request'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ ...data, isNewCustomer }),
       });
       if (!response.ok) {
         const err = await response.json();
         throw new Error(err.error || 'Failed to send request.');
       }
-      toast({
-        title: "Request Sent!",
-        description: "Your registration request has been sent. Admin will contact you shortly.",
-        duration: 10000,
-      });
       setShowRegister(false);
       registerForm.reset();
+      setIsNewCustomer(null);
+      setShowSuccessPopup(true);
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -367,65 +384,57 @@ export default function CustomerLoginForm() {
         </SheetContent>
       </Sheet>
 
-      {/* Floating WhatsApp Button */}
-      <a
-        href="https://wa.me/923337860444"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="fixed bottom-2 right-2 z-50 flex items-center justify-center w-14 h-14 rounded-full shadow-lg hover:shadow-xl hover:scale-110 active:scale-95 transition-all duration-200"
-        style={{ backgroundColor: '#25D366' }}
-        aria-label="Chat on WhatsApp"
-      >
-        <svg viewBox="0 0 24 24" className="w-7 h-7 fill-white" xmlns="http://www.w3.org/2000/svg">
-          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-        </svg>
-      </a>
-
       {/* Registration Dialog */}
       <Dialog open={showRegister} onOpenChange={setShowRegister}>
-        <DialogContent className="p-0 border-0 bg-transparent shadow-none max-w-sm w-full" aria-describedby={undefined}>
+        <DialogContent className="p-0 border-0 bg-transparent shadow-none max-w-[360px] w-full" aria-describedby={undefined}>
           <DialogTitle className="sr-only">Customer Registration Request</DialogTitle>
-          <div className="relative overflow-hidden rounded-3xl bg-white border border-white/30 shadow-2xl">
-            <div className="absolute inset-0 rounded-3xl bg-gradient-to-r from-primary/50 via-accent/50 to-primary/50 opacity-50 blur-xl"></div>
+          <div className="relative overflow-hidden rounded-3xl bg-white shadow-2xl">
+            <div className="absolute inset-0 rounded-3xl bg-gradient-to-r from-primary/50 via-accent/50 to-primary/50 opacity-40 blur-xl"></div>
             <div className="absolute inset-[1px] rounded-3xl bg-white"></div>
-            <div className="relative p-5">
+            <div className="relative px-5 pt-4 pb-3">
+
+              {/* Title */}
               <div className="text-center mb-3">
                 <h2 className="text-2xl font-black bg-gradient-to-r from-accent via-primary to-accent bg-clip-text text-transparent" style={{ backgroundSize: '200% auto' }}>
-                  REGISTER
+                  REGISTRATION
                 </h2>
                 <div className="h-0.5 w-14 mx-auto bg-gradient-to-r from-transparent via-primary to-transparent rounded-full mt-1"></div>
               </div>
 
               <Form {...registerForm}>
                 <form onSubmit={registerForm.handleSubmit(onRegisterSubmit)} className="space-y-2">
+
+                  {/* Full Name */}
                   <FormField control={registerForm.control} name="name" render={({ field }) => (
                     <FormItem className="space-y-1">
-                      <FormLabel className="text-gray-700 font-semibold text-xs">Full Name *</FormLabel>
+                      <FormLabel className="text-gray-700 font-semibold text-xs">Full Name <span className="text-red-500">*</span></FormLabel>
                       <FormControl>
-                        <Input placeholder="Enter your full name" {...field}
-                          className="bg-white border-2 border-primary/30 focus:border-primary focus:ring-0 focus:outline-none h-9 text-sm text-gray-900" />
+                        <Input placeholder="Enter Your Name/Sirname" {...field}
+                          className="bg-white border-2 border-primary/30 focus:border-primary focus-visible:ring-0 focus-visible:ring-offset-0 h-9 text-gray-900" />
                       </FormControl>
                       <FormMessage className="text-red-400 text-xs" />
                     </FormItem>
                   )} />
 
+                  {/* Mobile */}
                   <FormField control={registerForm.control} name="mobile" render={({ field }) => (
                     <FormItem className="space-y-1">
-                      <FormLabel className="text-gray-700 font-semibold text-xs">WhatsApp / Mobile *</FormLabel>
+                      <FormLabel className="text-gray-700 font-semibold text-xs">WhatsApp / Mobile <span className="text-red-500">*</span></FormLabel>
                       <FormControl>
                         <Input placeholder="e.g. 03001234567" {...field}
-                          className="bg-white border-2 border-primary/30 focus:border-primary focus:ring-0 focus:outline-none h-9 text-sm text-gray-900" />
+                          className="bg-white border-2 border-primary/30 focus:border-primary focus-visible:ring-0 focus-visible:ring-offset-0 h-9 text-gray-900" />
                       </FormControl>
                       <FormMessage className="text-red-400 text-xs" />
                     </FormItem>
                   )} />
 
+                  {/* Address */}
                   <FormField control={registerForm.control} name="address" render={({ field }) => (
                     <FormItem className="space-y-1">
-                      <FormLabel className="text-gray-700 font-semibold text-xs">Address *</FormLabel>
+                      <FormLabel className="text-gray-700 font-semibold text-xs">Address <span className="text-red-500">*</span></FormLabel>
                       <FormControl>
-                        <Textarea placeholder="Enter your full address" {...field}
-                          className="bg-white border-2 border-primary/30 focus:border-primary focus:ring-0 focus:outline-none text-sm text-gray-900 resize-none min-h-0" rows={1} />
+                        <Input placeholder="Enter Your Home Address Colony/Street" {...field}
+                          className="bg-white border-2 border-primary/30 focus:border-primary focus-visible:ring-0 focus-visible:ring-offset-0 h-9 text-gray-900" />
                       </FormControl>
                       <FormMessage className="text-red-400 text-xs" />
                     </FormItem>
@@ -441,40 +450,60 @@ export default function CustomerLoginForm() {
                             onClick={() => { const c = parseInt(field.value || '1'); if (c > 1) field.onChange(String(c - 1)); }}
                             disabled={parseInt(field.value || '1') <= 1}
                             className="h-9 w-9 flex-shrink-0 flex items-center justify-center rounded-lg border-2 border-primary/30 text-primary hover:bg-primary hover:text-white hover:border-primary transition-all disabled:opacity-40">
-                            <Minus className="h-3.5 w-3.5" />
+                            <Minus className="h-4 w-4" />
                           </button>
-                          <div className="flex-1 h-9 flex items-center justify-center border-2 border-primary/30 rounded-lg bg-white text-gray-900 font-bold text-sm">
+                          <div className="flex-1 h-9 flex items-center justify-center border-2 border-primary/30 rounded-lg bg-white text-gray-900 font-bold">
                             {field.value || '1'}
                           </div>
                           <button type="button"
                             onClick={() => { const c = parseInt(field.value || '1'); field.onChange(String(c + 1)); }}
                             className="h-9 w-9 flex-shrink-0 flex items-center justify-center rounded-lg border-2 border-primary/30 text-primary hover:bg-primary hover:text-white hover:border-primary transition-all">
-                            <Plus className="h-3.5 w-3.5" />
+                            <Plus className="h-4 w-4" />
                           </button>
                         </div>
                       </FormControl>
                     </FormItem>
                   )} />
 
+                  {/* Any Note */}
                   <FormField control={registerForm.control} name="notes" render={({ field }) => (
                     <FormItem className="space-y-1">
                       <FormLabel className="text-gray-700 font-semibold text-xs">Any Note <span className="text-gray-400 font-normal">(optional)</span></FormLabel>
                       <FormControl>
-                        <Textarea placeholder="Any special instructions..." {...field}
-                          className="bg-white border-2 border-primary/30 focus:border-primary focus:ring-0 focus:outline-none text-sm text-gray-900 resize-none min-h-0" rows={1} />
+                        <Input placeholder="Any Special Instructions..." {...field}
+                          className="bg-white border-2 border-primary/30 focus:border-primary focus-visible:ring-0 focus-visible:ring-offset-0 h-9 text-gray-900" />
                       </FormControl>
                     </FormItem>
                   )} />
 
-                  <div className="pt-2 space-y-1.5">
+                  {/* New customer YES/NO */}
+                  <div className="space-y-1">
+                    <p className="text-gray-700 font-semibold text-xs">Are You A New Customer? <span className="text-red-500">*</span></p>
+                    <div className="flex gap-4">
+                      {(['YES', 'NO'] as const).map(opt => (
+                        <label key={opt} className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isNewCustomer === opt}
+                            onChange={() => setIsNewCustomer(prev => prev === opt ? null : opt)}
+                            className="w-4 h-4 accent-primary"
+                          />
+                          <span className="text-sm font-bold text-gray-700">{opt}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="pt-1 space-y-1.5">
                     <Button type="submit" disabled={isSubmittingRegister}
-                      className="w-full h-10 text-sm font-bold bg-gradient-to-r from-primary via-accent to-primary hover:shadow-primary/50 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] relative overflow-hidden group"
+                      className="w-full h-10 font-bold bg-gradient-to-r from-primary via-accent to-primary hover:shadow-lg hover:shadow-primary/30 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] relative overflow-hidden group"
                       style={{ backgroundSize: '200% auto' }}>
                       <span className="relative z-10">{isSubmittingRegister ? 'Sending...' : 'Submit Request'}</span>
                       <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
                     </Button>
-                    <Button type="button" variant="ghost" onClick={() => { setShowRegister(false); registerForm.reset(); }}
-                      className="w-full h-7 text-xs text-gray-400 hover:text-gray-600">
+                    <Button type="button" variant="ghost" onClick={() => { setShowRegister(false); registerForm.reset(); setIsNewCustomer(null); }}
+                      className="w-full h-8 text-xs text-gray-400 hover:text-gray-600">
                       Cancel
                     </Button>
                   </div>
@@ -484,6 +513,38 @@ export default function CustomerLoginForm() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Success Popup — does not auto-close */}
+      <Dialog open={showSuccessPopup} onOpenChange={() => {}}>
+        <DialogContent className="p-0 border-0 bg-transparent shadow-none max-w-xs w-full" aria-describedby={undefined} onPointerDownOutside={e => e.preventDefault()} onEscapeKeyDown={e => e.preventDefault()}>
+          <DialogTitle className="sr-only">Registration Successful</DialogTitle>
+          <div className="relative overflow-hidden rounded-3xl bg-white border border-white/30 shadow-2xl">
+            <div className="absolute inset-0 rounded-3xl bg-gradient-to-r from-primary/50 via-accent/50 to-primary/50 opacity-40 blur-xl"></div>
+            <div className="absolute inset-[1px] rounded-3xl bg-white"></div>
+            <div className="relative p-6 text-center space-y-4">
+              <div className="w-14 h-14 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
+                <svg viewBox="0 0 24 24" className="w-7 h-7 text-primary fill-none stroke-current stroke-2"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+              </div>
+              <div>
+                <h3 className="text-lg font-black bg-gradient-to-r from-accent via-primary to-accent bg-clip-text text-transparent mb-2" style={{ backgroundSize: '200% auto' }}>
+                  Thank You!
+                </h3>
+                <p className="text-sm text-gray-600 leading-relaxed">
+                  Thank you for registration.<br />Our team will contact you.
+                </p>
+              </div>
+              <Button
+                onClick={() => setShowSuccessPopup(false)}
+                className="w-full h-10 text-sm font-bold bg-gradient-to-r from-primary via-accent to-primary transition-all duration-300"
+                style={{ backgroundSize: '200% auto' }}
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       </div>{/* end flex-1 center wrapper */}
 
       <Footer />

@@ -16,7 +16,7 @@ interface RequestCardProps {
 
 const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCancel }) => {
   const isUrgent = request.priority === 'urgent';
-  const isSindhiName = /[ء-ي]/.test(request.customerName); 
+  const isSindhiName = /[ء-ي]/.test(request.customerName);
   const intId = (request as any).customerIntId;
   const paymentType = ((request as any).paymentType || '').toString().toLowerCase();
   const pricePerCan = (request as any).pricePerCan;
@@ -27,13 +27,21 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
   const isDelivered = request.status === 'delivered';
   const isCancelled = request.status === 'cancelled';
 
+  // Age-based highlighting (pending only)
+  const requestTime = request.requestedAt ? new Date(request.requestedAt).getTime() : 0;
+  const ageMs = requestTime > 0 ? Date.now() - requestTime : 0;
+  const isOlderThan60Min = isPending && ageMs > 60 * 60 * 1000;
+  const isOlderThan2Hours = isPending && ageMs > 2 * 60 * 60 * 1000;
+
   const cardClasses = cn(
     'shadow-md transition-all duration-300 ease-in-out',
     isDelivered ? 'opacity-70 border-green-500 bg-green-50' : '',
     isProcessing ? 'border-yellow-400 bg-yellow-50' : '',
     isCancelled ? 'opacity-70 border-red-500 bg-red-50' : '',
-    request.status === 'pending' || request.status === 'pending_confirmation' ? 'border-primary' : '',
-    isUrgent && isPending ? 'border-destructive border-2' : ''
+    isPending && !isOlderThan60Min ? 'border-primary' : '',
+    isPending && isOlderThan60Min ? 'border-red-400 bg-[#ffe0e0]' : '',
+    isUrgent && isPending ? 'border-destructive border-2' : '',
+    isOlderThan2Hours ? 'card-blink' : ''
   );
   
   const customerNameClasses = cn(

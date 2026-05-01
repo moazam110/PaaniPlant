@@ -143,6 +143,7 @@ const deliveryRequestSchema = new mongoose.Schema({
   status: { type: String, enum: ['pending', 'pending_confirmation', 'processing', 'delivered', 'cancelled'], default: 'pending' },
   requestedAt: { type: Date, default: Date.now },
   scheduledFor: { type: Date },
+  processingAt: { type: Date },
   deliveredAt: { type: Date },
   completedAt: { type: Date },
   cancelledAt: { type: Date },
@@ -193,6 +194,35 @@ const recurringRequestSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 });
 const RecurringRequest = mongoose.model('RecurringRequest', recurringRequestSchema);
+
+// Payments (khata ledger)
+const paymentSchema = new mongoose.Schema({
+  customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', required: true },
+  customerIntId: { type: Number, index: true, required: true },
+  customerName: { type: String, required: true },
+  amount: { type: Number, required: true },
+  date: { type: Date, required: true, default: Date.now },
+  forMonth: { type: String, default: '' }, // "YYYY-MM" e.g. "2026-04"
+  note: { type: String, default: '' },
+  recordedBy: { type: String, default: 'admin' },
+  createdAt: { type: Date, default: Date.now },
+});
+const Payment = mongoose.model('Payment', paymentSchema);
+
+const paymentNotificationSchema = new mongoose.Schema({
+  customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', required: true },
+  customerIntId: { type: Number, index: true },
+  customerName: { type: String },
+  type: { type: String, enum: ['payment_added', 'payment_deleted'], required: true },
+  amount: { type: Number, required: true },
+  paymentDate: { type: Date },
+  note: { type: String, default: '' },
+  deleteReason: { type: String, default: '' },
+  isReadByCustomer: { type: Boolean, default: false },
+  isReadByAdmin: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now },
+});
+const PaymentNotification = mongoose.model('PaymentNotification', paymentNotificationSchema);
 
 // PHASE 1 OPTIMIZATION: Create indexes for optimal query performance
 async function createIndexes() {
@@ -459,6 +489,17 @@ app.put('/api/customers/:id', async (req, res) => {
     );
     if (!customer) {
       return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    // Propagate paymentType change to all active delivery requests
+    if (
+      req.body.paymentType !== undefined &&
+      req.body.paymentType !== existingCustomer.paymentType
+    ) {
+      await DeliveryRequest.updateMany(
+        { customerId: existingCustomer._id, status: { $in: ['pending', 'pending_confirmation', 'processing'] } },
+        { $set: { paymentType: req.body.paymentType } }
+      );
     }
 
     // Detect price change and create notification
@@ -799,7 +840,8 @@ app.get('/api/delivery-requests', async (req, res) => {
     const search = req.query.search; // Search in customer name or address
     const startDate = req.query.startDate; // Filter by date range (start)
     const endDate = req.query.endDate; // Filter by date range (end)
-    
+    const createdBy = req.query.createdBy; // Filter by who created the request
+
     // Build query
     const query = {};
     if (status) {
@@ -814,6 +856,9 @@ app.get('/api/delivery-requests', async (req, res) => {
     }
     if (customerId) {
       query.customerId = customerId;
+    }
+    if (createdBy) {
+      query.createdBy = createdBy;
     }
     
     // Date range filter
@@ -890,13 +935,19 @@ app.get('/api/delivery-requests', async (req, res) => {
       DeliveryRequest.countDocuments(query)
     ]);
     
-    // Backfill denormalized fields for older docs
+    // Backfill denormalized fields — for active requests always sync from customer (fixes stale values)
+    const activeStatuses = new Set(['pending', 'pending_confirmation', 'processing']);
     const normalized = requests.map(r => {
-      if (r.pricePerCan == null && r.customerId && r.customerId.pricePerCan != null) {
-        r.pricePerCan = r.customerId.pricePerCan;
-      }
-      if (r.paymentType == null && r.customerId && r.customerId.paymentType != null) {
-        r.paymentType = r.customerId.paymentType;
+      if (r.customerId) {
+        if (r.pricePerCan == null && r.customerId.pricePerCan != null) {
+          r.pricePerCan = r.customerId.pricePerCan;
+        }
+        // Active requests: always use current customer paymentType (catches stale mismatches)
+        // Completed/cancelled: only fill when null (preserve historical accuracy)
+        const isActive = activeStatuses.has(r.status);
+        if (r.customerId.paymentType != null && (r.paymentType == null || isActive)) {
+          r.paymentType = r.customerId.paymentType;
+        }
       }
       return r;
     });
@@ -974,15 +1025,15 @@ app.post('/api/delivery-requests', async (req, res) => {
       }
     }
     
-    // Derive missing denormalized fields from customer
+    // Always fetch authoritative values from customer record — never trust client-sent paymentType
     let pricePerCan = req.body.pricePerCan;
     let paymentType = req.body.paymentType;
     let customerIntId = req.body.customerIntId;
-    if ((!pricePerCan || !paymentType || !customerIntId) && req.body.customerId) {
+    if (req.body.customerId) {
       const cust = await Customer.findById(req.body.customerId);
       if (cust) {
+        paymentType = cust.paymentType;           // always override — source of truth
         if (!pricePerCan) pricePerCan = cust.pricePerCan;
-        if (!paymentType) paymentType = cust.paymentType;
         if (!customerIntId) customerIntId = cust.id;
       }
     }
@@ -1058,6 +1109,8 @@ app.put('/api/delivery-requests/:id/status', async (req, res) => {
     if (status === 'delivered') {
       updateData.deliveredAt = new Date();
       updateData.completedAt = new Date();
+    } else if (status === 'processing') {
+      updateData.processingAt = new Date();
     } else if (status === 'cancelled') {
       updateData.cancelledAt = new Date();
       updateData.completedAt = new Date();
@@ -1884,6 +1937,23 @@ app.get('/api/customers/:id/stats', async (req, res) => {
 });
 
 // Aggregate total cans per customer in optional date range
+// Returns last delivery date per customer for inactive detection
+app.get('/api/customers/last-delivery', async (req, res) => {
+  try {
+    const results = await DeliveryRequest.aggregate([
+      { $match: { status: 'delivered' } },
+      { $group: {
+        _id: '$customerId',
+        lastDeliveryDate: { $max: { $ifNull: ['$deliveredAt', '$completedAt', '$requestedAt'] } }
+      }}
+    ]);
+    const data = results.map(r => ({ customerId: String(r._id), lastDeliveryDate: r.lastDeliveryDate }));
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.get('/api/customers/stats-summary', async (req, res) => {
   try {
     const { start, end } = req.query;
@@ -2278,7 +2348,7 @@ app.delete('/api/customer-credentials/:customerId', async (req, res) => {
 
 app.post('/api/register-request', async (req, res) => {
   try {
-    const { name, mobile, address, cans, notes } = req.body;
+    const { name, mobile, address, cans, notes, isNewCustomer } = req.body;
 
     if (!name || !mobile || !address) {
       return res.status(400).json({ error: 'Name, mobile, and address are required.' });
@@ -2317,6 +2387,10 @@ app.post('/api/register-request', async (req, res) => {
               <tr style="border-top: 1px solid #f0f0f0;">
                 <td style="padding: 10px 0; color: #666; font-size: 13px; font-weight: 600;">Note</td>
                 <td style="padding: 10px 0; color: #222; font-size: 14px;">${notes || 'None'}</td>
+              </tr>
+              <tr style="border-top: 1px solid #f0f0f0;">
+                <td style="padding: 10px 0; color: #666; font-size: 13px; font-weight: 600;">New Customer</td>
+                <td style="padding: 10px 0; color: #222; font-size: 14px; font-weight: 600;">${isNewCustomer || 'Not specified'}</td>
               </tr>
             </table>
           </div>
@@ -2424,6 +2498,366 @@ app.put('/api/notifications/admin/read-all', async (req, res) => {
     res.status(500).json({ error: 'Failed to mark notifications as read', details: err.message });
   }
 });
+
+// ─── Payment API Endpoints ────────────────────────────────────────────────────
+
+// April 1 2026 00:00 PKT = March 31 2026 19:00 UTC — billing system start date
+const BILLING_START = new Date('2026-03-31T19:00:00.000Z');
+
+// GET /api/payments/balances — all customers with billed/paid/balance summary
+app.get('/api/payments/balances', async (req, res) => {
+  try {
+    const customers = await Customer.find().sort({ id: 1 }).lean();
+
+    // Aggregate total billed per customer from delivered requests (April 2026 onwards)
+    const billedAgg = await DeliveryRequest.aggregate([
+      { $match: {
+        status: 'delivered',
+        $expr: { $gte: [{ $ifNull: ['$deliveredAt', '$completedAt', '$requestedAt'] }, BILLING_START] }
+      }},
+      { $group: {
+        _id: '$customerId',
+        totalBilled: { $sum: { $multiply: ['$cans', { $ifNull: ['$pricePerCan', 0] }] } }
+      }}
+    ]);
+    const billedMap = new Map(billedAgg.map(r => [String(r._id), r.totalBilled]));
+
+    // Aggregate total paid per customer
+    const paidAgg = await Payment.aggregate([
+      { $group: { _id: '$customerId', totalPaid: { $sum: '$amount' } } }
+    ]);
+    const paidMap = new Map(paidAgg.map(r => [String(r._id), r.totalPaid]));
+
+    const result = customers.map(c => {
+      const totalBilled = billedMap.get(String(c._id)) || 0;
+      const totalPaid = paidMap.get(String(c._id)) || 0;
+      return {
+        customerId: String(c._id),
+        customerIntId: c.id,
+        customerName: c.name,
+        phone: c.phone || '',
+        paymentType: c.paymentType,
+        totalBilled,
+        totalPaid,
+        balance: totalBilled - totalPaid,
+      };
+    });
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('Error fetching payment balances:', err);
+    res.status(500).json({ error: 'Failed to fetch payment balances', details: err.message });
+  }
+});
+
+// GET /api/payments?customerObjectId=<objectId> — payments for a customer
+app.get('/api/payments', async (req, res) => {
+  try {
+    const { customerObjectId } = req.query;
+    if (!customerObjectId) return res.status(400).json({ error: 'customerObjectId is required' });
+    const payments = await Payment.find({ customerId: customerObjectId }).sort({ date: -1, createdAt: -1 });
+    res.json({ success: true, data: payments });
+  } catch (err) {
+    console.error('Error fetching payments:', err);
+    res.status(500).json({ error: 'Failed to fetch payments', details: err.message });
+  }
+});
+
+// POST /api/payments — record a payment
+app.post('/api/payments', async (req, res) => {
+  try {
+    const { customerObjectId, amount, date, forMonth, note } = req.body;
+    if (!customerObjectId || !amount) return res.status(400).json({ error: 'customerObjectId and amount are required' });
+    const customer = await Customer.findById(customerObjectId);
+    if (!customer) return res.status(404).json({ error: 'Customer not found' });
+    const payment = new Payment({
+      customerId: customer._id,
+      customerIntId: customer.id,
+      customerName: customer.name,
+      amount: Number(amount),
+      date: date ? new Date(date) : new Date(),
+      forMonth: forMonth || '',
+      note: note || '',
+      recordedBy: 'admin',
+    });
+    const saved = await payment.save();
+    await PaymentNotification.create({
+      customerId: customer._id,
+      customerIntId: customer.id,
+      customerName: customer.name,
+      type: 'payment_added',
+      amount: Number(amount),
+      paymentDate: saved.date,
+      note: note || '',
+    });
+    broadcastUpdate('paymentActivity', { type: 'payment_added', customerId: String(customer._id) });
+    res.status(201).json({ success: true, data: saved });
+  } catch (err) {
+    console.error('Error recording payment:', err);
+    res.status(400).json({ error: 'Failed to record payment', details: err.message });
+  }
+});
+
+// DELETE /api/payments/:id — delete a payment record
+app.delete('/api/payments/:id', async (req, res) => {
+  try {
+    const { reason } = req.body;
+    if (!reason || !String(reason).trim()) return res.status(400).json({ error: 'Deletion reason is required' });
+    const payment = await Payment.findById(req.params.id);
+    if (!payment) return res.status(404).json({ error: 'Payment not found' });
+    await Payment.findByIdAndDelete(req.params.id);
+    await PaymentNotification.create({
+      customerId: payment.customerId,
+      customerIntId: payment.customerIntId,
+      customerName: payment.customerName,
+      type: 'payment_deleted',
+      amount: payment.amount,
+      paymentDate: payment.date,
+      note: payment.note || '',
+      deleteReason: String(reason).trim(),
+    });
+    broadcastUpdate('paymentActivity', { type: 'payment_deleted', customerId: String(payment.customerId) });
+    res.json({ success: true, message: 'Payment deleted' });
+  } catch (err) {
+    console.error('Error deleting payment:', err);
+    res.status(500).json({ error: 'Failed to delete payment', details: err.message });
+  }
+});
+
+// GET /api/payments/summary/:customerObjectId — billed/paid/balance for one customer (overall + monthly)
+app.get('/api/payments/summary/:customerObjectId', async (req, res) => {
+  try {
+    const { customerObjectId } = req.params;
+    const customer = await Customer.findById(customerObjectId);
+    if (!customer) return res.status(404).json({ error: 'Customer not found' });
+
+    // Overall totals
+    const billedAgg = await DeliveryRequest.aggregate([
+      { $match: { customerId: customer._id, status: 'delivered' } },
+      { $group: { _id: null, totalBilled: { $sum: { $multiply: ['$cans', { $ifNull: ['$pricePerCan', 0] }] } } } }
+    ]);
+    const totalBilled = billedAgg[0]?.totalBilled || 0;
+
+    const paidAgg = await Payment.aggregate([
+      { $match: { customerId: customer._id } },
+      { $group: { _id: null, totalPaid: { $sum: '$amount' } } }
+    ]);
+    const totalPaid = paidAgg[0]?.totalPaid || 0;
+
+    // Current month in PKT (UTC+5)
+    const pktNow = new Date(Date.now() + 5 * 60 * 60 * 1000);
+    const thisYear = pktNow.getUTCFullYear();
+    const thisMonthNum = pktNow.getUTCMonth() + 1;
+    const thisMonthStr = `${thisYear}-${String(thisMonthNum).padStart(2, '0')}`;
+    // PKT month boundaries as UTC
+    const monthStartUTC = new Date(Date.UTC(thisYear, thisMonthNum - 1, 1) - 5 * 60 * 60 * 1000);
+    const monthEndUTC = new Date(Date.UTC(thisYear, thisMonthNum, 1) - 5 * 60 * 60 * 1000);
+
+    const thisMonthBilledAgg = await DeliveryRequest.aggregate([
+      { $match: {
+        customerId: customer._id,
+        status: 'delivered',
+        $or: [
+          { deliveredAt: { $gte: monthStartUTC, $lt: monthEndUTC } },
+          { completedAt: { $gte: monthStartUTC, $lt: monthEndUTC } },
+          { requestedAt: { $gte: monthStartUTC, $lt: monthEndUTC } },
+        ]
+      }},
+      { $group: { _id: null, billed: { $sum: { $multiply: ['$cans', { $ifNull: ['$pricePerCan', 0] }] } } } }
+    ]);
+    const thisMonthBilled = thisMonthBilledAgg[0]?.billed || 0;
+
+    // Match payments tagged for this month OR payments with no forMonth whose date falls in this month
+    const thisMonthPaidAgg = await Payment.aggregate([
+      { $match: {
+        customerId: customer._id,
+        $or: [
+          { forMonth: thisMonthStr },
+          { forMonth: { $in: ['', null] }, date: { $gte: monthStartUTC, $lt: monthEndUTC } },
+        ]
+      }},
+      { $group: { _id: null, paid: { $sum: '$amount' } } }
+    ]);
+    const thisMonthPaid = thisMonthPaidAgg[0]?.paid || 0;
+
+    res.json({ success: true, data: {
+      customerId: String(customer._id),
+      customerIntId: customer.id,
+      customerName: customer.name,
+      totalBilled,
+      totalPaid,
+      balance: totalBilled - totalPaid,
+      thisMonth: thisMonthStr,
+      thisMonthBilled,
+      thisMonthPaid,
+      thisMonthBalance: thisMonthBilled - thisMonthPaid,
+    }});
+  } catch (err) {
+    console.error('Error fetching payment summary:', err);
+    res.status(500).json({ error: 'Failed to fetch payment summary', details: err.message });
+  }
+});
+
+// GET /api/payment-notifications/customer/:customerId
+app.get('/api/payment-notifications/customer/:customerId', async (req, res) => {
+  try {
+    const notifications = await PaymentNotification.find({ customerId: req.params.customerId })
+      .sort({ createdAt: -1 }).limit(50).lean();
+    const unreadCount = notifications.filter(n => !n.isReadByCustomer).length;
+    res.json({ success: true, data: notifications, unreadCount });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch notifications' });
+  }
+});
+
+// PUT /api/payment-notifications/customer/:customerId/read-all
+app.put('/api/payment-notifications/customer/:customerId/read-all', async (req, res) => {
+  try {
+    await PaymentNotification.updateMany({ customerId: req.params.customerId, isReadByCustomer: false }, { isReadByCustomer: true });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to mark notifications as read' });
+  }
+});
+
+// GET /api/payment-notifications/admin
+app.get('/api/payment-notifications/admin', async (req, res) => {
+  try {
+    const filter = {};
+    if (req.query.customerIntId) {
+      const intId = parseInt(req.query.customerIntId);
+      if (!isNaN(intId)) filter.customerIntId = intId;
+    }
+    const notifications = await PaymentNotification.find(filter)
+      .sort({ createdAt: -1 }).limit(100).lean();
+    const unreadCount = notifications.filter(n => !n.isReadByAdmin).length;
+    res.json({ success: true, data: notifications, unreadCount });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch notifications' });
+  }
+});
+
+// PUT /api/payment-notifications/admin/read-all
+app.put('/api/payment-notifications/admin/read-all', async (req, res) => {
+  try {
+    await PaymentNotification.updateMany({ isReadByAdmin: false }, { isReadByAdmin: true });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to mark notifications as read' });
+  }
+});
+
+// GET /api/payments/ledger/:customerObjectId — FIFO month-by-month ledger
+app.get('/api/payments/ledger/:customerObjectId', async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.params.customerObjectId);
+    if (!customer) return res.status(404).json({ error: 'Customer not found' });
+
+    // All delivery months with billed totals, sorted ascending (April 2026 onwards)
+    const deliveryMonths = await DeliveryRequest.aggregate([
+      { $match: {
+        customerId: customer._id,
+        status: 'delivered',
+        $expr: { $gte: [{ $ifNull: ['$deliveredAt', '$completedAt', '$requestedAt'] }, BILLING_START] }
+      }},
+      { $addFields: {
+        pktDate: { $dateToString: {
+          format: '%Y-%m',
+          date: { $ifNull: ['$deliveredAt', '$completedAt', '$requestedAt'] },
+          timezone: '+05:00'
+        }}
+      }},
+      { $group: {
+        _id: '$pktDate',
+        billed: { $sum: { $multiply: ['$cans', { $ifNull: ['$pricePerCan', 0] }] } }
+      }},
+      { $sort: { _id: 1 } }
+    ]);
+
+    // All payments sorted ascending by date
+    const allPayments = await Payment.find({ customerId: customer._id }).sort({ date: 1 }).lean();
+
+    // Group payments by PKT month
+    const pktMonthOf = (date) => {
+      const pkt = new Date(new Date(date).getTime() + 5 * 60 * 60 * 1000);
+      return `${pkt.getUTCFullYear()}-${String(pkt.getUTCMonth() + 1).padStart(2, '0')}`;
+    };
+    const paymentsByMonth = {};
+    for (const p of allPayments) {
+      const m = pktMonthOf(p.date);
+      paymentsByMonth[m] = (paymentsByMonth[m] || 0) + p.amount;
+    }
+
+    // FIFO running balance through delivery months
+    let cumulativeBilled = 0;
+    let cumulativePaid = 0;
+    const processedMonths = new Set();
+    const ledger = [];
+
+    for (const dm of deliveryMonths) {
+      const prevCumBilled = cumulativeBilled;
+      cumulativeBilled += dm.billed;
+
+      // Apply all payments up to and including this delivery month
+      for (const pm of Object.keys(paymentsByMonth).sort()) {
+        if (pm <= dm._id && !processedMonths.has(pm)) {
+          cumulativePaid += paymentsByMonth[pm];
+          processedMonths.add(pm);
+        }
+      }
+
+      const runningBalance = cumulativePaid - cumulativeBilled; // + = advance, - = due
+      // FIFO: how much of this month's bill is covered
+      const availableForThisMonth = cumulativePaid - prevCumBilled;
+      const appliedToMonth = Math.round(Math.min(dm.billed, Math.max(0, availableForThisMonth)));
+
+      ledger.push({
+        month: dm._id,
+        billed: Math.round(dm.billed),
+        appliedToMonth,
+        dueForMonth: Math.round(dm.billed - appliedToMonth),
+        runningBalance: Math.round(runningBalance),
+        status: runningBalance > 0 ? 'advance' : runningBalance < 0 ? 'due' : 'settled',
+      });
+    }
+
+    // Include payments made after last delivery month
+    const lastDM = deliveryMonths.at(-1)?._id || '0000-00';
+    let postDeliveryCredit = 0;
+    for (const pm of Object.keys(paymentsByMonth).sort()) {
+      if (!processedMonths.has(pm) && pm > lastDM) {
+        cumulativePaid += paymentsByMonth[pm];
+        postDeliveryCredit += paymentsByMonth[pm];
+      }
+    }
+
+    const finalBalance = Math.round(cumulativePaid - cumulativeBilled);
+
+    // FIFO retroactive: apply post-delivery payments to oldest due months first
+    // so dueForMonth reflects actual outstanding even when payment arrives next month
+    let retroCredit = postDeliveryCredit;
+    for (const entry of ledger) {
+      if (retroCredit <= 0) break;
+      if (entry.dueForMonth > 0) {
+        const apply = Math.min(retroCredit, entry.dueForMonth);
+        entry.appliedToMonth = Math.round(entry.appliedToMonth + apply);
+        entry.dueForMonth = Math.round(entry.dueForMonth - apply);
+        if (entry.dueForMonth === 0) entry.status = 'settled';
+        retroCredit -= apply;
+      }
+    }
+
+    res.json({
+      success: true,
+      data: { ledger, finalBalance }
+    });
+  } catch (err) {
+    console.error('Ledger error:', err);
+    res.status(500).json({ error: 'Failed to compute ledger', details: err.message });
+  }
+});
+
+// ─── End Payment API Endpoints ────────────────────────────────────────────────
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

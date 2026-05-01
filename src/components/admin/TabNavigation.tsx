@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { Truck, BarChart3, Users, UserCheck, Repeat, MoreVertical, LogOut, Moon, Sun, UserCog, Bell } from 'lucide-react';
+import { Truck, BarChart3, Users, UserCheck, Repeat, MoreVertical, LogOut, Moon, Sun, UserCog, Bell, Wallet } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,14 +22,30 @@ import {
 import { useTheme } from '@/contexts/ThemeContext';
 import { API_BASE_URL } from '@/lib/api';
 
-interface PriceNotification {
+interface PaymentNotif {
   _id: string;
+  source: 'payment';
+  type: 'payment_added' | 'payment_deleted';
+  customerName: string;
+  customerIntId?: number;
+  amount: number;
+  note: string;
+  deleteReason?: string;
+  isReadByAdmin: boolean;
+  createdAt: string;
+}
+
+interface PriceNotif {
+  _id: string;
+  source: 'price';
   customerName: string;
   customerIntId?: number;
   data: { oldPrice: number; newPrice: number };
   isReadByAdmin: boolean;
   createdAt: string;
 }
+
+type UnifiedNotif = PaymentNotif | PriceNotif;
 
 interface TabNavigationProps {
   activeTab: string;
@@ -43,6 +59,7 @@ const tabs = [
   { id: 'recurring', label: 'Recurring', icon: Repeat },
   { id: 'stats', label: 'Stats', icon: BarChart3 },
   { id: 'customers', label: 'Customers', icon: Users },
+  { id: 'payments', label: 'Payments', icon: Wallet },
   { id: 'staff', label: 'Staff', icon: UserCheck },
 ];
 
@@ -59,50 +76,52 @@ export default function TabNavigation({ activeTab, onTabChange, children, onSign
   const [isAuthenticating, setIsAuthenticating] = useState(false);
 
   // Notification state
-  const [notifications, setNotifications] = useState<PriceNotification[]>([]);
+  const [notifications, setNotifications] = useState<UnifiedNotif[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [bellOpen, setBellOpen] = useState(false);
-  const [notifPage, setNotifPage] = useState(1);
-  const [notifHasMore, setNotifHasMore] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [notifFilter, setNotifFilter] = useState<'all' | 'payments' | 'price'>('all');
   const [filterCustomerId, setFilterCustomerId] = useState('');
   const wsRef = useRef<WebSocket | null>(null);
 
-  const fetchNotifications = useCallback(async (page = 1) => {
+  const fetchNotifications = useCallback(async () => {
     try {
-      const params = new URLSearchParams({ page: String(page), limit: '20' });
-      const res = await fetch(`${API_BASE_URL}/api/notifications/admin?${params}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (page === 1) {
-          setNotifications(data.notifications || []);
-        } else {
-          setNotifications(prev => [...prev, ...(data.notifications || [])]);
-        }
-        setUnreadCount(data.unreadCount || 0);
-        setNotifHasMore(data.pagination?.hasMore || false);
-        setNotifPage(page);
+      const [payRes, priceRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/payment-notifications/admin?limit=50`),
+        fetch(`${API_BASE_URL}/api/notifications/admin?limit=50`),
+      ]);
+      const merged: UnifiedNotif[] = [];
+      if (payRes.ok) {
+        const d = await payRes.json();
+        (d.data || []).forEach((n: PaymentNotif) => merged.push({ ...n, source: 'payment' as const }));
       }
+      if (priceRes.ok) {
+        const d = await priceRes.json();
+        (d.notifications || []).forEach((n: PriceNotif) => merged.push({ ...n, source: 'price' as const }));
+      }
+      merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setNotifications(merged);
+      setUnreadCount(merged.filter(n => !n.isReadByAdmin).length);
     } catch {
       // non-critical
     }
   }, []);
 
   useEffect(() => {
-    fetchNotifications(1);
+    fetchNotifications();
 
-    // WebSocket subscription for real-time price change events
+    // WebSocket subscription for real-time updates
     try {
       const ws = new WebSocket(API_BASE_URL.replace(/^http/, 'ws'));
       wsRef.current = ws;
       ws.onopen = () => {
         ws.send(JSON.stringify({ type: 'subscribe', room: 'priceChange' }));
+        ws.send(JSON.stringify({ type: 'subscribe', room: 'paymentActivity' }));
       };
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === 'update') {
-            fetchNotifications(1);
+            fetchNotifications();
           }
         } catch { /* ignore */ }
       };
@@ -114,33 +133,33 @@ export default function TabNavigation({ activeTab, onTabChange, children, onSign
     };
   }, [fetchNotifications]);
 
-  // Client-side filter: matches customerIntId (partial) or customerName (case-insensitive)
-  const filteredNotifications = filterCustomerId.trim()
-    ? notifications.filter((n: PriceNotification) => {
-        const q = filterCustomerId.trim().toLowerCase();
-        const idMatch = n.customerIntId !== undefined && String(n.customerIntId).includes(q);
-        const nameMatch = n.customerName?.toLowerCase().includes(q);
-        return idMatch || nameMatch;
-      })
-    : notifications;
-
-  const handleLoadMore = async () => {
-    if (isLoadingMore || !notifHasMore) return;
-    setIsLoadingMore(true);
-    await fetchNotifications(notifPage + 1);
-    setIsLoadingMore(false);
-  };
+  // Client-side filter: search + type tab
+  const filteredNotifications = notifications.filter((n: UnifiedNotif) => {
+    const q = filterCustomerId.trim().toLowerCase();
+    const matchesSearch = !q ||
+      (n.customerIntId !== undefined && String(n.customerIntId).includes(q)) ||
+      n.customerName?.toLowerCase().includes(q);
+    const matchesFilter =
+      notifFilter === 'all' ||
+      (notifFilter === 'payments' && n.source === 'payment') ||
+      (notifFilter === 'price' && n.source === 'price');
+    return matchesSearch && matchesFilter;
+  });
 
   const handleBellOpen = async (open: boolean) => {
     setBellOpen(open);
     if (open) {
       setFilterCustomerId('');
-      fetchNotifications(1);
+      setNotifFilter('all');
+      fetchNotifications();
       if (unreadCount > 0) {
         try {
-          await fetch(`${API_BASE_URL}/api/notifications/admin/read-all`, { method: 'PUT' });
+          await Promise.all([
+            fetch(`${API_BASE_URL}/api/notifications/admin/read-all`, { method: 'PUT' }),
+            fetch(`${API_BASE_URL}/api/payment-notifications/admin/read-all`, { method: 'PUT' }),
+          ]);
           setUnreadCount(0);
-          setNotifications((prev: PriceNotification[]) => prev.map((n: PriceNotification) => ({ ...n, isReadByAdmin: true })));
+          setNotifications(prev => prev.map(n => ({ ...n, isReadByAdmin: true })));
         } catch { /* non-critical */ }
       }
     }
@@ -233,9 +252,24 @@ export default function TabNavigation({ activeTab, onTabChange, children, onSign
             </PopoverTrigger>
             <PopoverContent align="end" className="w-80 p-0">
               <div className="px-4 py-3 border-b">
-                <span className="font-semibold text-sm">Price Change Notifications</span>
+                <p className="font-semibold text-sm mb-2">Notifications</p>
+                {/* Filter tabs */}
+                <div className="flex gap-1">
+                  {(['all', 'payments', 'price'] as const).map(f => (
+                    <button
+                      key={f}
+                      onClick={() => setNotifFilter(f)}
+                      className={cn(
+                        'text-xs px-2 py-0.5 rounded-full border transition-colors',
+                        notifFilter === f ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-muted-foreground hover:bg-muted',
+                      )}
+                    >
+                      {f === 'all' ? 'All' : f === 'payments' ? 'Payments' : 'Price Updates'}
+                    </button>
+                  ))}
+                </div>
               </div>
-              {/* Filter by Customer ID */}
+              {/* Filter by ID or name */}
               <div className="px-3 py-2 border-b">
                 <Input
                   placeholder="Filter by ID or name..."
@@ -247,41 +281,53 @@ export default function TabNavigation({ activeTab, onTabChange, children, onSign
               <div className="max-h-72 overflow-y-auto">
                 {filteredNotifications.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-6">No notifications</p>
-                ) : (
-                  <>
-                    {filteredNotifications.map((n: PriceNotification) => (
-                      <div
-                        key={n._id}
-                        className={cn(
-                          'px-4 py-3 border-b last:border-b-0 text-sm',
-                          !n.isReadByAdmin && 'bg-blue-50 dark:bg-blue-950/30'
+                ) : filteredNotifications.map((n: UnifiedNotif) => (
+                  <div
+                    key={n._id}
+                    className={cn(
+                      'px-4 py-3 border-b last:border-b-0 text-sm',
+                      n.source === 'payment' && n.type === 'payment_deleted' && 'bg-destructive/5',
+                      !n.isReadByAdmin && 'bg-primary/5',
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        {n.source === 'payment' ? (
+                          <>
+                            <p className={cn('text-xs font-semibold', n.type === 'payment_deleted' ? 'text-destructive' : 'text-green-600 dark:text-green-400')}>
+                              {n.type === 'payment_added' ? '+ Payment Added' : '− Payment Deleted'}
+                            </p>
+                            <p className="text-xs text-foreground mt-0.5">
+                              <span className="font-medium">{n.customerIntId ? `#${n.customerIntId} ` : ''}{n.customerName}</span>
+                              {' · Rs '}{n.amount.toLocaleString()}
+                            </p>
+                            {n.note && <p className="text-xs text-muted-foreground mt-0.5">Note: {n.note}</p>}
+                            {n.type === 'payment_deleted' && n.deleteReason && (
+                              <p className="text-xs text-destructive/80 mt-0.5 font-medium">Reason: {n.deleteReason}</p>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-xs font-semibold text-primary">Price Updated</p>
+                            <p className="text-xs text-foreground mt-0.5">
+                              <span className="font-medium">{n.customerIntId ? `#${n.customerIntId} ` : ''}{n.customerName}</span>
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Rs {n.data.oldPrice} → Rs {n.data.newPrice} per can
+                            </p>
+                          </>
                         )}
-                      >
-                        <div className="font-medium">
-                          {n.customerName}{n.customerIntId ? ` (#${n.customerIntId})` : ''}
-                        </div>
-                        <div className="text-muted-foreground mt-0.5">
-                          Price changed: <span className="line-through">Rs {n.data.oldPrice}</span> → <span className="text-primary font-medium">Rs {n.data.newPrice}</span> per can
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-1">
+                        <p className="text-xs text-muted-foreground mt-1">
                           {new Date(n.createdAt).toLocaleString('en-PK', {
                             day: '2-digit', month: 'short', year: 'numeric',
-                            hour: '2-digit', minute: '2-digit'
+                            hour: '2-digit', minute: '2-digit',
                           })}
-                        </div>
+                        </p>
                       </div>
-                    ))}
-                    {notifHasMore && (
-                      <button
-                        onClick={handleLoadMore}
-                        disabled={isLoadingMore}
-                        className="w-full py-2 text-xs text-primary hover:bg-muted/50 transition-colors disabled:opacity-50"
-                      >
-                        {isLoadingMore ? 'Loading...' : '↓ Load More'}
-                      </button>
-                    )}
-                  </>
-                )}
+                      {!n.isReadByAdmin && <span className="shrink-0 h-2 w-2 rounded-full bg-primary mt-1" />}
+                    </div>
+                  </div>
+                ))}
               </div>
             </PopoverContent>
           </Popover>
@@ -331,7 +377,10 @@ export default function TabNavigation({ activeTab, onTabChange, children, onSign
         
         {/* Show customers content (index 3) */}
         {activeTab === 'customers' && childrenArray[3]}
-        
+
+        {/* Show payments content (index 4) */}
+        {activeTab === 'payments' && childrenArray[4]}
+
         {/* Staff tab opens separately, no content */}
       </div>
 

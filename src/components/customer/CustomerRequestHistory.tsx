@@ -20,14 +20,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
-import { Package, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface CustomerRequestHistoryProps {
   requests: DeliveryRequest[];
   customer: Customer;
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 // Match admin dashboard status badge variants exactly
@@ -37,7 +40,7 @@ const getStatusBadgeVariant = (status: DeliveryRequest['status']) => {
     case 'pending_confirmation': return 'secondary';
     case 'processing': return 'default';
     case 'delivered': return 'outline'; 
-    case 'cancelled': return 'destructive';
+    case 'cancelled': return 'outline';
     default: return 'default';
   }
 };
@@ -77,6 +80,15 @@ const getCancellationReasonLabel = (reason?: string) => {
   return reason ? (labels[reason] || reason) : null;
 };
 
+const formatDuration = (ms: number): string => {
+  if (ms <= 0) return '—';
+  const totalMinutes = Math.floor(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes}m`;
+  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+};
+
 const getPriorityBadge = (priority: DeliveryRequest['priority']) => {
   return (
     <Badge variant={priority === 'urgent' ? "destructive" : "outline"}>
@@ -87,7 +99,10 @@ const getPriorityBadge = (priority: DeliveryRequest['priority']) => {
 
 export default function CustomerRequestHistory({
   requests,
-  customer
+  customer,
+  hasMore,
+  isLoadingMore,
+  onLoadMore,
 }: CustomerRequestHistoryProps) {
   // Detect screen orientation (portrait vs landscape)
   const [isPortrait, setIsPortrait] = useState(false);
@@ -110,69 +125,67 @@ export default function CustomerRequestHistory({
   }, []);
 
   return (
-    <Card className="glass-card border-2 border-primary/30">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-          <Package className="h-4 w-4 sm:h-5 sm:w-5" />
-          Your Request History
-          <span className="text-xs sm:text-sm font-normal text-muted-foreground ml-2">
-            ({requests.length} {requests.length === 1 ? 'request' : 'requests'})
-          </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="p-2 sm:p-6">
-        {requests.length === 0 ? (
-          <div className="text-center py-8 sm:py-12">
-            <AlertCircle className="h-8 w-8 sm:h-12 sm:w-12 mx-auto text-muted-foreground mb-4" />
-            <p className="text-base sm:text-lg font-medium mb-2">No requests found</p>
-            <p className="text-xs sm:text-sm text-muted-foreground">
-              {requests.length === 0 && "Create your first delivery request to get started!"}
-            </p>
-          </div>
-        ) : (
-          <div className="rounded-md border overflow-x-auto">
+    <div>
+      {requests.length === 0 ? (
+        <div className="text-center py-8 sm:py-12">
+          <AlertCircle className="h-8 w-8 sm:h-12 sm:w-12 mx-auto text-primary/40 mb-4 drop-shadow" />
+          <p className="text-base sm:text-lg font-medium mb-2">No requests found</p>
+          <p className="text-xs sm:text-sm text-muted-foreground">
+            Create your first delivery request to get started!
+          </p>
+        </div>
+      ) : (
+        <div className="glass-table overflow-x-auto [&_th]:!px-1 [&_td]:!px-1 [&_th:first-child]:!pl-2 [&_td:first-child]:!pl-2 [&_th:last-child]:!pr-2 [&_td:last-child]:!pr-2">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="text-xs sm:text-sm">Date</TableHead>
-                  <TableHead className="text-xs sm:text-sm">Cans</TableHead>
+                  <TableHead className="text-[11px] sm:text-xs font-bold tracking-wide uppercase text-primary/70">Date</TableHead>
+                  <TableHead className="text-[11px] sm:text-xs font-bold tracking-wide uppercase text-primary/70 text-center">Cans</TableHead>
                   {/* Hide Priority, Price, Payment in portrait mode */}
-                  <TableHead className={cn("text-xs sm:text-sm", isPortrait && "hidden")}>Priority</TableHead>
-                  <TableHead className="text-xs sm:text-sm">Status</TableHead>
-                  <TableHead className={cn("text-xs sm:text-sm", isPortrait && "hidden")}>Price</TableHead>
-                  <TableHead className={cn("text-xs sm:text-sm", isPortrait && "hidden")}>Payment</TableHead>
-                  <TableHead className="text-xs sm:text-sm">Created By</TableHead>
+                  <TableHead className={cn("text-[11px] sm:text-xs font-bold tracking-wide uppercase text-primary/70 text-center", isPortrait && "hidden")}>Priority</TableHead>
+                  <TableHead className="text-[11px] sm:text-xs font-bold tracking-wide uppercase text-primary/70 text-center">Status</TableHead>
+                  <TableHead className={cn("text-[11px] sm:text-xs font-bold tracking-wide uppercase text-primary/70 text-right", isPortrait && "hidden")}>Price/Can</TableHead>
+                  <TableHead className={cn("text-[11px] sm:text-xs font-bold tracking-wide uppercase text-primary/70 text-center", isPortrait && "hidden")}>Payment</TableHead>
+                  <TableHead className={cn("text-[11px] sm:text-xs font-bold tracking-wide uppercase text-primary/70 text-center", isPortrait && "hidden")}>Time</TableHead>
+                  <TableHead className="text-[11px] sm:text-xs font-bold tracking-wide uppercase text-primary/70 text-center">Created By</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {requests.map((request) => {
                   const requestDate = request.requestedAt
-                    ? format(new Date(request.requestedAt), isPortrait ? "MMM dd, yyyy" : "MMM dd, yyyy HH:mm")
+                    ? format(new Date(request.requestedAt), isPortrait ? "d MMM yy" : "d MMM yyyy, HH:mm")
                     : "N/A";
                   
-                  const price = (request.pricePerCan || 0) * (request.cans || 0);
+                  const price = request.pricePerCan || 0;
                   
                   // Match admin dashboard row styling
                   const isCancelled = request.status === 'cancelled';
                   const isDelivered = request.status === 'delivered';
                   const rowClasses = cn(
-                    isCancelled ? 'opacity-60 bg-muted/30' : '',
-                    isDelivered ? 'bg-green-500/10' : '',
-                    request.status === 'processing' ? 'bg-yellow-100' : ''
+                    isCancelled ? 'opacity-55 bg-muted/20' : '',
+                    isDelivered ? 'bg-green-500/12' : '',
+                    request.status === 'processing' ? 'bg-amber-400/15' : '',
+                    request.status === 'pending' || request.status === 'pending_confirmation' ? 'bg-primary/5' : ''
                   );
                   
                   return (
                     <TableRow key={request._id || request.requestId} className={rowClasses}>
-                      <TableCell className={cn("text-xs sm:text-sm font-medium", isCancelled ? 'line-through' : '')}>{requestDate}</TableCell>
-                      <TableCell className={cn("text-xs sm:text-sm", isCancelled ? 'line-through' : '')}>{request.cans || 0}</TableCell>
+                      <TableCell className={cn(
+                        "whitespace-nowrap text-[11px] sm:text-xs font-semibold tracking-tight",
+                        isCancelled ? 'line-through text-muted-foreground' : 'text-foreground'
+                      )}>{requestDate}</TableCell>
+                      <TableCell className={cn(
+                        "text-center text-sm font-black",
+                        isCancelled ? 'line-through text-muted-foreground' : 'text-primary/80'
+                      )}>{request.cans || 0}</TableCell>
                       {/* Hide Priority, Price, Payment in portrait mode */}
-                      <TableCell className={cn(isPortrait && "hidden")}>
+                      <TableCell className={cn("text-center", isPortrait && "hidden")}>
                         {getPriorityBadge(request.priority)}
                       </TableCell>
-                      <TableCell className="text-xs sm:text-sm">
+                      <TableCell className="text-center">
                         {getStatusBadge(request.status)}
                         {isCancelled && getCancellationReasonLabel((request as any).cancellationReason) && (
-                          <div className="text-[10px] text-muted-foreground mt-1 leading-tight">
+                          <div className="text-[10px] text-muted-foreground mt-1 leading-tight text-center">
                             {getCancellationReasonLabel((request as any).cancellationReason)}
                           </div>
                         )}
@@ -185,11 +198,26 @@ export default function CustomerRequestHistory({
                           {request.paymentType === 'account' ? 'Account' : 'Cash'}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-xs sm:text-sm">
+                      <TableCell className={cn(isPortrait && "hidden")}>
                         {(() => {
-                          // Determine if created by customer or admin
-                          // Only show "Customer" if explicitly set to 'customer_portal'
-                          // Empty/null/other values default to "Admin" (for backward compatibility with old requests)
+                          const deliveredMs = (request as any).deliveredAt && request.requestedAt
+                            ? new Date((request as any).deliveredAt).getTime() - new Date(request.requestedAt).getTime()
+                            : 0;
+                          const processingMs = (request as any).processingAt && request.requestedAt
+                            ? new Date((request as any).processingAt).getTime() - new Date(request.requestedAt).getTime()
+                            : 0;
+                          return (
+                            <div className="text-xs">
+                              <div className="font-bold">{deliveredMs > 0 ? formatDuration(deliveredMs) : '—'}</div>
+                              {processingMs > 0 && (
+                                <div className="text-muted-foreground text-[10px]">{formatDuration(processingMs)}</div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {(() => {
                           const isCustomerCreated = request.createdBy === 'customer_portal';
                           return (
                             <Badge variant={isCustomerCreated ? "secondary" : "default"} className="text-xs">
@@ -204,9 +232,20 @@ export default function CustomerRequestHistory({
               </TableBody>
             </Table>
           </div>
-        )}
-      </CardContent>
-    </Card>
+      )}
+      {hasMore && (
+        <div className="mt-4 flex justify-center">
+          <Button
+            variant="outline"
+            onClick={onLoadMore}
+            disabled={isLoadingMore}
+            className="w-full sm:w-auto"
+          >
+            {isLoadingMore ? 'Loading...' : 'Load More'}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 

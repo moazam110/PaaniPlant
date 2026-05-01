@@ -460,36 +460,6 @@ export default function StatsTab({
               </CardContent>
             </Card>
 
-            {/* Deliveries & Cans */}
-            <Card className="glass-card lg:col-span-3">
-              <CardHeader className="pb-1 pt-4 px-5">
-                <CardTitle className="text-sm font-semibold text-foreground">Deliveries &amp; Cans</CardTitle>
-              </CardHeader>
-              <CardContent className="px-2 pb-4">
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={chartData} margin={{ top: 12, right: 8, left: -10, bottom: 0 }} barCategoryGap="30%" barGap={4}>
-                    <defs>
-                      <linearGradient id="delGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={P.deliveriesLight} /><stop offset="100%" stopColor={P.deliveries} />
-                      </linearGradient>
-                      <linearGradient id="canGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#6ee7b7" /><stop offset="100%" stopColor="#059669" />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} allowDecimals={false} />
-                    <Tooltip content={<BarTooltip />} cursor={{ fill: 'rgba(0,0,0,0.04)', radius: 6 }} />
-                    <Bar dataKey="deliveries" name="Deliveries" fill="url(#delGrad)" radius={[6, 6, 0, 0]} maxBarSize={36}>
-                      <LabelList dataKey="deliveries" position="top" style={{ fontSize: 10, fill: '#6b7280', fontWeight: 600 }} />
-                    </Bar>
-                    <Bar dataKey="cans" name="Cans" fill="url(#canGrad)" radius={[6, 6, 0, 0]} maxBarSize={36}>
-                      <LabelList dataKey="cans" position="top" style={{ fontSize: 10, fill: '#6b7280', fontWeight: 600 }} />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
 
           </div>
         )}
@@ -526,7 +496,7 @@ export default function StatsTab({
                     const m = selectedMonth || String(now.getMonth() + 1);
                     const y = selectedYear || String(now.getFullYear());
                     const mLabel = months.find(mo => mo.value === m)?.label || '';
-                    return `Daily Deliveries — ${mLabel} ${y}`;
+                    return `Daily Cans — ${mLabel} ${y}`;
                   })()}
                 </CardTitle>
                 <div className="flex items-center gap-2 flex-wrap">
@@ -560,11 +530,11 @@ export default function StatsTab({
                     }}
                     cursor={{ fill: 'rgba(0,0,0,0.04)' }}
                   />
-                  <Bar dataKey="deliveries" name="Deliveries" radius={[3, 3, 0, 0]} maxBarSize={14}>
+                  <Bar dataKey="cans" name="Cans" radius={[3, 3, 0, 0]} maxBarSize={14}>
                     {dailyData.map((entry, i) => (
                       <Cell key={i} fill={DOW_COLORS[entry.dow]} fillOpacity={0.85} />
                     ))}
-                    <LabelList dataKey="deliveries" position="top"
+                    <LabelList dataKey="cans" position="top"
                       content={({ x, y, value }: any) => value > 0
                         ? <text x={x} y={(y as number) - 2} textAnchor="middle" fontSize={8} fill="#9ca3af">{value}</text>
                         : null} />

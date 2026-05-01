@@ -6,100 +6,111 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Prevent mobile browser auto-zoom on input focus */
+input, textarea, select {
+  font-size: 16px !important;
+}
+
+/* Blink animation for overdue requests (>2 hours) — background only, globally synced */
+.card-blink {
+  background-color: #ffffff;
+  transition: background-color 0.08s ease;
+  color: inherit !important;
+}
+.blink-on .card-blink {
+  background-color: #ffb3b3;
+}
+
 @layer base {
   :root {
-    /* Light Theme based on WaterWise Delivery PRD */
-    --background: 231 48% 95%; /* #E8EAF6 - Light blue, very desaturated */
-    --foreground: 230 35% 25%; /* Dark grayish blue for text */
+    --background: 231 48% 95%;
+    --foreground: 230 35% 25%;
 
-    --card: 0 0% 100%; /* White, for cards that will have glass effect */
-    --card-foreground: 230 35% 25%; /* Dark text on cards */
+    --card: 0 0% 100%;
+    --card-foreground: 230 35% 25%;
 
-    --popover: 0 0% 100%; /* White for popovers */
-    --popover-foreground: 230 35% 25%; /* Dark text on popovers */
+    --popover: 0 0% 100%;
+    --popover-foreground: 230 35% 25%;
 
-    --primary: 231 48% 48%; /* #3F51B5 - Deep blue */
-    --primary-foreground: 0 0% 100%; /* White text on primary */
+    --primary: 231 48% 48%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 231 40% 88%; /* Lighter, muted blue for secondary elements */
-    --secondary-foreground: 231 48% 48%; /* Primary color for text on secondary */
+    --secondary: 231 40% 88%;
+    --secondary-foreground: 231 48% 48%;
 
-    --muted: 230 40% 92%; /* Very light gray-blue for muted backgrounds */
-    --muted-foreground: 230 30% 50%; /* Medium gray-blue for muted text */
+    --muted: 230 40% 92%;
+    --muted-foreground: 230 30% 50%;
 
-    --accent: 231 53% 40%; /* #303F9F - Vibrant blue accent */
-    --accent-foreground: 0 0% 100%; /* White text on accent */
+    --accent: 231 53% 40%;
+    --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 70% 60%; /* Bright red */
-    --destructive-foreground: 0 0% 100%; /* White text on destructive */
+    --destructive: 0 70% 60%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 230 30% 80%; /* Light gray-blue border */
-    --input: 0 0% 100%; /* White background for inputs, border will define it */
-    --ring: 231 48% 48%; /* Primary blue for focus rings */
-    
-    --chart-1: 231 48% 48%; /* Primary */
-    --chart-2: 231 53% 40%; /* Accent */
-    --chart-3: 200 80% 55%; /* A distinct Teal/Cyan */
-    --chart-4: 30 80% 55%;  /* A distinct Orange */
-    --chart-5: 120 60% 50%; /* A distinct Green */
+    --border: 230 30% 80%;
+    --input: 0 0% 100%;
+    --ring: 231 48% 48%;
+
+    --chart-1: 231 48% 48%;
+    --chart-2: 231 53% 40%;
+    --chart-3: 200 80% 55%;
+    --chart-4: 30 80% 55%;
+    --chart-5: 120 60% 50%;
     --radius: 0.75rem;
 
-    /* Sidebar colors for light theme */
-    --sidebar-background: 230 50% 97%; /* Slightly off-white/very light blue for sidebar */
-    --sidebar-foreground: 230 35% 25%; /* Dark text */
-    --sidebar-primary: 231 48% 48%; /* Deep blue */
-    --sidebar-primary-foreground: 0 0% 100%; /* White */
-    --sidebar-accent: 231 53% 40%; /* Vibrant blue */
-    --sidebar-accent-foreground: 0 0% 100%; /* White */
-    --sidebar-border: 230 30% 85%; /* Light border for sidebar */
-    --sidebar-ring: 231 48% 48%; /* Primary blue for rings */
+    --sidebar-background: 230 50% 97%;
+    --sidebar-foreground: 230 35% 25%;
+    --sidebar-primary: 231 48% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 231 53% 40%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 230 30% 85%;
+    --sidebar-ring: 231 48% 48%;
   }
 
   .dark {
-    /* Dark Theme */
-    --background: 230 35% 15%; /* Dark blue-gray background */
-    --foreground: 230 20% 90%; /* Light text */
+    --background: 230 35% 15%;
+    --foreground: 230 20% 90%;
 
-    --card: 230 30% 20%; /* Dark card background */
-    --card-foreground: 230 20% 90%; /* Light text on cards */
+    --card: 230 30% 20%;
+    --card-foreground: 230 20% 90%;
 
-    --popover: 230 30% 20%; /* Dark popover background */
-    --popover-foreground: 230 20% 90%; /* Light text on popovers */
+    --popover: 230 30% 20%;
+    --popover-foreground: 230 20% 90%;
 
-    --primary: 231 48% 60%; /* Lighter blue for dark mode */
-    --primary-foreground: 0 0% 100%; /* White text on primary */
+    --primary: 231 48% 60%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 230 25% 25%; /* Darker secondary */
-    --secondary-foreground: 230 20% 85%; /* Light text on secondary */
+    --secondary: 230 25% 25%;
+    --secondary-foreground: 230 20% 85%;
 
-    --muted: 230 25% 25%; /* Dark muted background */
-    --muted-foreground: 230 20% 70%; /* Medium light text for muted */
+    --muted: 230 25% 25%;
+    --muted-foreground: 230 20% 70%;
 
-    --accent: 231 53% 55%; /* Lighter accent for dark mode */
-    --accent-foreground: 0 0% 100%; /* White text on accent */
+    --accent: 231 53% 55%;
+    --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 70% 55%; /* Slightly darker red for dark mode */
-    --destructive-foreground: 0 0% 100%; /* White text on destructive */
+    --destructive: 0 70% 55%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 230 25% 30%; /* Dark border */
-    --input: 230 30% 20%; /* Dark input background */
-    --ring: 231 48% 60%; /* Lighter blue for focus rings */
-    
-    --chart-1: 231 48% 60%; /* Primary */
-    --chart-2: 231 53% 55%; /* Accent */
-    --chart-3: 200 70% 50%; /* Teal/Cyan */
-    --chart-4: 30 70% 50%;  /* Orange */
-    --chart-5: 120 55% 45%; /* Green */
+    --border: 230 25% 30%;
+    --input: 230 30% 20%;
+    --ring: 231 48% 60%;
 
-    /* Sidebar colors for dark theme */
-    --sidebar-background: 230 30% 18%; /* Dark sidebar */
-    --sidebar-foreground: 230 20% 85%; /* Light text */
-    --sidebar-primary: 231 48% 60%; /* Lighter blue */
-    --sidebar-primary-foreground: 0 0% 100%; /* White */
-    --sidebar-accent: 231 53% 55%; /* Lighter accent */
-    --sidebar-accent-foreground: 0 0% 100%; /* White */
-    --sidebar-border: 230 25% 25%; /* Dark border */
-    --sidebar-ring: 231 48% 60%; /* Lighter blue for rings */
+    --chart-1: 231 48% 60%;
+    --chart-2: 231 53% 55%;
+    --chart-3: 200 70% 50%;
+    --chart-4: 30 70% 50%;
+    --chart-5: 120 55% 45%;
+
+    --sidebar-background: 230 30% 18%;
+    --sidebar-foreground: 230 20% 85%;
+    --sidebar-primary: 231 48% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 231 53% 55%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 230 25% 25%;
+    --sidebar-ring: 231 48% 60%;
   }
 }
 
@@ -112,9 +123,33 @@ body {
   }
 }
 
-/* Glassmorphism for cards, adapted for both themes */
+/* Glassmorphism for cards — enhanced crystal effect */
 .glass-card {
-  @apply bg-white/60 dark:bg-[hsl(var(--card))]/60 backdrop-blur-xl border border-[hsl(var(--border))]/50 shadow-xl rounded-xl;
+  @apply bg-white/65 dark:bg-[hsl(var(--card))]/65 backdrop-blur-2xl rounded-xl;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow:
+    0 8px 32px rgba(63, 81, 181, 0.18),
+    0 2px 8px rgba(63, 81, 181, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+/* Frosted table panel — lighter crystal for data rows */
+.glass-table {
+  @apply bg-white/50 dark:bg-[hsl(var(--card))]/50 backdrop-blur-xl rounded-xl;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow: 0 4px 20px rgba(63, 81, 181, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+/* Light-ray diagonal shine overlay — add to a sibling div inside the container */
+.light-ray {
+  background: linear-gradient(
+    135deg,
+    rgba(255,255,255,0.06) 0%,
+    rgba(255,255,255,0.12) 30%,
+    transparent 55%,
+    rgba(255,255,255,0.04) 100%
+  );
+  pointer-events: none;
 }
 
 /* Ensure inputs have a visible border in light theme */
@@ -150,4 +185,29 @@ textarea {
 
 .animate-shimmer {
   animation: shimmer 3s ease-in-out infinite;
+}
+
+/* Button gradient shimmer sweep */
+@keyframes btn-shimmer {
+  0% { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+.btn-shimmer {
+  background-size: 250% auto;
+  animation: btn-shimmer 2.5s linear infinite;
+}
+
+/* Pulse ring glow for button */
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 hsl(var(--primary) / 0.55); }
+  70%  { box-shadow: 0 0 0 10px hsl(var(--primary) / 0); }
+  100% { box-shadow: 0 0 0 0  hsl(var(--primary) / 0); }
+}
+.btn-pulse-ring {
+  animation: pulse-ring 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-gradient {
+  animation: gradient 6s ease infinite;
+  background-size: 300% 300%;
 }

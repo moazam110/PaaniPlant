@@ -10,30 +10,24 @@
  * - Vibrant, crystal-style design
  */
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Footer from '@/components/shared/Footer';
 import { useRouter } from 'next/navigation';
 import { useToast } from "@/hooks/use-toast";
 import type { DeliveryRequest, Customer } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, PlusCircle, LogOut, Filter, Receipt, Menu, Phone, MapPin, MessageCircle, Bell } from 'lucide-react';
+import { CalendarIcon, LogOut, Filter, ScrollText, Menu, Phone, MapPin, MessageCircle, Bell, Wallet, Truck } from 'lucide-react';
 
-interface PriceNotification {
-  _id: string;
-  data: { oldPrice: number; newPrice: number };
-  isRead: boolean;
-  createdAt: string;
-}
+
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import CustomerRequestForm from './CustomerRequestForm';
 import CustomerRequestHistory from './CustomerRequestHistory';
+import CustomerBillDialog from './CustomerBillDialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 import { useWebSocket } from '@/hooks/use-websocket';
@@ -42,67 +36,107 @@ interface CustomerDashboardClientProps {
   initialRequests: DeliveryRequest[];
 }
 
+interface LedgerEntry {
+  month: string;
+  billed: number;
+  appliedToMonth: number;
+  dueForMonth: number;
+  runningBalance: number;
+  status: 'settled' | 'due' | 'advance';
+}
+
 export default function CustomerDashboardClient({
   initialRequests
 }: CustomerDashboardClientProps) {
   const router = useRouter();
-  const { toast } = useToast();
+  const { toast, dismiss } = useToast();
+  const processingToastDismiss = useRef<(() => void) | null>(null);
   
   // Phase 4: Get customer from authenticated session
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [customer, setCustomer] = useState<Customer | null>(null);
-  const [deliveryRequests, setDeliveryRequests] = useState<DeliveryRequest[]>(initialRequests || []);
+  const [deliveryRequests, setDeliveryRequests] = useState<DeliveryRequest[]>([]);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [dateFilter, setDateFilter] = useState<{ from?: Date; to?: Date }>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isBillDialogOpen, setIsBillDialogOpen] = useState(false);
-  const [billMonth, setBillMonth] = useState<number>(new Date().getMonth() + 1);
-  const [billYear, setBillYear] = useState<number>(new Date().getFullYear());
   const [menuOpen, setMenuOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [fromDateOpen, setFromDateOpen] = useState(false);
+  const [toDateOpen, setToDateOpen] = useState(false);
+  const [balancePopoverOpen, setBalancePopoverOpen] = useState(false);
 
-  // Price change notifications state
-  const [priceNotifications, setPriceNotifications] = useState<PriceNotification[]>([]);
+  const [isPortrait, setIsPortrait] = useState(false);
+  useEffect(() => {
+    const checkOrientation = () => setIsPortrait(window.innerHeight > window.innerWidth);
+    checkOrientation();
+    window.addEventListener('resize', checkOrientation);
+    window.addEventListener('orientationchange', checkOrientation);
+    return () => {
+      window.removeEventListener('resize', checkOrientation);
+      window.removeEventListener('orientationchange', checkOrientation);
+    };
+  }, []);
+
+  // FIFO ledger + payment records state for wallet popover
+  const [ledger, setLedger] = useState<LedgerEntry[]>([]);
+  const [ledgerFinalBalance, setLedgerFinalBalance] = useState(0);
+  const [walletPayments, setWalletPayments] = useState<{ _id: string; amount: number; date: string; note: string }[]>([]);
+  const [isLoadingLedger, setIsLoadingLedger] = useState(false);
+
+  // Unified notification bell state
+  type BellNotif =
+    | { source: 'price'; _id: string; type: 'price_change'; data: { oldPrice: number; newPrice: number }; isRead: boolean; createdAt: string }
+    | { source: 'payment'; _id: string; type: 'payment_added' | 'payment_deleted'; amount: number; note: string; deleteReason?: string; isReadByCustomer: boolean; createdAt: string };
+  const [bellNotifs, setBellNotifs] = useState<BellNotif[]>([]);
   const [notifUnreadCount, setNotifUnreadCount] = useState(0);
   const [notifBellOpen, setNotifBellOpen] = useState(false);
+  const [notifFilter, setNotifFilter] = useState<'all' | 'payments' | 'price'>('all');
 
-  // Fetch fresh delivery requests on mount to ensure correct status (bypass cache)
-  useEffect(() => {
-    const fetchFreshRequests = async () => {
-      try {
-        // Add timestamp to ensure fresh data
-        const timestamp = Date.now();
-        const response = await fetch(buildApiUrl(`${API_ENDPOINTS.DELIVERY_REQUESTS}?page=1&limit=1000&_t=${timestamp}`), {
-          cache: 'no-store', // Always fetch fresh data
-          headers: {
-            'Cache-Control': 'no-cache',
-          }
-        });
-        if (response.ok) {
-          const result = await response.json();
-          const requests = Array.isArray(result) ? result : (result?.data || []);
-          setDeliveryRequests(requests);
-          console.log('✅ Customer dashboard: Loaded fresh delivery requests on mount', requests.length, 'requests');
+  // Fetch customer-specific paginated requests
+  const fetchRequests = async (id: string, page: number, append: boolean = false) => {
+    if (append) setIsLoadingMore(true);
+    try {
+      const timestamp = Date.now();
+      const response = await fetch(
+        buildApiUrl(`${API_ENDPOINTS.DELIVERY_REQUESTS}?customerId=${id}&page=${page}&limit=50&_t=${timestamp}`),
+        { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } }
+      );
+      if (response.ok) {
+        const result = await response.json();
+        const data: DeliveryRequest[] = Array.isArray(result) ? result : (result?.data || []);
+        const pagination = result.pagination || { hasNext: false };
+        if (append) {
+          setDeliveryRequests(prev => {
+            const existingIds = new Set(prev.map(r => r._id || r.requestId));
+            return [...prev, ...data.filter(r => !existingIds.has(r._id || r.requestId))];
+          });
         } else {
-          console.error('Failed to fetch fresh requests:', response.status);
-          // Fallback to initialRequests if fetch fails
-          if (initialRequests && initialRequests.length > 0) {
-            setDeliveryRequests(initialRequests);
-            console.log('⚠️ Using initialRequests as fallback');
-          }
+          setDeliveryRequests(data);
         }
-      } catch (error) {
-        console.error('Error fetching fresh delivery requests:', error);
-        // Fallback to initialRequests if fetch fails
-        if (initialRequests && initialRequests.length > 0) {
-          setDeliveryRequests(initialRequests);
-          console.log('⚠️ Using initialRequests as fallback due to error');
-        }
+        setCurrentPage(page);
+        setHasMore(pagination.hasNext || false);
       }
-    };
-    
-    fetchFreshRequests();
-  }, []);
+    } catch (error) {
+      console.error('Error fetching delivery requests:', error);
+    } finally {
+      if (append) {
+        setIsLoadingMore(false);
+      } else {
+        setIsLoading(false);
+      }
+    }
+  };
+
+  // Fetch requests once customerId is known
+  useEffect(() => {
+    if (customerId) {
+      fetchRequests(customerId, 1);
+    }
+  }, [customerId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Check authentication and get customer data
   useEffect(() => {
@@ -122,7 +156,6 @@ export default function CustomerDashboardClient({
         setCustomerId(String(id));
         setCustomer(customerData as Customer);
         setIsAuthenticated(true);
-        setIsLoading(false);
       } else if (id) {
         // If we have ID but not customer data, fetch it
         setCustomerId(String(id));
@@ -209,17 +242,11 @@ export default function CustomerDashboardClient({
     }
   };
 
-  // Filter requests by customer ID and date range
+  // Filter requests by date range (customerId filter handled by backend)
   const filteredRequests = useMemo(() => {
     if (!customerId) return [];
-    
-    let filtered = deliveryRequests.filter(req => {
-      const raw = (req as any).customerId;
-      const normalized = raw && typeof raw === 'object'
-        ? String(raw._id ?? raw.id ?? '')
-        : String(raw ?? '');
-      return normalized === customerId || (req as any).customerIntId?.toString() === customerId;
-    });
+
+    let filtered = [...deliveryRequests];
 
     // Apply date filter
     if (dateFilter.from || dateFilter.to) {
@@ -252,80 +279,76 @@ export default function CustomerDashboardClient({
     });
   }, [deliveryRequests, customerId, dateFilter]);
 
-  // Fetch billing stats from backend API (same as CustomerList/CustomerForm)
-  const [billingStats, setBillingStats] = useState({ totalDeliveries: 0, totalCans: 0, pricePerCan: 0, totalBill: 0 });
-  const [isLoadingStats, setIsLoadingStats] = useState(false);
 
-  useEffect(() => {
-    if (!customerId || !isBillDialogOpen) return;
-
-    const fetchCustomerStats = async () => {
-      setIsLoadingStats(true);
-      try {
-        // Use the same endpoint as CustomerForm.tsx for consistency
-        const statsUrl = buildApiUrl(`api/customers/${customerId}/stats?month=${billMonth}&year=${billYear}`);
-        console.log('Fetching customer stats from:', statsUrl);
-        
-        const response = await fetch(statsUrl);
-        
-        if (response.ok) {
-          const stats = await response.json();
-          console.log('Customer stats received:', stats);
-          setBillingStats({
-            totalDeliveries: stats.totalDeliveries || 0,
-            totalCans: stats.totalCansReceived || 0,
-            pricePerCan: stats.pricePerCan || customer?.pricePerCan || 0,
-            totalBill: stats.totalPrice || 0,
-          });
-        } else {
-          const errorText = await response.text();
-          console.error('Failed to fetch customer stats:', response.status, errorText);
-          setBillingStats({ totalDeliveries: 0, totalCans: 0, pricePerCan: customer?.pricePerCan || 0, totalBill: 0 });
-        }
-      } catch (error) {
-        console.error("Error fetching customer stats:", error);
-        setBillingStats({ totalDeliveries: 0, totalCans: 0, pricePerCan: customer?.pricePerCan || 0, totalBill: 0 });
-      } finally {
-        setIsLoadingStats(false);
-      }
-    };
-    
-    fetchCustomerStats();
-  }, [customerId, billMonth, billYear, isBillDialogOpen, customer]);
-
-  // Fetch price change notifications for this customer
-  const fetchPriceNotifications = useCallback(async (id: string) => {
+  // Fetch both notification types and merge for bell
+  const fetchBellNotifs = useCallback(async (objectId: string, markRead = false) => {
     try {
-      const res = await fetch(buildApiUrl(`api/notifications/customer/${id}`));
-      if (res.ok) {
-        const data = await res.json();
-        setPriceNotifications(data.notifications || []);
-        setNotifUnreadCount(data.unreadCount || 0);
+      const [priceRes, payRes] = await Promise.all([
+        fetch(buildApiUrl(`api/notifications/customer/${objectId}`)),
+        fetch(buildApiUrl(`api/payment-notifications/customer/${objectId}`)),
+      ]);
+      const merged: BellNotif[] = [];
+      if (priceRes.ok) {
+        const d = await priceRes.json();
+        for (const n of (d.notifications || [])) merged.push({ source: 'price', ...n });
       }
-    } catch {
-      // non-critical
+      if (payRes.ok) {
+        const d = await payRes.json();
+        for (const n of (d.data || [])) merged.push({ source: 'payment', ...n });
+      }
+      merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setBellNotifs(merged);
+      const unread = merged.filter(n => n.source === 'price' ? !n.isRead : !n.isReadByCustomer).length;
+      setNotifUnreadCount(unread);
+      if (markRead && unread > 0) {
+        Promise.all([
+          fetch(buildApiUrl(`api/notifications/customer/${objectId}/read-all`), { method: 'PUT' }),
+          fetch(buildApiUrl(`api/payment-notifications/customer/${objectId}/read-all`), { method: 'PUT' }),
+        ]).catch(() => {});
+        setBellNotifs(prev => prev.map(n =>
+          n.source === 'price' ? { ...n, isRead: true } : { ...n, isReadByCustomer: true }
+        ));
+        setNotifUnreadCount(0);
+      }
+    } catch { /* non-critical */ }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load bell notifs once customer object ID is known
+  useEffect(() => {
+    if (customer) {
+      const objectId = (customer as any)._id || customerId;
+      if (objectId) fetchBellNotifs(String(objectId));
+    }
+  }, [customer, customerId, fetchBellNotifs]);
+
+  // Fetch FIFO ledger + payment records for wallet popover (no notifs — those are in the bell)
+  const fetchLedger = useCallback(async (objectId: string) => {
+    setIsLoadingLedger(true);
+    try {
+      const [ledgerRes, paymentsRes] = await Promise.all([
+        fetch(buildApiUrl(`api/payments/ledger/${objectId}`)),
+        fetch(buildApiUrl(`api/payments?customerObjectId=${objectId}`)),
+      ]);
+      if (ledgerRes.ok) {
+        const data = await ledgerRes.json();
+        setLedger((data.data?.ledger || []).slice().reverse());
+        setLedgerFinalBalance(data.data?.finalBalance ?? 0);
+      }
+      if (paymentsRes.ok) {
+        const data = await paymentsRes.json();
+        setWalletPayments(data.data || []);
+      }
+    } catch { /* non-critical */ } finally {
+      setIsLoadingLedger(false);
     }
   }, []);
 
-  // Load notifications once customerId is known
-  useEffect(() => {
-    if (customerId) {
-      fetchPriceNotifications(customerId);
-    }
-  }, [customerId, fetchPriceNotifications]);
-
-  // Handle bell open: fetch fresh notifications and mark as read
+  // Handle bell open: fetch fresh and mark as read
   const handleNotifBellOpen = async (open: boolean) => {
     setNotifBellOpen(open);
-    if (open && customerId) {
-      await fetchPriceNotifications(customerId);
-      if (notifUnreadCount > 0) {
-        try {
-          await fetch(buildApiUrl(`api/notifications/customer/${customerId}/read-all`), { method: 'PUT' });
-          setNotifUnreadCount(0);
-          setPriceNotifications((prev: PriceNotification[]) => prev.map((n: PriceNotification) => ({ ...n, isRead: true })));
-        } catch { /* non-critical */ }
-      }
+    if (open && customer) {
+      const objectId = String((customer as any)._id || customerId || '');
+      if (objectId) await fetchBellNotifs(objectId, true);
     }
   };
 
@@ -334,23 +357,38 @@ export default function CustomerDashboardClient({
     'deliveryRequests',
     (data: any) => {
       if (data?.type === 'created' || data?.type === 'updated' || data?.type === 'deleted') {
-        // Refresh requests when new ones are created, updated, or deleted
-        // This ensures parallel sync with admin dashboard
-        // Add timestamp to bypass cache
-        const timestamp = Date.now();
-        fetch(buildApiUrl(`${API_ENDPOINTS.DELIVERY_REQUESTS}?page=1&limit=1000&_t=${timestamp}`), {
-          cache: 'no-store',
-          headers: {
-            'Cache-Control': 'no-cache',
+        if (customerId) {
+          fetchRequests(customerId, 1);
+        }
+      }
+      if (customerId && String(data?.data?.customerId) === customerId) {
+        // Show persistent popup when this customer's request moves to processing
+        if (data?.type === 'updated' && data?.data?.status === 'processing') {
+          const { dismiss: dismissThis } = toast({
+            title: "Your water cans are on the way!",
+            description: "Our delivery team has confirmed your order and is heading to you.",
+            duration: Infinity,
+          });
+          processingToastDismiss.current = dismissThis;
+        }
+        // Dismiss the popup when delivered
+        if (data?.type === 'updated' && data?.data?.status === 'delivered') {
+          if (processingToastDismiss.current) {
+            processingToastDismiss.current();
+            processingToastDismiss.current = null;
           }
-        })
-          .then(res => res.json())
-          .then(result => {
-            const requests = Array.isArray(result) ? result : (result?.data || []);
-            setDeliveryRequests(requests);
-            console.log('🔄 Customer dashboard: Delivery requests refreshed via WebSocket', requests.length);
-          })
-          .catch(err => console.error('Error refreshing requests:', err));
+        }
+      }
+    }
+  );
+
+  // Listen for payment activity — refresh bell badge
+  useWebSocket(
+    'paymentActivity',
+    (data: any) => {
+      if (data?.customerId && customer) {
+        const objectId = String((customer as any)._id || customerId || '');
+        if (data.customerId === objectId) fetchBellNotifs(objectId);
       }
     }
   );
@@ -386,45 +424,21 @@ export default function CustomerDashboardClient({
     }
   );
 
-  // Listen for price change events to refresh notifications in real-time
+  // Listen for price change events — refresh bell
   useWebSocket(
     'priceChange',
     () => {
-      if (customerId) {
-        fetchPriceNotifications(customerId);
+      if (customer) {
+        const objectId = String((customer as any)._id || customerId || '');
+        if (objectId) fetchBellNotifs(objectId);
       }
     }
   );
 
   const handleCreateRequestSuccess = () => {
     setIsCreateDialogOpen(false);
-    // Refresh requests with fresh data (bypass cache)
-    const timestamp = Date.now();
-    fetch(buildApiUrl(`${API_ENDPOINTS.DELIVERY_REQUESTS}?page=1&limit=1000&_t=${timestamp}`), {
-      cache: 'no-store',
-      headers: {
-        'Cache-Control': 'no-cache',
-      }
-    })
-      .then(res => res.json())
-      .then(result => {
-        const requests = Array.isArray(result) ? result : (result?.data || []);
-        setDeliveryRequests(requests);
-        console.log('✅ Customer dashboard: Requests refreshed after creation', requests.length);
-      })
-      .catch(err => {
-        console.error('Error refreshing requests:', err);
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Failed to refresh requests. Please reload the page.",
-        });
-      });
-    
-    toast({
-      title: "Request Created",
-      description: "Your delivery request has been created successfully!",
-    });
+    if (customerId) fetchRequests(customerId, 1);
+    toast({ title: "Request Created", description: "Your delivery request has been created successfully!" });
   };
 
   const handleSignOut = () => {
@@ -457,16 +471,21 @@ export default function CustomerDashboardClient({
 
   return (
     <div className="min-h-screen flex flex-col relative overflow-hidden">
-      {/* Animated gradient background layers */}
-      <div className="absolute inset-0 bg-gradient-to-br from-primary/40 via-accent/30 to-primary/50 animate-gradient"></div>
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_30%,rgba(63,81,181,0.4),transparent_50%)] animate-pulse"></div>
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_70%,rgba(48,63,159,0.4),transparent_50%)] animate-pulse" style={{ animationDelay: '1s' }}></div>
+      {/* Deep gradient base */}
+      <div className="absolute inset-0 bg-gradient-to-br from-primary/50 via-accent/35 to-primary/60 animate-gradient"></div>
+      {/* Radial depth layers */}
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_30%,rgba(63,81,181,0.5),transparent_50%)] animate-pulse"></div>
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_70%,rgba(48,63,159,0.45),transparent_50%)] animate-pulse" style={{ animationDelay: '1s' }}></div>
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_10%,rgba(255,255,255,0.07),transparent_40%)]"></div>
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(63,81,181,0.2),transparent_70%)]"></div>
-      
+      {/* Diagonal light ray */}
+      <div className="absolute inset-0 light-ray"></div>
       {/* Animated floating orbs */}
       <div className="absolute top-20 left-10 w-64 h-64 bg-primary/30 rounded-full blur-3xl animate-pulse"></div>
       <div className="absolute bottom-20 right-10 w-80 h-80 bg-accent/30 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1.5s' }}></div>
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-primary/20 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '0.5s' }}></div>
+      {/* Top edge highlight */}
+      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent"></div>
 
       <main className="flex-grow relative z-10 p-2 sm:p-4 md:p-8">
         <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
@@ -484,8 +503,84 @@ export default function CustomerDashboardClient({
               </Button>
             </div>
 
-            {/* Sign Out Button - Top Right */}
-            <div className="absolute top-0 right-0 z-10">
+            {/* Bell + Sign Out - Top Right */}
+            <div className="absolute top-0 right-0 z-10 flex items-center gap-1">
+              {/* Unified Notification Bell */}
+              <Popover open={notifBellOpen} onOpenChange={handleNotifBellOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-10 w-10 relative">
+                    <Bell className="h-5 w-5" />
+                    {notifUnreadCount > 0 && (
+                      <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white leading-none">
+                        {notifUnreadCount > 9 ? '9+' : notifUnreadCount}
+                      </span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-80 p-0">
+                  <div className="px-4 py-3 border-b">
+                    <p className="font-semibold text-sm mb-2">Notifications</p>
+                    <div className="flex gap-1">
+                      {(['all', 'payments', 'price'] as const).map(f => (
+                        <button key={f} onClick={() => setNotifFilter(f)}
+                          className={cn('text-xs px-2 py-0.5 rounded-full border transition-colors',
+                            notifFilter === f ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-muted-foreground hover:bg-muted'
+                          )}>
+                          {f === 'all' ? 'All' : f === 'payments' ? 'Payments' : 'Price Updates'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="max-h-80 overflow-y-auto">
+                    {(() => {
+                      const visible = bellNotifs.filter(n =>
+                        notifFilter === 'all' ? true : notifFilter === 'payments' ? n.source === 'payment' : n.source === 'price'
+                      );
+                      if (visible.length === 0) return (
+                        <p className="text-sm text-muted-foreground text-center py-6">No notifications</p>
+                      );
+                      return visible.map(n => {
+                        const unread = n.source === 'price' ? !n.isRead : !n.isReadByCustomer;
+                        return (
+                          <div key={n._id} className={cn(
+                            'px-4 py-3 border-b last:border-b-0',
+                            n.source === 'payment' && n.type === 'payment_deleted' && 'bg-destructive/5',
+                            unread && 'bg-primary/5',
+                          )}>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                {n.source === 'price' ? (
+                                  <>
+                                    <p className="text-xs font-semibold text-primary">Price Updated</p>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                      Per can: <span className="line-through">Rs {n.data.oldPrice}</span> → <span className="font-medium text-primary">Rs {n.data.newPrice}</span>
+                                    </p>
+                                  </>
+                                ) : (
+                                  <>
+                                    <p className={cn('text-xs font-semibold', n.type === 'payment_deleted' ? 'text-destructive' : 'text-green-600 dark:text-green-400')}>
+                                      {n.type === 'payment_added' ? `Rs ${n.amount.toLocaleString()} payment received` : `Rs ${n.amount.toLocaleString()} payment deleted`}
+                                    </p>
+                                    {n.note && <p className="text-xs text-muted-foreground mt-0.5">{n.note}</p>}
+                                    {n.type === 'payment_deleted' && n.deleteReason && (
+                                      <p className="text-xs text-destructive/80 mt-0.5 font-medium">Reason: {n.deleteReason}</p>
+                                    )}
+                                  </>
+                                )}
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {new Date(n.createdAt).toLocaleString('en-PK', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Karachi' })}
+                                </p>
+                              </div>
+                              {unread && <span className="shrink-0 h-2 w-2 rounded-full bg-primary mt-1" />}
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </PopoverContent>
+              </Popover>
+
               <Button
                 variant="outline"
                 size="sm"
@@ -499,13 +594,19 @@ export default function CustomerDashboardClient({
             
             {/* Welcome Message - Centered with padding to avoid overlap */}
             <div className="text-center pt-10 md:pt-0 px-2">
-              <h2 className="text-2xl font-normal text-primary mb-1" style={{ fontFamily: 'Georgia, serif' }}>
+              <h2 className="text-2xl font-normal mb-1 drop-shadow-sm" style={{ fontFamily: 'Georgia, serif', color: 'hsl(231,55%,28%)' }}>
                 The Paani<sup className="text-xs font-normal">™</sup>
               </h2>
-              <p className="text-lg font-normal text-muted-foreground mb-0.5" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>
+              {/* Decorative accent line */}
+              <div className="flex items-center justify-center gap-2 my-1.5">
+                <div className="h-px w-10 bg-gradient-to-r from-transparent to-primary/50 rounded-full" />
+                <div className="h-1 w-1 rounded-full bg-primary/60" />
+                <div className="h-px w-10 bg-gradient-to-l from-transparent to-primary/50 rounded-full" />
+              </div>
+              <p className="text-base font-normal text-muted-foreground mb-0.5" style={{ fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>
                 Welcome
               </p>
-              <h1 className="text-2xl font-normal text-primary break-words" style={{ fontFamily: 'Georgia, serif' }}>
+              <h1 className="text-2xl font-normal text-primary break-words drop-shadow-sm" style={{ fontFamily: 'Georgia, serif' }}>
                 {customer.name}
               </h1>
             </div>
@@ -513,18 +614,130 @@ export default function CustomerDashboardClient({
 
           {/* Create Request Button and Filter - Mobile Responsive */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4">
-            <Button
-              size="lg"
+            <button
               onClick={() => setIsCreateDialogOpen(true)}
-              className="bg-gradient-to-r from-primary via-accent to-primary hover:from-primary hover:via-accent hover:to-primary shadow-lg hover:shadow-primary/50 transition-all duration-300 w-full sm:w-auto"
-              style={{ backgroundSize: '200% auto' }}
+              className="btn-shimmer w-full flex items-center justify-center gap-2 py-3.5 px-6 rounded-full text-white font-semibold text-sm shadow-lg active:scale-95 transition-transform"
+              style={{ background: 'linear-gradient(to right, hsl(231,48%,38%), hsl(231,53%,30%), hsl(220,60%,55%), hsl(231,48%,38%))' }}
             >
-              <PlusCircle className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
-              <span className="text-sm sm:text-base">Create Request</span>
-            </Button>
+              <Truck className="h-5 w-5" />
+              Request Delivery
+            </button>
 
-            <div className="flex items-center gap-2 justify-end sm:justify-start">
-              {/* Date Filter Popover */}
+            <div className="flex items-center justify-end sm:justify-start w-full sm:w-auto">
+              {/* Rotate hint - portrait only, pushed far left */}
+              {isPortrait && (
+                <span className="shrink-0 flex items-center justify-center h-9 w-9 rounded-full border border-primary/40 bg-primary/10 text-primary mr-auto">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
+                    <rect x="7.5" y="3" width="9" height="18" rx="2" transform="rotate(-45 12 12)" />
+                    <path d="M16.5 3.5 A9.5 9.5 0 0 1 20.5 7.5" />
+                    <path d="M18 6 L20.5 7.5 L19 10" />
+                    <path d="M7.5 20.5 A9.5 9.5 0 0 1 3.5 16.5" />
+                    <path d="M6 18 L3.5 16.5 L5 14" />
+                  </svg>
+                </span>
+              )}
+              <div className="flex items-center gap-2">
+              {/* Account Balance (Wallet) */}
+              <Popover open={balancePopoverOpen} onOpenChange={(open) => {
+                setBalancePopoverOpen(open);
+                if (open && customer) {
+                  const objectId = (customer as any)._id || customerId;
+                  if (objectId) fetchLedger(String(objectId));
+                }
+              }}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="border-primary text-primary hover:bg-primary hover:text-primary-foreground h-9 sm:h-10 px-2 sm:px-3 gap-1.5">
+                    <Wallet className="h-4 w-4" />
+                    <span className="text-xs font-medium">Account</span>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-80 p-0">
+                  <div className="px-4 py-3 border-b">
+                    <span className="font-semibold text-sm">Account Balance</span>
+                  </div>
+                  {isLoadingLedger ? (
+                    <p className="text-sm text-muted-foreground text-center py-6">Loading...</p>
+                  ) : (
+                    <div className="p-3 space-y-2 max-h-80 overflow-y-auto">
+                      {/* Top balance — single centered line */}
+                      <div className={cn(
+                        'rounded-lg px-3 py-2.5 text-sm font-semibold text-center',
+                        ledgerFinalBalance < 0 && 'bg-destructive/10 text-destructive',
+                        ledgerFinalBalance > 0 && 'bg-green-50 dark:bg-green-950/30 text-green-600 dark:text-green-400',
+                        ledgerFinalBalance === 0 && 'bg-muted/40 text-muted-foreground',
+                      )}>
+                        {ledgerFinalBalance < 0 ? `Rs ${Math.abs(ledgerFinalBalance).toLocaleString()} DUE`
+                          : ledgerFinalBalance > 0 ? `Rs ${ledgerFinalBalance.toLocaleString()} ADV`
+                          : 'All Settled'}
+                      </div>
+
+                      {ledger.length > 0 && (
+                        <>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-1">Monthly Summary</p>
+                          {ledger.map(entry => {
+                            const [y, mo] = entry.month.split('-');
+                            const label = new Date(Number(y), Number(mo) - 1, 15).toLocaleString('en-PK', { month: 'long', year: 'numeric' });
+                            return (
+                              <div key={entry.month} className="rounded-lg border bg-card px-3 py-2">
+                                <p className="text-xs font-semibold text-foreground">{label}</p>
+                                <p className="text-xs mt-0.5 flex flex-wrap items-center gap-x-3">
+                                  <span className="font-medium text-foreground">Billed Rs {entry.billed.toLocaleString()}</span>
+                                  {entry.appliedToMonth > 0 && entry.appliedToMonth < entry.billed && (
+                                    <span className="font-semibold text-green-600 dark:text-green-400">· Paid Rs {entry.appliedToMonth.toLocaleString()}</span>
+                                  )}
+                                  {entry.appliedToMonth === entry.billed && entry.billed > 0 && (
+                                    <span className="font-semibold text-green-600 dark:text-green-400">· Fully Paid</span>
+                                  )}
+                                  {entry.status === 'due' && (
+                                    <span className="font-black text-destructive whitespace-nowrap">· Rs {entry.dueForMonth.toLocaleString()} DUE</span>
+                                  )}
+                                  {entry.status === 'advance' && (
+                                    <span className="font-black text-green-600 dark:text-green-400 whitespace-nowrap">· Rs {Math.abs(entry.runningBalance).toLocaleString()} ADV</span>
+                                  )}
+                                  {entry.status === 'settled' && (
+                                    <span className="font-bold text-muted-foreground">· ✓ Settled</span>
+                                  )}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </>
+                      )}
+                      {walletPayments.length > 0 && (
+                        <>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-1">Payment Records</p>
+                          {walletPayments.map(p => (
+                            <div key={p._id} className="rounded-lg border bg-card px-3 py-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-xs font-semibold text-green-600 dark:text-green-400">Rs {p.amount.toLocaleString()}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {new Date(p.date).toLocaleString('en-PK', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Karachi' })}
+                                </p>
+                              </div>
+                              {p.note && <p className="text-xs text-muted-foreground mt-0.5">{p.note}</p>}
+                            </div>
+                          ))}
+                        </>
+                      )}
+                      {ledger.length === 0 && walletPayments.length === 0 && (
+                        <p className="text-xs text-muted-foreground text-center py-3">No history yet.</p>
+                      )}
+                    </div>
+                  )}
+                </PopoverContent>
+              </Popover>
+
+              {/* Bill Button */}
+              <Button
+                variant="outline" size="sm"
+                onClick={() => setIsBillDialogOpen(true)}
+                className="border-primary text-primary hover:bg-primary hover:text-primary-foreground h-9 sm:h-10 px-2 sm:px-3 gap-1.5"
+              >
+                <ScrollText className="h-4 w-4" />
+                <span className="text-xs font-medium">Bill</span>
+              </Button>
+
+              {/* Date Filter Popover - rightmost */}
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
@@ -557,7 +770,7 @@ export default function CustomerDashboardClient({
                     <div className="flex flex-col gap-4">
                       <div>
                         <label className="text-sm font-medium mb-2 block">From Date</label>
-                        <Popover>
+                        <Popover open={fromDateOpen} onOpenChange={setFromDateOpen}>
                           <PopoverTrigger asChild>
                             <Button
                               variant="outline"
@@ -574,7 +787,7 @@ export default function CustomerDashboardClient({
                             <Calendar
                               mode="single"
                               selected={dateFilter.from}
-                              onSelect={(date) => setDateFilter(prev => ({ ...prev, from: date }))}
+                              onSelect={(date) => { setDateFilter(prev => ({ ...prev, from: date, to: prev.to ?? (date ? new Date() : undefined) })); setFromDateOpen(false); }}
                               initialFocus
                             />
                           </PopoverContent>
@@ -582,7 +795,7 @@ export default function CustomerDashboardClient({
                       </div>
                       <div>
                         <label className="text-sm font-medium mb-2 block">To Date</label>
-                        <Popover>
+                        <Popover open={toDateOpen} onOpenChange={setToDateOpen}>
                           <PopoverTrigger asChild>
                             <Button
                               variant="outline"
@@ -599,7 +812,7 @@ export default function CustomerDashboardClient({
                             <Calendar
                               mode="single"
                               selected={dateFilter.to}
-                              onSelect={(date) => setDateFilter(prev => ({ ...prev, to: date }))}
+                              onSelect={(date) => { setDateFilter(prev => ({ ...prev, to: date })); setToDateOpen(false); }}
                               initialFocus
                             />
                           </PopoverContent>
@@ -609,70 +822,19 @@ export default function CustomerDashboardClient({
                   </div>
                 </PopoverContent>
               </Popover>
+              </div>
 
-              {/* Bill Button */}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsBillDialogOpen(true)}
-                className="border-primary text-primary hover:bg-primary hover:text-primary-foreground h-9 sm:h-10"
-              >
-                <Receipt className="h-4 w-4 sm:h-5 sm:w-5" />
-              </Button>
-
-              {/* Price Change Notification Bell */}
-              <Popover open={notifBellOpen} onOpenChange={handleNotifBellOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-primary text-primary hover:bg-primary hover:text-primary-foreground h-9 sm:h-10 relative"
-                  >
-                    <Bell className="h-4 w-4 sm:h-5 sm:w-5" />
-                    {notifUnreadCount > 0 && (
-                      <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white leading-none">
-                        {notifUnreadCount > 9 ? '9+' : notifUnreadCount}
-                      </span>
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="w-72 p-0">
-                  <div className="flex items-center justify-between px-4 py-3 border-b">
-                    <span className="font-semibold text-sm">Price Updates</span>
-                  </div>
-                  <div className="max-h-72 overflow-y-auto">
-                    {priceNotifications.length === 0 ? (
-                      <p className="text-sm text-muted-foreground text-center py-6">No notifications</p>
-                    ) : (
-                      priceNotifications.map((n: PriceNotification) => (
-                        <div
-                          key={n._id}
-                          className={cn(
-                            'px-4 py-3 border-b last:border-b-0 text-sm',
-                            !n.isRead && 'bg-blue-50 dark:bg-blue-950/30'
-                          )}
-                        >
-                          <div className="font-medium text-primary">Price Updated</div>
-                          <div className="text-muted-foreground mt-0.5">
-                            Your price per can: <span className="line-through">Rs {n.data.oldPrice}</span> → <span className="text-primary font-medium">Rs {n.data.newPrice}</span>
-                          </div>
-                          <div className="text-xs text-muted-foreground mt-1">
-                            {new Date(n.createdAt).toLocaleString('en-PK', {
-                              day: '2-digit', month: 'short', year: 'numeric',
-                              hour: '2-digit', minute: '2-digit'
-                            })}
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </PopoverContent>
-              </Popover>
             </div>
           </div>
 
           {/* Request History */}
-          <CustomerRequestHistory requests={filteredRequests} customer={customer} />
+          <CustomerRequestHistory
+            requests={filteredRequests}
+            customer={customer}
+            hasMore={hasMore && !dateFilter.from && !dateFilter.to}
+            isLoadingMore={isLoadingMore}
+            onLoadMore={() => { if (customerId) fetchRequests(customerId, currentPage + 1, true); }}
+          />
         </div>
       </main>
 
@@ -692,106 +854,15 @@ export default function CustomerDashboardClient({
         </DialogContent>
       </Dialog>
 
-      {/* Bill Stats Dialog */}
-      <Dialog open={isBillDialogOpen} onOpenChange={setIsBillDialogOpen}>
-        <DialogContent className="sm:max-w-[600px] glass-card">
-          <DialogHeader>
-            <DialogTitle>Billing Statistics</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-6">
-            {/* Month/Year Selectors */}
-            <div className="flex gap-4">
-              <div className="flex-1">
-                <label className="text-sm font-medium mb-2 block">Month</label>
-                <Select
-                  value={billMonth.toString()}
-                  onValueChange={(value) => setBillMonth(parseInt(value))}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {[
-                      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-                    ].map((month, index) => (
-                      <SelectItem key={index + 1} value={(index + 1).toString()}>
-                        {month}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex-1">
-                <label className="text-sm font-medium mb-2 block">Year</label>
-                <Select
-                  value={billYear.toString()}
-                  onValueChange={(value) => setBillYear(parseInt(value))}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((year) => (
-                      <SelectItem key={year} value={year.toString()}>
-                        {year}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            {/* Stats Cards */}
-            {isLoadingStats ? (
-              <div className="grid grid-cols-2 gap-4">
-                {[...Array(4)].map((_, i) => (
-                  <Card key={i} className="bg-gray-50 border-gray-200">
-                    <CardContent className="p-6">
-                      <Skeleton className="h-4 w-24 mb-2" />
-                      <Skeleton className="h-10 w-16" />
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-4">
-                {/* Total Deliveries */}
-                <Card className="bg-blue-50 border-blue-200">
-                  <CardContent className="p-6">
-                    <p className="text-sm text-blue-700 font-medium mb-2">Total Deliveries</p>
-                    <p className="text-4xl font-bold text-blue-900">{billingStats.totalDeliveries}</p>
-                  </CardContent>
-                </Card>
-
-                {/* Total Cans Received */}
-                <Card className="bg-blue-50 border-blue-200">
-                  <CardContent className="p-6">
-                    <p className="text-sm text-blue-700 font-medium mb-2">Total Cans Received</p>
-                    <p className="text-4xl font-bold text-blue-900">{billingStats.totalCans}</p>
-                  </CardContent>
-                </Card>
-
-                {/* Price per Can */}
-                <Card className="bg-green-50 border-green-200">
-                  <CardContent className="p-6">
-                    <p className="text-sm text-green-700 font-medium mb-2">Price per Can</p>
-                    <p className="text-4xl font-bold text-green-900">Rs. {billingStats.pricePerCan}</p>
-                  </CardContent>
-                </Card>
-
-                {/* Total Bill */}
-                <Card className="bg-green-50 border-green-200">
-                  <CardContent className="p-6">
-                    <p className="text-sm text-green-700 font-medium mb-2">Total Bill</p>
-                    <p className="text-4xl font-bold text-green-900">Rs. {billingStats.totalBill}</p>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Bill Dialog */}
+      {customer && customerId && (
+        <CustomerBillDialog
+          open={isBillDialogOpen}
+          onOpenChange={setIsBillDialogOpen}
+          customer={customer}
+          customerId={customerId}
+        />
+      )}
 
       {/* Footer */}
       <Footer />
@@ -890,19 +961,6 @@ export default function CustomerDashboardClient({
         </SheetContent>
       </Sheet>
 
-      {/* Floating WhatsApp Button */}
-      <a
-        href="https://wa.me/923337860444"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="fixed bottom-2 right-2 z-50 flex items-center justify-center w-14 h-14 rounded-full shadow-lg hover:shadow-xl hover:scale-110 active:scale-95 transition-all duration-200"
-        style={{ backgroundColor: '#25D366' }}
-        aria-label="Chat on WhatsApp"
-      >
-        <svg viewBox="0 0 24 24" className="w-7 h-7 fill-white" xmlns="http://www.w3.org/2000/svg">
-          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-        </svg>
-      </a>
     </div>
   );
 }

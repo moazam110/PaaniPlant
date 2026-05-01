@@ -41,6 +41,7 @@ export default function StaffDashboardClient({
 }: StaffDashboardClientProps) {
   const [deliveryRequests, setDeliveryRequests] = useState<DeliveryRequest[]>(initialRequests || []);
   const [addressSortOrder, setAddressSortOrder] = useState<'asc' | 'desc' | null>(null);
+  const [fcfs, setFcfs] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isBackendConnected, setIsBackendConnected] = useState(false);
   const [previousRequestCount, setPreviousRequestCount] = useState(0);
@@ -67,6 +68,17 @@ export default function StaffDashboardClient({
   // Removed duplicate hash function - now using shared utility from @/lib/data-utils
 
   // Check staff authentication
+  // Global synchronized blink for all overdue cards
+  useEffect(() => {
+    const interval = setInterval(() => {
+      document.documentElement.classList.toggle('blink-on');
+    }, 300);
+    return () => {
+      clearInterval(interval);
+      document.documentElement.classList.remove('blink-on');
+    };
+  }, []);
+
   useEffect(() => {
     const checkAuth = () => {
       try {
@@ -459,7 +471,16 @@ export default function StaffDashboardClient({
               <StaffDashboardMetrics 
                 requests={deliveryRequests} 
               />
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <label className="flex items-center gap-1.5 cursor-pointer select-none bg-muted/60 border border-border rounded-lg px-2.5 py-1.5">
+                  <input
+                    type="checkbox"
+                    checked={fcfs}
+                    onChange={e => setFcfs(e.target.checked)}
+                    className="w-3.5 h-3.5 accent-primary"
+                  />
+                  <span className="text-xs font-medium text-foreground">First Come First Served</span>
+                </label>
                 <span className="text-sm text-muted-foreground">Sort by address:</span>
                 <UIButton
                   type="button"
@@ -490,10 +511,11 @@ export default function StaffDashboardClient({
           </div>
         }>
           <div className="px-2 -mt-2">
-            <RequestQueue 
-              requests={deliveryRequests} 
-              onMarkAsDone={handleMarkAsDone} 
-              addressSortOrder={addressSortOrder} 
+            <RequestQueue
+              requests={deliveryRequests}
+              onMarkAsDone={handleMarkAsDone}
+              addressSortOrder={addressSortOrder}
+              fcfs={fcfs}
             />
           </div>
         </Suspense>

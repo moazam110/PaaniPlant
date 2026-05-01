@@ -32,6 +32,7 @@ import DeliveryTab from '@/components/admin/tabs/DeliveryTab';
 import RecurringTab from '@/components/admin/tabs/RecurringTab';
 import StatsTab from '@/components/admin/tabs/StatsTab';
 import CustomersTab from '@/components/admin/tabs/CustomersTab';
+import PaymentsTab from '@/components/admin/tabs/PaymentsTab';
 
 interface AdminDashboardClientProps {
   initialMetrics: any | null;
@@ -123,7 +124,7 @@ export default function AdminDashboardClient({
 
   // Ensure activeTab is always valid
   useEffect(() => {
-    const validTabs = ['delivery', 'recurring', 'stats', 'customers'];
+    const validTabs = ['delivery', 'recurring', 'stats', 'customers', 'payments'];
     if (!validTabs.includes(activeTab)) {
       setActiveTab('delivery');
     }
@@ -569,11 +570,20 @@ export default function AdminDashboardClient({
               <Skeleton className="h-64 w-full bg-muted/50" />
             </div>
           }>
-            <CustomersTab 
+            <CustomersTab
               customerListRef={customerListRef}
               onEditCustomer={handleEditCustomer}
               onAddNewCustomer={handleAddNewCustomer}
             />
+          </Suspense>
+
+          <Suspense fallback={
+            <div className="p-4">
+              <Skeleton className="h-8 w-48 mb-4 bg-muted/50" />
+              <Skeleton className="h-64 w-full bg-muted/50" />
+            </div>
+          }>
+            <PaymentsTab />
           </Suspense>
         </TabNavigation>
 
