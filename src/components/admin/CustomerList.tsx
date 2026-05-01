@@ -68,11 +68,12 @@ const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEd
   const [filterStartOpen, setFilterStartOpen] = useState(false);
   const [filterEndOpen, setFilterEndOpen] = useState(false);
   
-  const fetchCustomers = async (page: number = 1, append: boolean = false) => {
+  const fetchCustomers = async (page: number = 1, append: boolean = false, retainScroll: boolean = false) => {
+    const savedScrollY = retainScroll ? window.scrollY : 0;
     if (append) {
       setIsLoadingMore(true);
     } else {
-    setIsLoading(true);
+      setIsLoading(true);
       setCurrentPage(1);
     }
     try {
@@ -127,9 +128,12 @@ const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEd
     } finally {
       setIsLoading(false);
       setIsLoadingMore(false);
+      if (retainScroll && savedScrollY > 0) {
+        requestAnimationFrame(() => window.scrollTo(0, savedScrollY));
+      }
     }
   };
-  
+
   const loadMoreCustomers = () => {
     if (!isLoadingMore && hasMore) {
       fetchCustomers(currentPage + 1, true);
@@ -234,7 +238,7 @@ const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEd
   }, [idSortOrder]);
 
   useImperativeHandle(ref, () => ({
-    refreshCustomers: fetchCustomers,
+    refreshCustomers: () => fetchCustomers(1, false, true),
   }));
 
   // Backend search with debouncing

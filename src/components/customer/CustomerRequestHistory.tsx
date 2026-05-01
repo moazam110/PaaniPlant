@@ -99,7 +99,7 @@ const getPriorityBadge = (priority: DeliveryRequest['priority']) => {
 
 export default function CustomerRequestHistory({
   requests,
-  customer,
+  customer: _customer,
   hasMore,
   isLoadingMore,
   onLoadMore,
@@ -190,15 +190,15 @@ export default function CustomerRequestHistory({
                           </div>
                         )}
                       </TableCell>
-                      <TableCell className={cn("text-xs sm:text-sm", isCancelled ? 'line-through' : '', isPortrait && "hidden")}>
+                      <TableCell className={cn("text-xs sm:text-sm text-right", isCancelled ? 'line-through' : '', isPortrait && "hidden")}>
                         Rs. {price.toFixed(0)}
                       </TableCell>
-                      <TableCell className={cn(isPortrait && "hidden")}>
+                      <TableCell className={cn("text-center", isPortrait && "hidden")}>
                         <Badge variant="outline" className="text-xs">
                           {request.paymentType === 'account' ? 'Account' : 'Cash'}
                         </Badge>
                       </TableCell>
-                      <TableCell className={cn(isPortrait && "hidden")}>
+                      <TableCell className={cn("text-center", isPortrait && "hidden")}>
                         {(() => {
                           const deliveredMs = (request as any).deliveredAt && request.requestedAt
                             ? new Date((request as any).deliveredAt).getTime() - new Date(request.requestedAt).getTime()
@@ -207,10 +207,10 @@ export default function CustomerRequestHistory({
                             ? new Date((request as any).processingAt).getTime() - new Date(request.requestedAt).getTime()
                             : 0;
                           return (
-                            <div className="text-xs">
-                              <div className="font-bold">{deliveredMs > 0 ? formatDuration(deliveredMs) : '—'}</div>
-                              {processingMs > 0 && (
-                                <div className="text-muted-foreground text-[10px]">{formatDuration(processingMs)}</div>
+                            <div className="text-xs inline-flex flex-col items-center">
+                              <div className="font-bold">{processingMs > 0 ? formatDuration(processingMs) : (deliveredMs > 0 ? formatDuration(deliveredMs) : '—')}</div>
+                              {processingMs > 0 && deliveredMs > 0 && (
+                                <div className="text-muted-foreground text-[10px]">{formatDuration(deliveredMs)}</div>
                               )}
                             </div>
                           );

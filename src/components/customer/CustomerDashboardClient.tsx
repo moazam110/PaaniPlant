@@ -10,7 +10,7 @@
  * - Vibrant, crystal-style design
  */
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Footer from '@/components/shared/Footer';
 import { useRouter } from 'next/navigation';
 import { useToast } from "@/hooks/use-toast";
@@ -49,8 +49,7 @@ export default function CustomerDashboardClient({
   initialRequests
 }: CustomerDashboardClientProps) {
   const router = useRouter();
-  const { toast, dismiss } = useToast();
-  const processingToastDismiss = useRef<(() => void) | null>(null);
+  const { toast } = useToast();
   
   // Phase 4: Get customer from authenticated session
   const [customerId, setCustomerId] = useState<string | null>(null);
@@ -361,24 +360,6 @@ export default function CustomerDashboardClient({
           fetchRequests(customerId, 1);
         }
       }
-      if (customerId && String(data?.data?.customerId) === customerId) {
-        // Show persistent popup when this customer's request moves to processing
-        if (data?.type === 'updated' && data?.data?.status === 'processing') {
-          const { dismiss: dismissThis } = toast({
-            title: "Your water cans are on the way!",
-            description: "Our delivery team has confirmed your order and is heading to you.",
-            duration: Infinity,
-          });
-          processingToastDismiss.current = dismissThis;
-        }
-        // Dismiss the popup when delivered
-        if (data?.type === 'updated' && data?.data?.status === 'delivered') {
-          if (processingToastDismiss.current) {
-            processingToastDismiss.current();
-            processingToastDismiss.current = null;
-          }
-        }
-      }
     }
   );
 
@@ -624,18 +605,6 @@ export default function CustomerDashboardClient({
             </button>
 
             <div className="flex items-center justify-end sm:justify-start w-full sm:w-auto">
-              {/* Rotate hint - portrait only, pushed far left */}
-              {isPortrait && (
-                <span className="shrink-0 flex items-center justify-center h-9 w-9 rounded-full border border-primary/40 bg-primary/10 text-primary mr-auto">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
-                    <rect x="7.5" y="3" width="9" height="18" rx="2" transform="rotate(-45 12 12)" />
-                    <path d="M16.5 3.5 A9.5 9.5 0 0 1 20.5 7.5" />
-                    <path d="M18 6 L20.5 7.5 L19 10" />
-                    <path d="M7.5 20.5 A9.5 9.5 0 0 1 3.5 16.5" />
-                    <path d="M6 18 L3.5 16.5 L5 14" />
-                  </svg>
-                </span>
-              )}
               <div className="flex items-center gap-2">
               {/* Account Balance (Wallet) */}
               <Popover open={balancePopoverOpen} onOpenChange={(open) => {
@@ -667,7 +636,7 @@ export default function CustomerDashboardClient({
                         ledgerFinalBalance === 0 && 'bg-muted/40 text-muted-foreground',
                       )}>
                         {ledgerFinalBalance < 0 ? `Rs ${Math.abs(ledgerFinalBalance).toLocaleString()} DUE`
-                          : ledgerFinalBalance > 0 ? `Rs ${ledgerFinalBalance.toLocaleString()} ADV`
+                          : ledgerFinalBalance > 0 ? `Rs ${ledgerFinalBalance.toLocaleString()} Advance`
                           : 'All Settled'}
                       </div>
 

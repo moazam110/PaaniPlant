@@ -1850,6 +1850,120 @@ app.get('/api/stats/chart/daily', async (req, res) => {
   }
 });
 
+// ─── Cash / Account Stats Endpoints ──────────────────────────────────────────
+
+// GET /api/stats/cash-account/summary?type=cash|account&day=DD&month=MM&year=YYYY&fullMonth=true
+app.get('/api/stats/cash-account/summary', async (req, res) => {
+  try {
+    const type = req.query.type === 'account' ? 'account' : 'cash';
+    const yearNum  = parseInt(req.query.year)  || new Date().getFullYear();
+    const monthNum = parseInt(req.query.month) || (new Date().getMonth() + 1);
+    const dayNum   = parseInt(req.query.day);
+    const fullMonth = req.query.fullMonth === 'true';
+
+    let start, end;
+    if (fullMonth || (!dayNum && req.query.month)) {
+      const b = getPKTMonthBounds(yearNum, monthNum);
+      start = b.start; end = b.end;
+    } else {
+      // Default to today PKT if no day given
+      const d = dayNum || (() => {
+        const pkt = new Date(Date.now() + 5 * 3600000);
+        return pkt.getUTCDate();
+      })();
+      const m = monthNum || (() => {
+        const pkt = new Date(Date.now() + 5 * 3600000);
+        return pkt.getUTCMonth() + 1;
+      })();
+      const y = yearNum || (() => {
+        const pkt = new Date(Date.now() + 5 * 3600000);
+        return pkt.getUTCFullYear();
+      })();
+      start = new Date(Date.UTC(y, m - 1, d - 1, 19, 0, 0, 0));
+      end   = new Date(Date.UTC(y, m - 1, d,     18, 59, 59, 999));
+    }
+
+    const amountExpr = { $multiply: ['$cans', { $ifNull: ['$pricePerCan', 0] }] };
+    const dateField  = { $ifNull: ['$deliveredAt', '$completedAt'] };
+
+    const [deliveryResult, paymentResult] = await Promise.all([
+      DeliveryRequest.aggregate([
+        { $match: { status: 'delivered', paymentType: type,
+            $or: [{ deliveredAt: { $gte: start, $lte: end } }, { completedAt: { $gte: start, $lte: end } }] } },
+        { $group: { _id: null, cans: { $sum: '$cans' }, totalBilled: { $sum: amountExpr } } }
+      ]),
+      Payment.aggregate([
+        { $match: { date: { $gte: start, $lte: end } } },
+        { $lookup: { from: 'customers', localField: 'customerId', foreignField: '_id', as: 'cust' } },
+        { $unwind: '$cust' },
+        { $match: { 'cust.paymentType': type } },
+        { $group: { _id: null, actualPaid: { $sum: '$amount' } } }
+      ])
+    ]);
+
+    const cans        = deliveryResult[0]?.cans        || 0;
+    const totalBilled = deliveryResult[0]?.totalBilled || 0;
+    const actualPaid  = paymentResult[0]?.actualPaid   || 0;
+    const remaining   = Math.max(0, totalBilled - actualPaid);
+
+    res.json({ cans, totalBilled, actualPaid, remaining });
+  } catch (err) {
+    console.error('Cash/account summary error:', err);
+    res.status(500).json({ error: 'Failed to fetch summary' });
+  }
+});
+
+// GET /api/stats/cash-account/daily?type=cash|account&year=YYYY&month=MM
+app.get('/api/stats/cash-account/daily', async (req, res) => {
+  try {
+    const type     = req.query.type === 'account' ? 'account' : 'cash';
+    const yearNum  = parseInt(req.query.year)  || new Date().getFullYear();
+    const monthNum = parseInt(req.query.month) || (new Date().getMonth() + 1);
+    const { start, end, daysInMonth } = getPKTMonthBounds(yearNum, monthNum);
+
+    const amountExpr = { $multiply: ['$cans', { $ifNull: ['$pricePerCan', 0] }] };
+    const dateField  = { $ifNull: ['$deliveredAt', '$completedAt'] };
+
+    const [billedByDay, paidByDay] = await Promise.all([
+      DeliveryRequest.aggregate([
+        { $match: { status: 'delivered', paymentType: type,
+            $or: [{ deliveredAt: { $gte: start, $lte: end } }, { completedAt: { $gte: start, $lte: end } }] } },
+        { $group: {
+            _id: { $dayOfMonth: { date: dateField, timezone: '+05:00' } },
+            billed: { $sum: amountExpr },
+            cans: { $sum: '$cans' }
+        }},
+        { $sort: { _id: 1 } }
+      ]),
+      Payment.aggregate([
+        { $match: { date: { $gte: start, $lte: end } } },
+        { $lookup: { from: 'customers', localField: 'customerId', foreignField: '_id', as: 'cust' } },
+        { $unwind: '$cust' },
+        { $match: { 'cust.paymentType': type } },
+        { $group: {
+            _id: { $dayOfMonth: { date: '$date', timezone: '+05:00' } },
+            paid: { $sum: '$amount' }
+        }},
+        { $sort: { _id: 1 } }
+      ])
+    ]);
+
+    const data = Array.from({ length: daysInMonth }, (_, i) => {
+      const day    = i + 1;
+      const bRec   = billedByDay.find(r => r._id === day);
+      const pRec   = paidByDay.find(r => r._id === day);
+      const billed = bRec?.billed || 0;
+      const paid   = pRec?.paid   || 0;
+      return { day, cans: bRec?.cans || 0, billed, paid, remaining: Math.max(0, billed - paid) };
+    });
+
+    res.json({ year: yearNum, month: monthNum, daysInMonth, data });
+  } catch (err) {
+    console.error('Cash/account daily error:', err);
+    res.status(500).json({ error: 'Failed to fetch daily data' });
+  }
+});
+
 // ─── End Chart Data Endpoints ─────────────────────────────────────────────────
 
 // Customer statistics endpoint
@@ -2823,28 +2937,26 @@ app.get('/api/payments/ledger/:customerObjectId', async (req, res) => {
 
     // Include payments made after last delivery month
     const lastDM = deliveryMonths.at(-1)?._id || '0000-00';
-    let postDeliveryCredit = 0;
     for (const pm of Object.keys(paymentsByMonth).sort()) {
       if (!processedMonths.has(pm) && pm > lastDM) {
         cumulativePaid += paymentsByMonth[pm];
-        postDeliveryCredit += paymentsByMonth[pm];
+        processedMonths.add(pm);
       }
     }
 
     const finalBalance = Math.round(cumulativePaid - cumulativeBilled);
 
-    // FIFO retroactive: apply post-delivery payments to oldest due months first
-    // so dueForMonth reflects actual outstanding even when payment arrives next month
-    let retroCredit = postDeliveryCredit;
+    // Second FIFO pass: redistribute ALL payments oldest-first so dueForMonth
+    // reflects actual outstanding regardless of when the payment was made.
+    // This correctly handles payments made in month N+1 for month N's bill.
+    const totalPaymentsEver = Object.values(paymentsByMonth).reduce((s, v) => s + v, 0);
+    let remaining = totalPaymentsEver;
     for (const entry of ledger) {
-      if (retroCredit <= 0) break;
-      if (entry.dueForMonth > 0) {
-        const apply = Math.min(retroCredit, entry.dueForMonth);
-        entry.appliedToMonth = Math.round(entry.appliedToMonth + apply);
-        entry.dueForMonth = Math.round(entry.dueForMonth - apply);
-        if (entry.dueForMonth === 0) entry.status = 'settled';
-        retroCredit -= apply;
-      }
+      const applied = Math.min(remaining, entry.billed);
+      entry.appliedToMonth = Math.round(applied);
+      entry.dueForMonth = Math.round(entry.billed - applied);
+      remaining = Math.max(0, remaining - entry.billed);
+      entry.status = entry.dueForMonth === 0 ? 'settled' : 'due';
     }
 
     res.json({

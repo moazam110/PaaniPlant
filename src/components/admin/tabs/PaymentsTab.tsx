@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -60,12 +60,14 @@ export default function PaymentsTab() {
   const [isSaving, setIsSaving] = useState(false);
 
   // Filters
-  const [paymentTypeFilter, setPaymentTypeFilter] = useState<'all' | 'cash' | 'account'>('all');
+  const [paymentTypeFilter, setPaymentTypeFilter] = useState<'all' | 'cash' | 'account' | null>('all');
+  const [showSettled, setShowSettled] = useState(false);
 
   // Deletion with mandatory reason
   const [deleteTarget, setDeleteTarget] = useState<{ paymentId: string; amount: number; note: string } | null>(null);
   const [deleteReason, setDeleteReason] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+  const savedScrollY = useRef(0);
 
   const fetchBalances = useCallback(async () => {
     setIsLoading(true);
@@ -104,6 +106,7 @@ export default function PaymentsTab() {
   }, []);
 
   const openDrawer = (bal: CustomerBalance) => {
+    savedScrollY.current = window.scrollY;
     setSelected(bal);
     setDrawerOpen(true);
     setAmount('');
@@ -160,11 +163,17 @@ export default function PaymentsTab() {
   }, [balances]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = balances.filter(b => {
+    const isSettled = b.balance === 0;
+    // Always hide settled unless Settled checkbox is on
+    if (isSettled && !showSettled) return false;
+    // null type + Settled = "only settled" mode — exclude non-settled
+    if (!isSettled && paymentTypeFilter === null && showSettled) return false;
+    // Type filter applies to all remaining rows
+    if (paymentTypeFilter !== null && paymentTypeFilter !== 'all' && b.paymentType !== paymentTypeFilter) return false;
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       if (!b.customerName.toLowerCase().includes(q) && !String(b.customerIntId).includes(q)) return false;
     }
-    if (paymentTypeFilter !== 'all' && b.paymentType !== paymentTypeFilter) return false;
     return true;
   });
 
@@ -194,19 +203,28 @@ export default function PaymentsTab() {
         />
       </div>
 
-      {/* Payment type filter */}
-      <div className="flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2.5">
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-muted/30 px-3 py-2.5">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">Type</span>
         {(['all', 'cash', 'account'] as const).map(t => (
           <label key={t} className="flex items-center gap-1.5 cursor-pointer select-none">
             <Checkbox
               checked={paymentTypeFilter === t}
-              onCheckedChange={() => setPaymentTypeFilter(t)}
+              onCheckedChange={() => setPaymentTypeFilter(prev => prev === t ? null : t)}
               className="h-3.5 w-3.5"
             />
             <span className="text-sm">{t === 'all' ? 'All' : t === 'cash' ? 'Cash' : 'Account'}</span>
           </label>
         ))}
+        <div className="w-px h-4 bg-border hidden sm:block" />
+        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+          <Checkbox
+            checked={showSettled}
+            onCheckedChange={v => setShowSettled(v as boolean)}
+            className="h-3.5 w-3.5"
+          />
+          <span className="text-sm text-muted-foreground">Settled</span>
+        </label>
       </div>
 
       {/* Customer list */}
@@ -231,7 +249,15 @@ export default function PaymentsTab() {
                       <span className="text-muted-foreground text-xs mr-1">#{b.customerIntId}</span>
                       {b.customerName}
                     </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
+                    <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
+                      <span className={cn(
+                        'text-[10px] font-semibold px-1.5 py-0.5 rounded-full',
+                        b.paymentType === 'account'
+                          ? 'bg-primary/10 text-primary'
+                          : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                      )}>
+                        {b.paymentType === 'account' ? 'Account' : 'Cash'}
+                      </span>
                       Billed: <span className="tabular-nums">Rs {b.totalBilled.toLocaleString()}</span>
                       {' · '}
                       Paid: <span className="tabular-nums font-semibold text-green-600 dark:text-green-400">Rs {b.totalPaid.toLocaleString()}</span>
@@ -259,12 +285,25 @@ export default function PaymentsTab() {
       )}
 
       {/* Customer Drawer */}
-      <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
+      <Sheet open={drawerOpen} onOpenChange={(open) => {
+        setDrawerOpen(open);
+        if (!open) requestAnimationFrame(() => window.scrollTo(0, savedScrollY.current));
+      }}>
         <SheetContent side="right" className="w-full sm:max-w-md flex flex-col p-0 overflow-hidden">
           <SheetHeader className="px-4 pt-5 pb-3 border-b shrink-0">
             <SheetTitle className="text-base">
               {selected ? `${selected.customerName} (#${selected.customerIntId})` : ''}
             </SheetTitle>
+            {selected && (
+              <span className={cn(
+                'self-start text-xs font-semibold px-2 py-0.5 rounded-full',
+                selected.paymentType === 'account'
+                  ? 'bg-primary/10 text-primary'
+                  : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+              )}>
+                {selected.paymentType === 'account' ? 'Account' : 'Cash'}
+              </span>
+            )}
           </SheetHeader>
 
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">

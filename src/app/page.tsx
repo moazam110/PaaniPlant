@@ -20,38 +20,39 @@ export default function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const router = useRouter();
 
-  // Auto-redirect only on fresh app launch, not when user navigates back
-  useEffect(() => {
-    if (hasAutoRedirected) return;
-
+  // Synchronous session check — runs during render before first paint.
+  // localStorage is synchronous so this resolves before the component commits to the DOM.
+  const [redirectTo] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
     try {
       const customerSession = localStorage.getItem('customer_session');
       if (customerSession) {
         const parsed = JSON.parse(customerSession);
-        if (parsed.customerId && parsed.customer) {
-          hasAutoRedirected = true;
-          router.push('/customer/dashboard');
-          return;
-        }
+        if (parsed.customerId && parsed.customer) return '/customer/dashboard';
       }
       const authSession = localStorage.getItem('paani_auth_session');
       if (authSession) {
         const parsed = JSON.parse(authSession);
-        if (parsed.userType === 'admin' && parsed.email === 'admin@paani.com') {
-          hasAutoRedirected = true;
-          router.push('/admin');
-          return;
-        }
-        if (parsed.userType === 'staff' && parsed.email === 'staff@paani.com') {
-          hasAutoRedirected = true;
-          router.push('/staff');
-          return;
-        }
+        if (parsed.userType === 'admin') return '/admin';
+        if (parsed.userType === 'staff') return '/staff';
       }
-    } catch {
-      // corrupted session — ignore and show root page
-    }
-  }, [router]);
+    } catch { /* corrupted session — fall through to portal */ }
+    return null;
+  });
+
+  useEffect(() => {
+    if (!redirectTo || hasAutoRedirected) return;
+    hasAutoRedirected = true;
+    router.push(redirectTo);
+  }, [redirectTo, router]);
+
+  // Session detected — render a plain background while redirect fires.
+  // This replaces the portal UI entirely so there is zero visible flash.
+  if (redirectTo) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-primary/40 via-accent/30 to-primary/50" />
+    );
+  }
 
   const handleCustomerClick = () => {
     try {
@@ -108,7 +109,7 @@ export default function LandingPage() {
 
             {/* Portal buttons with enhanced vibrant design */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative z-10">
-              <Link href="/admin" passHref className="group">
+              <Link href="/admin" passHref className="group select-none">
                 <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary/90 to-accent p-6 hover:from-primary hover:via-primary hover:to-accent transition-all duration-500 transform hover:scale-105 hover:rotate-1 shadow-2xl hover:shadow-primary/50">
                   {/* Animated gradient overlay */}
                   <div className="absolute inset-0 bg-gradient-to-br from-white/20 via-transparent to-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
@@ -120,7 +121,7 @@ export default function LandingPage() {
                 </div>
               </Link>
 
-              <Link href="/staff" passHref className="group">
+              <Link href="/staff" passHref className="group select-none">
                 <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-accent via-accent/90 to-primary p-6 hover:from-accent hover:via-accent hover:to-primary transition-all duration-500 transform hover:scale-105 hover:-rotate-1 shadow-2xl hover:shadow-accent/50">
                   {/* Animated gradient overlay */}
                   <div className="absolute inset-0 bg-gradient-to-br from-white/20 via-transparent to-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
@@ -132,7 +133,7 @@ export default function LandingPage() {
                 </div>
               </Link>
 
-              <div onClick={handleCustomerClick} className="group cursor-pointer">
+              <div onClick={handleCustomerClick} className="group cursor-pointer select-none">
                 <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-accent/90 to-primary p-6 hover:from-primary hover:via-accent hover:to-primary transition-all duration-500 transform hover:scale-105 hover:rotate-1 shadow-2xl hover:shadow-primary/50">
                   {/* Animated gradient overlay */}
                   <div className="absolute inset-0 bg-gradient-to-br from-white/20 via-transparent to-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>

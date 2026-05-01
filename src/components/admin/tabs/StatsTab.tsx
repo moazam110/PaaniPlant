@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Users, ListChecks, PackageCheck, PackageSearch, IndianRupee, TrendingUp, BarChart2 } from 'lucide-react';
 import { Skeleton } from "@/components/ui/skeleton";
 import { buildApiUrl } from '@/lib/api';
@@ -31,6 +32,7 @@ interface ChartEntry {
 }
 
 type ChartView = 'yearly' | 'dayofweek';
+type ViewMode = 'all' | 'cash' | 'account';
 
 const P = {
   cash: '#7c3aed', cashMid: '#a78bfa', cashLight: '#ede9fe',
@@ -92,6 +94,49 @@ export default function StatsTab({
   totalCashAmountGenerated,
 }: StatsTabProps) {
   const currentDate = new Date();
+
+  // View mode: 'all' is the default stats page, 'cash'/'account' show payment analytics
+  const [viewMode, setViewMode] = useState<ViewMode>('all');
+
+  // ── Cash / Account view state ─────────────────────────────────────────────
+  const pktNow = new Date(Date.now() + 5 * 3600000);
+  const todayD = String(pktNow.getUTCDate());
+  const todayM = String(pktNow.getUTCMonth() + 1);
+  const todayY = String(pktNow.getUTCFullYear());
+
+  const [caDay,   setCaDay]   = useState(todayD);
+  const [caMonth, setCaMonth] = useState(todayM);
+  const [caYear,  setCaYear]  = useState(todayY);
+  const [caFull,  setCaFull]  = useState(false);
+
+  const [caSummary, setCaSummary] = useState({ cans: 0, totalBilled: 0, actualPaid: 0, remaining: 0 });
+  const [caDailyData, setCaDailyData] = useState<{ day: number; billed: number; paid: number; remaining: number; cans: number }[]>([]);
+  const [caLoading, setCaLoading] = useState(false);
+
+  const fetchCaData = useCallback(async (mode: ViewMode) => {
+    if (mode === 'all') return;
+    setCaLoading(true);
+    try {
+      const params = new URLSearchParams({ type: mode, year: caYear, month: caMonth });
+      if (!caFull) params.set('day', caDay);
+      else params.set('fullMonth', 'true');
+
+      const [sumRes, dailyRes] = await Promise.all([
+        fetch(buildApiUrl(`api/stats/cash-account/summary?${params}`)),
+        fetch(buildApiUrl(`api/stats/cash-account/daily?type=${mode}&year=${caYear}&month=${caMonth}`)),
+      ]);
+      if (sumRes.ok)   setCaSummary(await sumRes.json());
+      if (dailyRes.ok) { const d = await dailyRes.json(); setCaDailyData(d.data || []); }
+    } catch { /* ignore */ } finally {
+      setCaLoading(false);
+    }
+  }, [caDay, caMonth, caYear, caFull]);
+
+  useEffect(() => {
+    if (viewMode !== 'all') fetchCaData(viewMode);
+  }, [viewMode, fetchCaData]);
+  // ─────────────────────────────────────────────────────────────────────────
+
   const [selectedDay, setSelectedDay] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
@@ -250,8 +295,263 @@ export default function StatsTab({
     </Card>
   );
 
+  // ── Cash / Account colours ────────────────────────────────────────────────
+  const CA = { paid: '#10b981', paidLight: '#6ee7b7', remaining: '#f59e0b', remainingLight: '#fcd34d' };
+
+  const CaDonutLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
+    if (percent < 0.07) return null;
+    const RADIAN = Math.PI / 180;
+    const r = innerRadius + (outerRadius - innerRadius) * 0.55;
+    return (
+      <text x={cx + r * Math.cos(-midAngle * RADIAN)} y={cy + r * Math.sin(-midAngle * RADIAN)}
+        fill="white" textAnchor="middle" dominantBaseline="central" fontSize={12} fontWeight="700">
+        {`${(percent * 100).toFixed(0)}%`}
+      </text>
+    );
+  };
+
+  const CaDailyTick = ({ x, y, payload }: any) => (
+    <g transform={`translate(${x},${y})`}>
+      <text x={0} y={0} dy={14} textAnchor="middle" fontSize={9} fill="#9ca3af">{payload.value}</text>
+    </g>
+  );
+
+  const CaBarTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload?.length) return null;
+    return (
+      <div className="bg-white border border-border rounded-xl shadow-lg p-2 text-xs min-w-[120px]">
+        <p className="font-bold mb-1 text-foreground">Day {label}</p>
+        {payload.map((p: any) => (
+          <div key={p.dataKey} className="flex items-center justify-between gap-3">
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-sm" style={{ background: p.fill }} />
+              <span className="text-muted-foreground">{p.name}</span>
+            </span>
+            <span className="font-semibold" style={{ color: p.fill }}>Rs {p.value?.toLocaleString()}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const CaView = ({ mode }: { mode: 'cash' | 'account' }) => {
+    const label = mode === 'cash' ? 'Cash' : 'Account';
+    const donutData = [
+      { name: 'Paid', value: caSummary.actualPaid },
+      { name: 'Remaining', value: caSummary.remaining },
+    ];
+    const donutTotal = caSummary.actualPaid + caSummary.remaining;
+
+    return (
+      <div className="space-y-4">
+        {/* Date controls */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="w-24">
+            <Select value={caDay} onValueChange={v => { setCaDay(v); setCaFull(false); }}>
+              <SelectTrigger><SelectValue placeholder="Day">{caDay || 'Day'}</SelectValue></SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: 31 }, (_, i) => {
+                  const d = String(i + 1);
+                  return <SelectItem key={d} value={d}>{d.padStart(2, '0')}</SelectItem>;
+                })}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="w-28">
+            <Select value={caMonth} onValueChange={setCaMonth}>
+              <SelectTrigger><SelectValue placeholder="Month">{months.find(m => m.value === caMonth)?.label || 'Month'}</SelectValue></SelectTrigger>
+              <SelectContent>
+                {months.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="w-24">
+            <Select value={caYear} onValueChange={setCaYear}>
+              <SelectTrigger><SelectValue placeholder="Year">{caYear || 'Year'}</SelectValue></SelectTrigger>
+              <SelectContent>
+                {years.map(y => <SelectItem key={y.value} value={y.value}>{y.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <label className="flex items-center gap-1.5 cursor-pointer select-none ml-1">
+            <Checkbox
+              checked={caFull}
+              onCheckedChange={v => setCaFull(v as boolean)}
+              className="h-3.5 w-3.5"
+            />
+            <span className="text-sm">Full Month</span>
+          </label>
+        </div>
+
+        {/* KPI Cards */}
+        {caLoading ? (
+          <div className="grid grid-cols-2 gap-3">
+            {[...Array(4)].map((_, i) => <Card key={i} className="glass-card"><CardContent className="pt-4"><Skeleton className="h-7 w-20 bg-muted/50" /></CardContent></Card>)}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            <Card className="glass-card">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-3 px-4">
+                <CardTitle className="text-xs font-medium text-muted-foreground">Cans</CardTitle>
+                <PackageCheck className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent className="px-4 pb-3">
+                <div className="text-2xl font-bold">{caSummary.cans}</div>
+              </CardContent>
+            </Card>
+            <Card className="glass-card">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-3 px-4">
+                <CardTitle className="text-xs font-medium text-muted-foreground">Total Amount</CardTitle>
+                <IndianRupee className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent className="px-4 pb-3">
+                <div className="text-xl font-bold">Rs {caSummary.totalBilled.toLocaleString()}</div>
+              </CardContent>
+            </Card>
+            <Card className="glass-card">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-3 px-4">
+                <CardTitle className="text-xs font-medium text-muted-foreground">Actual Payments</CardTitle>
+                <IndianRupee className="h-4 w-4 text-green-500" />
+              </CardHeader>
+              <CardContent className="px-4 pb-3">
+                <div className="text-xl font-bold text-green-600 dark:text-green-400">Rs {caSummary.actualPaid.toLocaleString()}</div>
+              </CardContent>
+            </Card>
+            <Card className="glass-card">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-3 px-4">
+                <CardTitle className="text-xs font-medium text-muted-foreground">Remaining</CardTitle>
+                <IndianRupee className="h-4 w-4 text-amber-500" />
+              </CardHeader>
+              <CardContent className="px-4 pb-3">
+                <div className="text-xl font-bold text-amber-600 dark:text-amber-400">Rs {caSummary.remaining.toLocaleString()}</div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Donut + Daily charts */}
+        {!caLoading && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Daily stacked bar */}
+            <Card className="glass-card lg:col-span-2">
+              <CardHeader className="pb-1 pt-4 px-5">
+                <div className="flex items-center gap-4">
+                  <CardTitle className="text-sm font-semibold">
+                    {label} — Daily ({months.find(m => m.value === caMonth)?.label} {caYear})
+                  </CardTitle>
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground ml-auto">
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: CA.paid }} />Paid</span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: CA.remaining }} />Remaining</span>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="px-2 pb-4">
+                {caDailyData.every(d => d.billed === 0 && d.paid === 0) ? (
+                  <div className="h-48 flex items-center justify-center text-sm text-muted-foreground">No data for this month.</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={caDailyData} margin={{ top: 16, right: 8, left: -10, bottom: 8 }} barCategoryGap="15%">
+                      <defs>
+                        <linearGradient id="caPaidGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={CA.paidLight} /><stop offset="100%" stopColor={CA.paid} />
+                        </linearGradient>
+                        <linearGradient id="caRemGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={CA.remainingLight} /><stop offset="100%" stopColor={CA.remaining} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                      <XAxis dataKey="day" tick={<CaDailyTick />} axisLine={false} tickLine={false} interval={0} />
+                      <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false}
+                        tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)} />
+                      <Tooltip content={<CaBarTooltip />} cursor={{ fill: 'rgba(0,0,0,0.04)' }} />
+                      <Bar dataKey="paid" name="Paid" fill="url(#caPaidGrad)" stackId="day" radius={[0, 0, 0, 0]} maxBarSize={20}>
+                        <LabelList dataKey="paid" position="inside" content={({ x, y, width, height, value }: any) => {
+                          if (!value || (height as number) < 16) return null;
+                          return <text x={(x as number) + (width as number) / 2} y={(y as number) + (height as number) / 2} textAnchor="middle" dominantBaseline="central" fill="white" fontSize={8} fontWeight="700">{(value / 1000).toFixed(0)}k</text>;
+                        }} />
+                      </Bar>
+                      <Bar dataKey="remaining" name="Remaining" fill="url(#caRemGrad)" stackId="day" radius={[4, 4, 0, 0]} maxBarSize={20}>
+                        <LabelList dataKey="remaining" position="top" content={({ x, y, value }: any) => {
+                          if (!value) return null;
+                          return <text x={(x as number)} y={(y as number) - 3} textAnchor="middle" fontSize={8} fill="#9ca3af">{value >= 1000 ? `${(value / 1000).toFixed(0)}k` : value}</text>;
+                        }} />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Donut */}
+            <Card className="glass-card">
+              <CardHeader className="pb-1 pt-4 px-5">
+                <CardTitle className="text-sm font-semibold">{label} Payment Split</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col items-center justify-center pb-4">
+                {donutTotal === 0 ? (
+                  <div className="h-[200px] flex items-center justify-center text-xs text-muted-foreground">No data</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <PieChart>
+                      <defs>
+                        <linearGradient id="caPaidDonut" x1="0" y1="0" x2="1" y2="1">
+                          <stop offset="0%" stopColor={CA.paidLight} /><stop offset="100%" stopColor={CA.paid} />
+                        </linearGradient>
+                        <linearGradient id="caRemDonut" x1="0" y1="0" x2="1" y2="1">
+                          <stop offset="0%" stopColor={CA.remainingLight} /><stop offset="100%" stopColor={CA.remaining} />
+                        </linearGradient>
+                      </defs>
+                      <Pie data={donutData} cx="50%" cy="45%" innerRadius={58} outerRadius={85}
+                        paddingAngle={3} dataKey="value" labelLine={false} label={<CaDonutLabel />}>
+                        <Cell fill="url(#caPaidDonut)" />
+                        <Cell fill="url(#caRemDonut)" />
+                      </Pie>
+                      <text x="50%" y="45%" textAnchor="middle" dominantBaseline="central">
+                        <tspan x="50%" dy="-0.5em" fontSize="10" fill="#9ca3af">Total</tspan>
+                        <tspan x="50%" dy="1.5em" fontSize="13" fontWeight="800" fill="#1f2937">
+                          Rs.{donutTotal >= 1000 ? `${(donutTotal / 1000).toFixed(1)}k` : donutTotal}
+                        </tspan>
+                      </text>
+                      <Legend iconType="circle" iconSize={8}
+                        formatter={(v, entry: any) => (
+                          <span style={{ fontSize: 12, color: '#6b7280' }}>
+                            {v} — Rs {entry.payload.value.toLocaleString()}
+                          </span>
+                        )}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </div>
+    );
+  };
+  // ─────────────────────────────────────────────────────────────────────────
+
   return (
     <div className="p-4 space-y-6">
+
+      {/* View mode selector */}
+      <div className="flex items-center gap-x-4 gap-y-2 flex-wrap rounded-lg border bg-muted/30 px-3 py-2.5">
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">View</span>
+        {(['all', 'cash', 'account'] as const).map(m => (
+          <label key={m} className="flex items-center gap-1.5 cursor-pointer select-none">
+            <Checkbox
+              checked={viewMode === m}
+              onCheckedChange={() => setViewMode(m)}
+              className="h-3.5 w-3.5"
+            />
+            <span className="text-sm">{m === 'all' ? 'All' : m === 'cash' ? 'Cash' : 'Account'}</span>
+          </label>
+        ))}
+      </div>
+
+      {/* Cash / Account view replaces everything below */}
+      {viewMode !== 'all' && <CaView mode={viewMode} />}
+      {viewMode === 'all' && <>
 
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">
@@ -545,6 +845,7 @@ export default function StatsTab({
           </Card>
         );
       })()}
+      </> /* end viewMode === 'all' */}
     </div>
   );
 }
