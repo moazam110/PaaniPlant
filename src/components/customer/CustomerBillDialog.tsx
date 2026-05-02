@@ -49,9 +49,8 @@ export default function CustomerBillDialog({ open, onOpenChange, customer, custo
     try {
       const start = new Date(fromDate);
       start.setHours(0, 0, 0, 0);
-      const end = new Date(toDate);
-      end.setHours(23, 59, 59, 999);
-      const endForApi = new Date(end);
+      const endForApi = new Date(toDate);
+      endForApi.setHours(0, 0, 0, 0);
       endForApi.setDate(endForApi.getDate() + 1);
 
       const url = buildApiUrl(

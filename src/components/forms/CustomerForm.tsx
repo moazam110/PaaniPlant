@@ -32,7 +32,7 @@ type CustomerFormValues = z.infer<typeof customerFormSchema>;
 
 interface CustomerFormProps {
   editingCustomer?: Customer | null;
-  onSuccess?: () => void;
+  onSuccess?: (updatedCustomer?: Customer) => void;
 }
 
 export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFormProps) {
@@ -305,6 +305,9 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
           title: "Customer Updated",
           description: `Customer "${result.name}" updated successfully.`,
         });
+        form.reset();
+        if (onSuccess) onSuccess(result as Customer);
+        return;
       } else {
         // Add new customer
         const response = await fetch(buildApiUrl(API_ENDPOINTS.CUSTOMERS), {
@@ -330,9 +333,7 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
       }
       
       form.reset();
-      if (onSuccess) {
-        onSuccess();
-      }
+      if (onSuccess) onSuccess(undefined);
     } catch (error: any) {
       console.error("Error saving customer:", error);
       toast({
@@ -349,6 +350,10 @@ export default function CustomerForm({ editingCustomer, onSuccess }: CustomerFor
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4"> {/* Reduced space-y from 6 to 4 */}
         
+        {isEditMode && editingCustomer?.id && (
+          <p className="text-sm font-semibold text-muted-foreground mb-2">Customer #{editingCustomer.id}</p>
+        )}
+
         {isEditMode && (
           <Card className="mb-6 glass-card">
             <CardContent className="pt-6">

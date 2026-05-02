@@ -37,6 +37,7 @@ interface CustomerListProps {
 
 export interface CustomerListRef {
   refreshCustomers: () => void;
+  updateCustomerInList: (customer: Customer) => void;
 }
 
 // PHASE 5: Memoized component to prevent unnecessary re-renders
@@ -239,6 +240,15 @@ const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEd
 
   useImperativeHandle(ref, () => ({
     refreshCustomers: () => fetchCustomers(1, false, true),
+    updateCustomerInList: (updated: Customer) => {
+      setAllCustomers(prev =>
+        prev.map(c =>
+          (c._id && c._id === updated._id) || (c.customerId && c.customerId === updated.customerId)
+            ? { ...c, ...updated }
+            : c
+        )
+      );
+    },
   }));
 
   // Backend search with debouncing

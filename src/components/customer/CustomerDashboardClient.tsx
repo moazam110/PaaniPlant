@@ -89,11 +89,12 @@ export default function CustomerDashboardClient({
   // Unified notification bell state
   type BellNotif =
     | { source: 'price'; _id: string; type: 'price_change'; data: { oldPrice: number; newPrice: number }; isRead: boolean; createdAt: string }
+    | { source: 'paymentType'; _id: string; type: 'payment_type_change'; data: { oldType: string; newType: string }; isRead: boolean; createdAt: string }
     | { source: 'payment'; _id: string; type: 'payment_added' | 'payment_deleted'; amount: number; note: string; deleteReason?: string; isReadByCustomer: boolean; createdAt: string };
   const [bellNotifs, setBellNotifs] = useState<BellNotif[]>([]);
   const [notifUnreadCount, setNotifUnreadCount] = useState(0);
   const [notifBellOpen, setNotifBellOpen] = useState(false);
-  const [notifFilter, setNotifFilter] = useState<'all' | 'payments' | 'price'>('all');
+  const [notifFilter, setNotifFilter] = useState<'all' | 'payments' | 'price' | 'paymentType'>('all');
 
   // Fetch customer-specific paginated requests
   const fetchRequests = async (id: string, page: number, append: boolean = false) => {
@@ -289,7 +290,13 @@ export default function CustomerDashboardClient({
       const merged: BellNotif[] = [];
       if (priceRes.ok) {
         const d = await priceRes.json();
-        for (const n of (d.notifications || [])) merged.push({ source: 'price', ...n });
+        for (const n of (d.notifications || [])) {
+          if (n.type === 'payment_type_change') {
+            merged.push({ source: 'paymentType', ...n });
+          } else {
+            merged.push({ source: 'price', ...n });
+          }
+        }
       }
       if (payRes.ok) {
         const d = await payRes.json();
@@ -297,7 +304,7 @@ export default function CustomerDashboardClient({
       }
       merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setBellNotifs(merged);
-      const unread = merged.filter(n => n.source === 'price' ? !n.isRead : !n.isReadByCustomer).length;
+      const unread = merged.filter(n => (n.source === 'price' || n.source === 'paymentType') ? !n.isRead : !n.isReadByCustomer).length;
       setNotifUnreadCount(unread);
       if (markRead && unread > 0) {
         Promise.all([
@@ -305,7 +312,7 @@ export default function CustomerDashboardClient({
           fetch(buildApiUrl(`api/payment-notifications/customer/${objectId}/read-all`), { method: 'PUT' }),
         ]).catch(() => {});
         setBellNotifs(prev => prev.map(n =>
-          n.source === 'price' ? { ...n, isRead: true } : { ...n, isReadByCustomer: true }
+          (n.source === 'price' || n.source === 'paymentType') ? { ...n, isRead: true } : { ...n, isReadByCustomer: true }
         ));
         setNotifUnreadCount(0);
       }
@@ -501,13 +508,13 @@ export default function CustomerDashboardClient({
                 <PopoverContent align="end" className="w-80 p-0">
                   <div className="px-4 py-3 border-b">
                     <p className="font-semibold text-sm mb-2">Notifications</p>
-                    <div className="flex gap-1">
-                      {(['all', 'payments', 'price'] as const).map(f => (
+                    <div className="flex flex-wrap gap-1">
+                      {(['all', 'payments', 'price', 'paymentType'] as const).map(f => (
                         <button key={f} onClick={() => setNotifFilter(f)}
                           className={cn('text-xs px-2 py-0.5 rounded-full border transition-colors',
                             notifFilter === f ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-muted-foreground hover:bg-muted'
                           )}>
-                          {f === 'all' ? 'All' : f === 'payments' ? 'Payments' : 'Price Updates'}
+                          {f === 'all' ? 'All' : f === 'payments' ? 'Payments' : f === 'price' ? 'Price Updates' : 'Type Change'}
                         </button>
                       ))}
                     </div>
@@ -515,13 +522,16 @@ export default function CustomerDashboardClient({
                   <div className="max-h-80 overflow-y-auto">
                     {(() => {
                       const visible = bellNotifs.filter(n =>
-                        notifFilter === 'all' ? true : notifFilter === 'payments' ? n.source === 'payment' : n.source === 'price'
+                        notifFilter === 'all' ? true :
+                        notifFilter === 'payments' ? n.source === 'payment' :
+                        notifFilter === 'price' ? n.source === 'price' :
+                        n.source === 'paymentType'
                       );
                       if (visible.length === 0) return (
                         <p className="text-sm text-muted-foreground text-center py-6">No notifications</p>
                       );
                       return visible.map(n => {
-                        const unread = n.source === 'price' ? !n.isRead : !n.isReadByCustomer;
+                        const unread = (n.source === 'price' || n.source === 'paymentType') ? !n.isRead : !n.isReadByCustomer;
                         return (
                           <div key={n._id} className={cn(
                             'px-4 py-3 border-b last:border-b-0',
@@ -535,6 +545,13 @@ export default function CustomerDashboardClient({
                                     <p className="text-xs font-semibold text-primary">Price Updated</p>
                                     <p className="text-xs text-muted-foreground mt-0.5">
                                       Per can: <span className="line-through">Rs {n.data.oldPrice}</span> → <span className="font-medium text-primary">Rs {n.data.newPrice}</span>
+                                    </p>
+                                  </>
+                                ) : n.source === 'paymentType' ? (
+                                  <>
+                                    <p className="text-xs font-semibold text-orange-600 dark:text-orange-400">Payment Type Changed</p>
+                                    <p className="text-xs text-muted-foreground mt-0.5 capitalize">
+                                      {n.data.oldType} → {n.data.newType}
                                     </p>
                                   </>
                                 ) : (

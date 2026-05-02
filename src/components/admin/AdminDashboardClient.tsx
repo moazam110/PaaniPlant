@@ -473,9 +473,11 @@ export default function AdminDashboardClient({
     }
   }, []);
 
-  const handleCustomerFormSuccess = () => {
+  const handleCustomerFormSuccess = (updatedCustomer?: Customer) => {
     setIsCustomerFormDialogOpen(false);
-    if (customerListRef.current) {
+    if (updatedCustomer && customerListRef.current) {
+      customerListRef.current.updateCustomerInList(updatedCustomer);
+    } else if (customerListRef.current) {
       customerListRef.current.refreshCustomers();
     }
     if (functionsReady) {

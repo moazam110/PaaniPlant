@@ -38,6 +38,7 @@ interface PaymentNotif {
 interface PriceNotif {
   _id: string;
   source: 'price';
+  type: 'price_change';
   customerName: string;
   customerIntId?: number;
   data: { oldPrice: number; newPrice: number };
@@ -45,7 +46,18 @@ interface PriceNotif {
   createdAt: string;
 }
 
-type UnifiedNotif = PaymentNotif | PriceNotif;
+interface PaymentTypeNotif {
+  _id: string;
+  source: 'paymentType';
+  type: 'payment_type_change';
+  customerName: string;
+  customerIntId?: number;
+  data: { oldType: string; newType: string };
+  isReadByAdmin: boolean;
+  createdAt: string;
+}
+
+type UnifiedNotif = PaymentNotif | PriceNotif | PaymentTypeNotif;
 
 interface TabNavigationProps {
   activeTab: string;
@@ -79,7 +91,7 @@ export default function TabNavigation({ activeTab, onTabChange, children, onSign
   const [notifications, setNotifications] = useState<UnifiedNotif[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [bellOpen, setBellOpen] = useState(false);
-  const [notifFilter, setNotifFilter] = useState<'all' | 'payments' | 'price'>('all');
+  const [notifFilter, setNotifFilter] = useState<'all' | 'payments' | 'price' | 'paymentType'>('all');
   const [filterCustomerId, setFilterCustomerId] = useState('');
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -96,7 +108,13 @@ export default function TabNavigation({ activeTab, onTabChange, children, onSign
       }
       if (priceRes.ok) {
         const d = await priceRes.json();
-        (d.notifications || []).forEach((n: PriceNotif) => merged.push({ ...n, source: 'price' as const }));
+        (d.notifications || []).forEach((n: any) => {
+          if (n.type === 'payment_type_change') {
+            merged.push({ ...n, source: 'paymentType' as const });
+          } else {
+            merged.push({ ...n, source: 'price' as const });
+          }
+        });
       }
       merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setNotifications(merged);
@@ -142,7 +160,8 @@ export default function TabNavigation({ activeTab, onTabChange, children, onSign
     const matchesFilter =
       notifFilter === 'all' ||
       (notifFilter === 'payments' && n.source === 'payment') ||
-      (notifFilter === 'price' && n.source === 'price');
+      (notifFilter === 'price' && n.source === 'price') ||
+      (notifFilter === 'paymentType' && n.source === 'paymentType');
     return matchesSearch && matchesFilter;
   });
 
@@ -254,8 +273,8 @@ export default function TabNavigation({ activeTab, onTabChange, children, onSign
               <div className="px-4 py-3 border-b">
                 <p className="font-semibold text-sm mb-2">Notifications</p>
                 {/* Filter tabs */}
-                <div className="flex gap-1">
-                  {(['all', 'payments', 'price'] as const).map(f => (
+                <div className="flex flex-wrap gap-1">
+                  {(['all', 'payments', 'price', 'paymentType'] as const).map(f => (
                     <button
                       key={f}
                       onClick={() => setNotifFilter(f)}
@@ -264,7 +283,7 @@ export default function TabNavigation({ activeTab, onTabChange, children, onSign
                         notifFilter === f ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-muted-foreground hover:bg-muted',
                       )}
                     >
-                      {f === 'all' ? 'All' : f === 'payments' ? 'Payments' : 'Price Updates'}
+                      {f === 'all' ? 'All' : f === 'payments' ? 'Payments' : f === 'price' ? 'Price Updates' : 'Type Change'}
                     </button>
                   ))}
                 </div>
@@ -305,6 +324,16 @@ export default function TabNavigation({ activeTab, onTabChange, children, onSign
                             {n.type === 'payment_deleted' && n.deleteReason && (
                               <p className="text-xs text-destructive/80 mt-0.5 font-medium">Reason: {n.deleteReason}</p>
                             )}
+                          </>
+                        ) : n.source === 'paymentType' ? (
+                          <>
+                            <p className="text-xs font-semibold text-orange-600 dark:text-orange-400">Payment Type Changed</p>
+                            <p className="text-xs text-foreground mt-0.5">
+                              <span className="font-medium">{n.customerIntId ? `#${n.customerIntId} ` : ''}{n.customerName}</span>
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-0.5 capitalize">
+                              {n.data.oldType} → {n.data.newType}
+                            </p>
                           </>
                         ) : (
                           <>

@@ -73,8 +73,7 @@ export default function AdminBulkBillsDialog({ open, onOpenChange }: Props) {
     setIsLoading(true);
     try {
       const start = new Date(fromDate); start.setHours(0, 0, 0, 0);
-      const end = new Date(toDate); end.setHours(23, 59, 59, 999);
-      const endForApi = new Date(end); endForApi.setDate(endForApi.getDate() + 1);
+      const endForApi = new Date(toDate); endForApi.setHours(0, 0, 0, 0); endForApi.setDate(endForApi.getDate() + 1);
 
       const [deliveriesRes, customersRes] = await Promise.all([
         fetch(buildApiUrl(`${API_ENDPOINTS.DELIVERY_REQUESTS}?status=delivered&startDate=${start.toISOString()}&endDate=${endForApi.toISOString()}&page=1&limit=10000`)),
