@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { Truck, BarChart3, Users, UserCheck, Repeat, MoreVertical, LogOut, Moon, Sun, UserCog, Bell, Wallet } from 'lucide-react';
+import { Truck, BarChart3, Users, UserCheck, Repeat, MoreVertical, LogOut, Moon, Sun, UserCog, Bell, Wallet, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/popover';
 import { useTheme } from '@/contexts/ThemeContext';
 import { API_BASE_URL } from '@/lib/api';
+import { format, startOfMonth, subMonths, addMonths } from 'date-fns';
 
 interface PaymentNotif {
   _id: string;
@@ -57,7 +58,20 @@ interface PaymentTypeNotif {
   createdAt: string;
 }
 
-type UnifiedNotif = PaymentNotif | PriceNotif | PaymentTypeNotif;
+interface InfoUpdateNotif {
+  _id: string;
+  source: 'infoUpdate';
+  type: 'info_update';
+  customerName: string;
+  customerIntId?: number;
+  data: { changedFields: string[]; oldValues: Record<string, string | number>; newValues: Record<string, string | number> };
+  isReadByAdmin: boolean;
+  createdAt: string;
+}
+
+const INFO_FIELD_LABELS: Record<string, string> = { name: 'Name', phone: 'Phone', address: 'Address', defaultCans: 'Default Cans' };
+
+type UnifiedNotif = PaymentNotif | PriceNotif | PaymentTypeNotif | InfoUpdateNotif;
 
 interface TabNavigationProps {
   activeTab: string;
@@ -91,15 +105,25 @@ export default function TabNavigation({ activeTab, onTabChange, children, onSign
   const [notifications, setNotifications] = useState<UnifiedNotif[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [bellOpen, setBellOpen] = useState(false);
-  const [notifFilter, setNotifFilter] = useState<'all' | 'payments' | 'price' | 'paymentType'>('all');
+  const [notifFilter, setNotifFilter] = useState<'all' | 'payments' | 'price' | 'paymentType' | 'infoUpdate'>('all');
   const [filterCustomerId, setFilterCustomerId] = useState('');
+  const [fullMonthFilter, setFullMonthFilter] = useState(false);
+  const [fullMonthDate, setFullMonthDate] = useState<Date>(() => startOfMonth(subMonths(new Date(), 1)));
+  const NOTIF_MONTH_MIN = new Date(2026, 3, 1); // April 2026
+  const fullMonthFilterRef = useRef(fullMonthFilter);
+  const fullMonthDateRef = useRef(fullMonthDate);
+  fullMonthFilterRef.current = fullMonthFilter;
+  fullMonthDateRef.current = fullMonthDate;
   const wsRef = useRef<WebSocket | null>(null);
 
-  const fetchNotifications = useCallback(async () => {
+  const fetchNotifications = useCallback(async (intId?: number, month?: string) => {
     try {
+      const idParam = intId !== undefined ? `&customerIntId=${intId}` : '';
+      const monthParam = month ? `&month=${month}` : '';
+      const limit = month ? 500 : 100;
       const [payRes, priceRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/payment-notifications/admin?limit=50`),
-        fetch(`${API_BASE_URL}/api/notifications/admin?limit=50`),
+        fetch(`${API_BASE_URL}/api/payment-notifications/admin?limit=${limit}${idParam}${monthParam}`),
+        fetch(`${API_BASE_URL}/api/notifications/admin?limit=${limit}${idParam}${monthParam}`),
       ]);
       const merged: UnifiedNotif[] = [];
       if (payRes.ok) {
@@ -111,6 +135,8 @@ export default function TabNavigation({ activeTab, onTabChange, children, onSign
         (d.notifications || []).forEach((n: any) => {
           if (n.type === 'payment_type_change') {
             merged.push({ ...n, source: 'paymentType' as const });
+          } else if (n.type === 'info_update') {
+            merged.push({ ...n, source: 'infoUpdate' as const });
           } else {
             merged.push({ ...n, source: 'price' as const });
           }
@@ -123,6 +149,17 @@ export default function TabNavigation({ activeTab, onTabChange, children, onSign
       // non-critical
     }
   }, []);
+
+  // Re-fetch server-side when numeric customer ID is typed; reads month from refs (always fresh)
+  useEffect(() => {
+    if (!bellOpen) return;
+    const q = filterCustomerId.trim();
+    const month = fullMonthFilterRef.current ? format(fullMonthDateRef.current, 'yyyy-MM') : undefined;
+    if (q === '') { fetchNotifications(undefined, month); return; }
+    if (!/^\d+$/.test(q)) return; // non-numeric: client-side filter only
+    const timer = setTimeout(() => fetchNotifications(parseInt(q), month), 300);
+    return () => clearTimeout(timer);
+  }, [filterCustomerId, bellOpen, fetchNotifications]);
 
   useEffect(() => {
     fetchNotifications();
@@ -154,14 +191,16 @@ export default function TabNavigation({ activeTab, onTabChange, children, onSign
   // Client-side filter: search + type tab
   const filteredNotifications = notifications.filter((n: UnifiedNotif) => {
     const q = filterCustomerId.trim().toLowerCase();
+    const isNumericQuery = /^\d+$/.test(q);
     const matchesSearch = !q ||
-      (n.customerIntId !== undefined && String(n.customerIntId).includes(q)) ||
-      n.customerName?.toLowerCase().includes(q);
+      (n.customerIntId !== undefined && (isNumericQuery ? String(n.customerIntId) === q : String(n.customerIntId).includes(q))) ||
+      (!isNumericQuery && n.customerName?.toLowerCase().includes(q));
     const matchesFilter =
       notifFilter === 'all' ||
       (notifFilter === 'payments' && n.source === 'payment') ||
       (notifFilter === 'price' && n.source === 'price') ||
-      (notifFilter === 'paymentType' && n.source === 'paymentType');
+      (notifFilter === 'paymentType' && n.source === 'paymentType') ||
+      (notifFilter === 'infoUpdate' && n.source === 'infoUpdate');
     return matchesSearch && matchesFilter;
   });
 
@@ -170,6 +209,8 @@ export default function TabNavigation({ activeTab, onTabChange, children, onSign
     if (open) {
       setFilterCustomerId('');
       setNotifFilter('all');
+      setFullMonthFilter(false);
+      setFullMonthDate(startOfMonth(subMonths(new Date(), 1)));
       fetchNotifications();
       if (unreadCount > 0) {
         try {
@@ -274,7 +315,7 @@ export default function TabNavigation({ activeTab, onTabChange, children, onSign
                 <p className="font-semibold text-sm mb-2">Notifications</p>
                 {/* Filter tabs */}
                 <div className="flex flex-wrap gap-1">
-                  {(['all', 'payments', 'price', 'paymentType'] as const).map(f => (
+                  {(['all', 'payments', 'price', 'paymentType', 'infoUpdate'] as const).map(f => (
                     <button
                       key={f}
                       onClick={() => setNotifFilter(f)}
@@ -283,19 +324,69 @@ export default function TabNavigation({ activeTab, onTabChange, children, onSign
                         notifFilter === f ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-muted-foreground hover:bg-muted',
                       )}
                     >
-                      {f === 'all' ? 'All' : f === 'payments' ? 'Payments' : f === 'price' ? 'Price Updates' : 'Type Change'}
+                      {f === 'all' ? 'All' : f === 'payments' ? 'Payments' : f === 'price' ? 'Price' : f === 'paymentType' ? 'Type' : 'Info'}
                     </button>
                   ))}
                 </div>
               </div>
-              {/* Filter by ID or name */}
-              <div className="px-3 py-2 border-b">
+              {/* Filter by ID or name + Full Month */}
+              <div className="px-3 py-2 border-b space-y-2">
                 <Input
                   placeholder="Filter by ID or name..."
                   value={filterCustomerId}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFilterCustomerId(e.target.value)}
                   className="h-8 text-sm"
                 />
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={fullMonthFilter}
+                      onChange={e => {
+                        const checked = e.target.checked;
+                        setFullMonthFilter(checked);
+                        const q = filterCustomerId.trim();
+                        const intId = /^\d+$/.test(q) ? parseInt(q) : undefined;
+                        fetchNotifications(intId, checked ? format(fullMonthDate, 'yyyy-MM') : undefined);
+                      }}
+                      className="h-3.5 w-3.5 accent-primary"
+                    />
+                    <span className="text-xs font-medium">Full Month</span>
+                  </label>
+                  {fullMonthFilter && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => {
+                          const nd = startOfMonth(subMonths(fullMonthDate, 1));
+                          setFullMonthDate(nd);
+                          const q = filterCustomerId.trim();
+                          const intId = /^\d+$/.test(q) ? parseInt(q) : undefined;
+                          fetchNotifications(intId, format(nd, 'yyyy-MM'));
+                        }}
+                        disabled={fullMonthDate <= NOTIF_MONTH_MIN}
+                        className="h-5 w-5 flex items-center justify-center rounded hover:bg-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        <ChevronLeft className="h-3 w-3" />
+                      </button>
+                      <span className="text-xs font-semibold min-w-[64px] text-center tabular-nums">
+                        {format(fullMonthDate, 'MMM yyyy')}
+                      </span>
+                      <button
+                        onClick={() => {
+                          const nd = startOfMonth(addMonths(fullMonthDate, 1));
+                          setFullMonthDate(nd);
+                          const q = filterCustomerId.trim();
+                          const intId = /^\d+$/.test(q) ? parseInt(q) : undefined;
+                          fetchNotifications(intId, format(nd, 'yyyy-MM'));
+                        }}
+                        disabled={startOfMonth(addMonths(fullMonthDate, 1)) > startOfMonth(new Date())}
+                        className="h-5 w-5 flex items-center justify-center rounded hover:bg-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        <ChevronRight className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="max-h-72 overflow-y-auto">
                 {filteredNotifications.length === 0 ? (
@@ -334,6 +425,20 @@ export default function TabNavigation({ activeTab, onTabChange, children, onSign
                             <p className="text-xs text-muted-foreground mt-0.5 capitalize">
                               {n.data.oldType} → {n.data.newType}
                             </p>
+                          </>
+                        ) : n.source === 'infoUpdate' ? (
+                          <>
+                            <p className="text-xs font-semibold text-violet-600 dark:text-violet-400">Profile Updated</p>
+                            <p className="text-xs text-foreground mt-0.5">
+                              <span className="font-medium">{n.customerIntId ? `#${n.customerIntId} ` : ''}{n.customerName}</span>
+                            </p>
+                            <div className="mt-0.5 space-y-0.5">
+                              {n.data.changedFields.map((f: string) => (
+                                <p key={f} className="text-xs text-muted-foreground">
+                                  {INFO_FIELD_LABELS[f] ?? f}: <span className="line-through opacity-60">{String(n.data.oldValues[f] ?? '')}</span> → <span className="font-medium text-foreground">{String(n.data.newValues[f] ?? '')}</span>
+                                </p>
+                              ))}
+                            </div>
                           </>
                         ) : (
                           <>

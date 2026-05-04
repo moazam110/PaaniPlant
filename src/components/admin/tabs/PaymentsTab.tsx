@@ -7,9 +7,10 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Trash2, RefreshCw, Search, CheckCircle2, AlertCircle, TrendingUp } from 'lucide-react';
+import { Trash2, RefreshCw, Search, CheckCircle2, AlertCircle, TrendingUp, FileText, FileSpreadsheet, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { buildApiUrl } from '@/lib/api';
+import { format, startOfMonth, subMonths, addMonths } from 'date-fns';
 
 interface CustomerBalance {
   customerId: string;
@@ -63,16 +64,23 @@ export default function PaymentsTab() {
   const [paymentTypeFilter, setPaymentTypeFilter] = useState<'all' | 'cash' | 'account' | null>('all');
   const [showSettled, setShowSettled] = useState(false);
 
+  // Full Month filter
+  const [fullMonthFilter, setFullMonthFilter] = useState(false);
+  const [fullMonthDate, setFullMonthDate] = useState<Date>(() => startOfMonth(subMonths(new Date(), 1)));
+
   // Deletion with mandatory reason
   const [deleteTarget, setDeleteTarget] = useState<{ paymentId: string; amount: number; note: string } | null>(null);
   const [deleteReason, setDeleteReason] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const savedScrollY = useRef(0);
 
-  const fetchBalances = useCallback(async () => {
+  const fetchBalances = useCallback(async (maxMonth?: string) => {
     setIsLoading(true);
     try {
-      const res = await fetch(buildApiUrl('api/payments/balances'));
+      const url = maxMonth
+        ? buildApiUrl(`api/payments/balances?maxMonth=${maxMonth}`)
+        : buildApiUrl('api/payments/balances');
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setBalances(data.data || []);
@@ -82,7 +90,13 @@ export default function PaymentsTab() {
     }
   }, []);
 
-  useEffect(() => { fetchBalances(); }, [fetchBalances]);
+  useEffect(() => {
+    if (fullMonthFilter) {
+      fetchBalances(format(fullMonthDate, 'yyyy-MM'));
+    } else {
+      fetchBalances();
+    }
+  }, [fetchBalances, fullMonthFilter, fullMonthDate]);
 
   const fetchDrawerData = useCallback(async (customerId: string) => {
     setIsLoadingDrawer(true);
@@ -177,19 +191,187 @@ export default function PaymentsTab() {
     return true;
   });
 
+  const FULL_MONTH_MIN = new Date(2026, 3, 1); // April 2026
+
   const fmtPKT = (dateStr: string) =>
     new Date(dateStr).toLocaleString('en-PK', {
       day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Karachi',
     });
 
+  const fmtMonthFull = (m: string) => {
+    const [y, mo] = m.split('-');
+    return new Date(Number(y), Number(mo) - 1, 15).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+  };
+
+  const handleExport = async (type: 'pdf' | 'excel') => {
+    const maxMonth = fullMonthFilter ? format(fullMonthDate, 'yyyy-MM') : undefined;
+    const url = maxMonth
+      ? buildApiUrl(`api/payments/ledger-bulk?maxMonth=${maxMonth}`)
+      : buildApiUrl('api/payments/ledger-bulk');
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const { data } = await res.json();
+
+    // Build per-customer groups
+    interface MonthRow { month: string; paid: number; remaining: number; }
+    interface CustomerGroup { serial: number; name: string; intId: number; phone: string; months: MonthRow[]; totalPaid: number; totalRemaining: number; }
+    const groups: CustomerGroup[] = [];
+    let serial = 1;
+    for (const customer of (data as any[])) {
+      if (paymentTypeFilter !== null && paymentTypeFilter !== 'all' && customer.paymentType !== paymentTypeFilter) continue;
+      const months: MonthRow[] = customer.months.map((m: any) => ({ month: fmtMonthFull(m.month), paid: m.paid as number, remaining: m.remaining as number }));
+      if (months.length === 0) continue;
+      groups.push({
+        serial: serial++,
+        name: customer.customerName,
+        intId: customer.customerIntId,
+        phone: customer.phone || '',
+        months,
+        totalPaid: months.reduce((s, m) => s + m.paid, 0),
+        totalRemaining: months.reduce((s, m) => s + m.remaining, 0),
+      });
+    }
+
+    const grandPaid = groups.reduce((s, g) => s + g.totalPaid, 0);
+    const grandRemaining = groups.reduce((s, g) => s + g.totalRemaining, 0);
+    const typeLabel = paymentTypeFilter === 'cash' ? 'Cash' : paymentTypeFilter === 'account' ? 'Account' : 'All';
+
+    if (type === 'excel') {
+      const XLSX = await import('xlsx');
+      // Header info rows
+      const wsData: (string | number)[][] = [
+        ['The Paani™ — Dues Report'],
+        [maxMonth ? `Up to: ${format(fullMonthDate, 'MMMM yyyy')}` : 'All Months', '', '', `Type: ${typeLabel}`],
+        [],
+        ['#', 'Customer', 'Contact', 'Month', 'Paid (Rs)', 'Remaining (Rs)', 'Total Due (Rs)'],
+      ];
+      const merges: { s: { r: number; c: number }; e: { r: number; c: number } }[] = [
+        // Title spans all columns
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 6 } },
+      ];
+      let rowIdx = 4; // data starts after 4 header rows
+
+      for (const g of groups) {
+        const startRow = rowIdx;
+        const endRow = startRow + g.months.length - 1;
+        g.months.forEach((m, i) => {
+          wsData.push([
+            i === 0 ? g.serial : '',
+            i === 0 ? `#${g.intId} ${g.name}` : '',
+            i === 0 ? g.phone : '',
+            m.month,
+            m.paid,
+            m.remaining,
+            i === 0 ? g.totalRemaining : '',
+          ]);
+          rowIdx++;
+        });
+
+        // Merge #, Customer, Contact, Total columns across all month rows
+        if (endRow > startRow) {
+          [0, 1, 2, 6].forEach(c => merges.push({ s: { r: startRow, c }, e: { r: endRow, c } }));
+        }
+      }
+
+      wsData.push(['', '', '', 'TOTAL', grandPaid, '', grandRemaining]);
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws['!cols'] = [{ wch: 5 }, { wch: 32 }, { wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 16 }];
+      ws['!merges'] = merges;
+      XLSX.utils.book_append_sheet(wb, ws, 'Dues Report');
+      const label = maxMonth ? format(fullMonthDate, 'MMM_yyyy') : 'All';
+      XLSX.writeFile(wb, `PaaniPlant_Dues_${label}.xlsx`);
+    } else {
+      const jsPDF = (await import('jspdf')).default;
+      const autoTable = (await import('jspdf-autotable')).default;
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+
+      // Header
+      doc.setFontSize(14); doc.setFont('helvetica', 'bold'); doc.setTextColor(63, 81, 181);
+      doc.text('The Paani™ — Dues Report', 40, 40);
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(100);
+      const subLines: string[] = [];
+      if (maxMonth) subLines.push(`Up to: ${format(fullMonthDate, 'MMMM yyyy')}`);
+      subLines.push(`Type: ${typeLabel}`);
+      doc.text(subLines.join('   ·   '), 40, 56);
+
+      const GREEN: [number, number, number] = [22, 130, 80];
+      const RED: [number, number, number] = [190, 40, 40];
+      const SEP_COLOR: [number, number, number] = [210, 215, 235];
+
+      const body: any[] = [];
+      for (const g of groups) {
+        const span = g.months.length;
+        g.months.forEach((m, i) => {
+          if (i === 0) {
+            body.push([
+              { content: g.serial, rowSpan: span, styles: { valign: 'middle', halign: 'center' } },
+              { content: `#${g.intId} ${g.name}`, rowSpan: span, styles: { valign: 'middle' } },
+              { content: g.phone, rowSpan: span, styles: { valign: 'middle' } },
+              { content: m.month },
+              { content: m.paid.toLocaleString(), styles: { halign: 'right', textColor: m.paid > 0 ? GREEN : [150, 150, 150] } },
+              { content: m.remaining.toLocaleString(), styles: { halign: 'right', textColor: RED } },
+              { content: g.totalRemaining.toLocaleString(), rowSpan: span, styles: { valign: 'middle', halign: 'right', fontStyle: 'bold', textColor: RED } },
+            ]);
+          } else {
+            body.push([
+              { content: m.month },
+              { content: m.paid.toLocaleString(), styles: { halign: 'right', textColor: m.paid > 0 ? GREEN : [150, 150, 150] } },
+              { content: m.remaining.toLocaleString(), styles: { halign: 'right', textColor: RED } },
+            ]);
+          }
+        });
+        // Thin separator row between customer groups
+        body.push([{
+          content: '',
+          colSpan: 7,
+          styles: { fillColor: SEP_COLOR, cellPadding: 1, minCellHeight: 3 },
+        }]);
+      }
+      // Grand total
+      body.push([
+        { content: 'TOTAL', colSpan: 4, styles: { fontStyle: 'bold', halign: 'right', fillColor: [235, 238, 255] } },
+        { content: grandPaid.toLocaleString(), styles: { fontStyle: 'bold', halign: 'right', fillColor: [235, 238, 255], textColor: GREEN } },
+        { content: '', styles: { fillColor: [235, 238, 255] } },
+        { content: grandRemaining.toLocaleString(), styles: { fontStyle: 'bold', halign: 'right', fillColor: [235, 238, 255], textColor: RED } },
+      ]);
+
+      autoTable(doc, {
+        startY: 66,
+        head: [['#', 'Customer', 'Contact', 'Month', 'Paid (Rs)', 'Remaining (Rs)', 'Total Due (Rs)']],
+        body,
+        styles: { fontSize: 8, cellPadding: 4 },
+        headStyles: { fillColor: [63, 81, 181], textColor: 255, fontStyle: 'bold' },
+        columnStyles: { 0: { cellWidth: 22 }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right', cellWidth: 58 } },
+      });
+      const label = maxMonth ? format(fullMonthDate, 'MMM_yyyy') : 'All';
+      doc.save(`PaaniPlant_Dues_${label}.pdf`);
+    }
+  };
+
   return (
     <div className="p-3 sm:p-4 space-y-3">
       {/* Header */}
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-base font-semibold">Payments &amp; Balances</h2>
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={fetchBalances} disabled={isLoading}>
-          <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
-        </Button>
+        <div className="flex items-center gap-1.5">
+          <Button variant="outline" size="sm" onClick={() => handleExport('pdf')} title="Export PDF"
+            className="border-primary text-primary hover:bg-primary hover:text-primary-foreground px-2">
+            <FileText className="h-4 w-4 md:mr-1.5" />
+            <span className="hidden md:inline text-xs">PDF</span>
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => handleExport('excel')} title="Export Excel"
+            className="border-green-600 text-green-700 hover:bg-green-600 hover:text-white px-2">
+            <FileSpreadsheet className="h-4 w-4 md:mr-1.5" />
+            <span className="hidden md:inline text-xs">Excel</span>
+          </Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8"
+            onClick={() => fullMonthFilter ? fetchBalances(format(fullMonthDate, 'yyyy-MM')) : fetchBalances()}
+            disabled={isLoading}>
+            <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
+          </Button>
+        </div>
       </div>
 
       {/* Search */}
@@ -225,6 +407,36 @@ export default function PaymentsTab() {
           />
           <span className="text-sm text-muted-foreground">Settled</span>
         </label>
+        <div className="w-px h-4 bg-border hidden sm:block" />
+        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+          <Checkbox
+            checked={fullMonthFilter}
+            onCheckedChange={v => setFullMonthFilter(v as boolean)}
+            className="h-3.5 w-3.5"
+          />
+          <span className="text-sm font-medium">Full Month</span>
+        </label>
+        {fullMonthFilter && (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setFullMonthDate(d => startOfMonth(subMonths(d, 1)))}
+              disabled={fullMonthDate <= FULL_MONTH_MIN}
+              className="h-6 w-6 flex items-center justify-center rounded hover:bg-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+            <span className="text-xs font-semibold min-w-[72px] text-center tabular-nums">
+              {format(fullMonthDate, 'MMM yyyy')}
+            </span>
+            <button
+              onClick={() => setFullMonthDate(d => startOfMonth(addMonths(d, 1)))}
+              disabled={startOfMonth(addMonths(fullMonthDate, 1)) > startOfMonth(new Date())}
+              className="h-6 w-6 flex items-center justify-center rounded hover:bg-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Customer list */}

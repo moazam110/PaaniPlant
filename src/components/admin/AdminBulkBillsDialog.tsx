@@ -127,7 +127,7 @@ export default function AdminBulkBillsDialog({ open, onOpenChange }: Props) {
           const empty = { ...bill, previousDues: [], advanceCredit: 0, netPayable: bill.totalAmount };
           if (!bill.objectId) return empty;
           try {
-            const res = await fetch(buildApiUrl(`api/payments/ledger/${bill.objectId}`));
+            const res = await fetch(buildApiUrl(`api/payments/ledger/${bill.objectId}?maxMonth=${billingMonthKey}`));
             if (!res.ok) return empty;
             const d = await res.json();
             const ledger: any[] = (d.data?.ledger || []).slice().reverse(); // oldest → newest

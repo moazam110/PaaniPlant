@@ -37,7 +37,7 @@ interface ChartEntry {
 }
 
 type ChartView = 'yearly' | 'dayofweek';
-type ViewMode = 'all' | 'cash' | 'account';
+type ViewMode = 'all' | 'cash' | 'account' | 'dailyCash';
 
 const APRIL_2026 = new Date(2026, 3, 1);
 
@@ -182,10 +182,16 @@ export default function StatsTab({
   // ─────────────────────────────────────────────────────────────────────────
 
   // ── Cash view state ───────────────────────────────────────────────────────
-  const [caFullMonth, setCaFullMonth]   = useState(false);
-  const [caMonthDate, setCaMonthDate]   = useState<Date>(() => startOfMonth(pktToday()));
-  const [caPickerDate, setCaPickerDate] = useState<Date | undefined>(pktToday());
-  const [caPickerOpen, setCaPickerOpen] = useState(false);
+  const [caMonthDate, setCaMonthDate] = useState<Date>(() => {
+    const prev = startOfMonth(subMonths(new Date(), 1));
+    return prev < APRIL_2026 ? APRIL_2026 : prev;
+  });
+  // ── Daily Cash view state ─────────────────────────────────────────────────
+  const [dcMonthDate, setDcMonthDate] = useState<Date>(() => {
+    const prev = startOfMonth(subMonths(new Date(), 1));
+    return prev < APRIL_2026 ? APRIL_2026 : prev;
+  });
+  const [dcData, setDcData] = useState<{ day: number; payment: number; sales: number }[]>([]);
   // ─────────────────────────────────────────────────────────────────────────
 
   // ── Account view state ────────────────────────────────────────────────────
@@ -205,37 +211,34 @@ export default function StatsTab({
     if (mode === 'all') return;
     setCaLoading(true);
     try {
-      if (mode === 'cash') {
-        const m = caFullMonth ? caMonthDate : (caPickerDate || pktToday());
-        const monthNum = m.getMonth() + 1;
-        const yearNum  = m.getFullYear();
-        const dayNum   = caFullMonth ? 0 : m.getDate();
-        const params = new URLSearchParams({ type: 'cash', year: String(yearNum), month: String(monthNum) });
-        if (caFullMonth) params.set('fullMonth', 'true'); else params.set('day', String(dayNum));
+      if (mode === 'cash' || mode === 'account') {
+        const selDate  = mode === 'cash' ? caMonthDate : accMonthDate;
+        const type     = mode === 'cash' ? 'cash' : 'account';
+        const monthNum = selDate.getMonth() + 1;
+        const yearNum  = selDate.getFullYear();
 
-        const [sumRes, dailyRes] = await Promise.all([
-          fetch(buildApiUrl(`api/stats/cash-account/summary?${params}`)),
-          fetch(buildApiUrl(`api/stats/cash-account/daily?type=cash&year=${yearNum}&month=${monthNum}`)),
-        ]);
-        if (sumRes.ok)   setCaSummary(await sumRes.json());
-        if (dailyRes.ok) { const d = await dailyRes.json(); setCaDailyData(d.data || []); }
-      } else {
-        // account
-        const monthNum = accMonthDate.getMonth() + 1;
-        const yearNum  = accMonthDate.getFullYear();
-        const params = new URLSearchParams({ type: 'account', year: String(yearNum), month: String(monthNum), fullMonth: 'true' });
-
-        const [sumRes, monthlyRes] = await Promise.all([
-          fetch(buildApiUrl(`api/stats/cash-account/summary?${params}`)),
-          fetch(buildApiUrl(`api/stats/cash-account/monthly?type=account&year=${yearNum}`)),
-        ]);
-        if (sumRes.ok)     setCaSummary(await sumRes.json());
-        if (monthlyRes.ok) { const d = await monthlyRes.json(); setCaMonthlyData(d.data || []); }
+        const res = await fetch(buildApiUrl(`api/stats/cash-account/monthly?type=${type}&year=${yearNum}`));
+        if (res.ok) {
+          const d = await res.json();
+          const monthData: typeof caMonthlyData = d.data || [];
+          setCaMonthlyData(monthData);
+          // Derive KPI from the selected month in the chart data
+          const sel = monthData.find(m => m.month === monthNum);
+          setCaSummary(sel
+            ? { cans: sel.cans, totalBilled: sel.billed, actualPaid: sel.paid, remaining: sel.remaining }
+            : { cans: 0, totalBilled: 0, actualPaid: 0, remaining: 0 }
+          );
+        }
+      } else if (mode === 'dailyCash') {
+        const monthNum = dcMonthDate.getMonth() + 1;
+        const yearNum  = dcMonthDate.getFullYear();
+        const res = await fetch(buildApiUrl(`api/stats/cash-account/daily-cash?year=${yearNum}&month=${monthNum}`));
+        if (res.ok) { const d = await res.json(); setDcData(d.data || []); }
       }
     } catch { /* ignore */ } finally {
       setCaLoading(false);
     }
-  }, [caFullMonth, caMonthDate, caPickerDate, accMonthDate]);
+  }, [caMonthDate, accMonthDate, dcMonthDate]);
 
   useEffect(() => {
     if (viewMode !== 'all') fetchCaData(viewMode);
@@ -501,8 +504,8 @@ export default function StatsTab({
   };
   // ─────────────────────────────────────────────────────────────────────────
 
-  const cashMonthLabel   = format(caFullMonth ? caMonthDate : (caPickerDate || pktToday()), 'MMMM yyyy');
-  const accMonthLabel    = format(accMonthDate, 'MMMM yyyy');
+  const cashMonthLabel = format(caMonthDate, 'MMMM yyyy');
+  const accMonthLabel  = format(accMonthDate, 'MMMM yyyy');
 
   return (
     <div className="p-4 space-y-6">
@@ -510,10 +513,15 @@ export default function StatsTab({
       {/* View mode selector */}
       <div className="flex items-center gap-x-4 gap-y-2 flex-wrap rounded-lg border bg-muted/30 px-3 py-2.5">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">View</span>
-        {(['all', 'cash', 'account'] as const).map(m => (
+        {([
+          ['all',       'All'],
+          ['cash',      'Cash'],
+          ['account',   'Account'],
+          ['dailyCash', 'Daily Cash'],
+        ] as const).map(([m, label]) => (
           <label key={m} className="flex items-center gap-1.5 cursor-pointer select-none">
             <Checkbox checked={viewMode === m} onCheckedChange={() => setViewMode(m)} className="h-3.5 w-3.5" />
-            <span className="text-sm">{m === 'all' ? 'All' : m === 'cash' ? 'Cash' : 'Account'}</span>
+            <span className="text-sm">{label}</span>
           </label>
         ))}
       </div>
@@ -521,18 +529,9 @@ export default function StatsTab({
       {/* ── CASH VIEW ─────────────────────────────────────────────────────── */}
       {viewMode === 'cash' && (
         <div className="space-y-4">
-          {/* Date controls */}
           <div className="flex items-center gap-x-4 gap-y-2 flex-wrap rounded-lg border bg-muted/30 px-3 py-2.5">
-            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              <Checkbox checked={caFullMonth} onCheckedChange={v => setCaFullMonth(v as boolean)} className="h-3.5 w-3.5" />
-              <span className="text-sm font-medium">Full Month</span>
-            </label>
-            {caFullMonth ? (
-              <MonthNav date={caMonthDate} onChange={setCaMonthDate} />
-            ) : (
-              <DatePickerBtn date={caPickerDate} open={caPickerOpen} onOpenChange={setCaPickerOpen}
-                onSelect={d => d && setCaPickerDate(d)} label="Pick date" />
-            )}
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">Month</span>
+            <MonthNav date={caMonthDate} onChange={setCaMonthDate} />
           </div>
           <CaKpiCards />
           {!caLoading && (
@@ -540,7 +539,7 @@ export default function StatsTab({
               <Card className="glass-card lg:col-span-2">
                 <CardHeader className="pb-1 pt-4 px-5">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <CardTitle className="text-sm font-semibold">Cash — Daily ({cashMonthLabel})</CardTitle>
+                    <CardTitle className="text-sm font-semibold">Cash — Monthly ({caMonthDate.getFullYear()})</CardTitle>
                     <div className="flex items-center gap-3 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: CA.paid }} />Paid</span>
                       <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: CA.remaining }} />Remaining</span>
@@ -548,25 +547,25 @@ export default function StatsTab({
                   </div>
                 </CardHeader>
                 <CardContent className="px-2 pb-4">
-                  {caDailyData.every(d => d.billed === 0) ? (
-                    <div className="h-48 flex items-center justify-center text-sm text-muted-foreground">No cash data for this period.</div>
+                  {caMonthlyData.every(d => d.billed === 0) ? (
+                    <div className="h-48 flex items-center justify-center text-sm text-muted-foreground">No cash data for this year.</div>
                   ) : (
                     <ResponsiveContainer width="100%" height={220}>
-                      <BarChart data={caDailyData} margin={{ top: 16, right: 8, left: -10, bottom: 8 }} barCategoryGap="15%">
+                      <BarChart data={caMonthlyData} margin={{ top: 16, right: 8, left: -10, bottom: 8 }} barCategoryGap="15%">
                         <defs>
-                          <linearGradient id="caPaidGrad2" x1="0" y1="0" x2="0" y2="1">
+                          <linearGradient id="caPaidGrad" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="0%" stopColor={CA.paidLight} /><stop offset="100%" stopColor={CA.paid} />
                           </linearGradient>
-                          <linearGradient id="caRemGrad2" x1="0" y1="0" x2="0" y2="1">
+                          <linearGradient id="caRemGrad" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="0%" stopColor={CA.remainingLight} /><stop offset="100%" stopColor={CA.remaining} />
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                        <XAxis dataKey="day" tick={<CaTick />} axisLine={false} tickLine={false} interval={0} />
+                        <XAxis dataKey="monthName" tick={<CaTick />} axisLine={false} tickLine={false} interval={0} />
                         <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false}
                           tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : String(v)} />
                         <Tooltip content={<CaBarTooltip />} cursor={{ fill: 'rgba(0,0,0,0.04)' }} />
-                        <Bar dataKey="paid" name="Paid" fill="url(#caPaidGrad2)" stackId="s" radius={[0,0,0,0]} maxBarSize={20}>
+                        <Bar dataKey="paid" name="Paid" fill="url(#caPaidGrad)" stackId="s" radius={[0,0,0,0]} maxBarSize={20}>
                           <LabelList dataKey="paid" position="inside" content={({ x, y, width, height, value }: any) => {
                             if (!value || (height as number) < 16) return null;
                             return <text x={(x as number)+(width as number)/2} y={(y as number)+(height as number)/2}
@@ -574,7 +573,7 @@ export default function StatsTab({
                               {(value/1000).toFixed(0)}k</text>;
                           }} />
                         </Bar>
-                        <Bar dataKey="remaining" name="Remaining" fill="url(#caRemGrad2)" stackId="s" radius={[4,4,0,0]} maxBarSize={20}>
+                        <Bar dataKey="remaining" name="Remaining" fill="url(#caRemGrad)" stackId="s" radius={[4,4,0,0]} maxBarSize={20}>
                           <LabelList dataKey="remaining" position="top" content={({ x, y, value }: any) => {
                             if (!value) return null;
                             return <text x={(x as number)} y={(y as number)-3} textAnchor="middle" fontSize={8} fill="#9ca3af">
@@ -657,6 +656,87 @@ export default function StatsTab({
           )}
         </div>
       )}
+
+      {/* ── DAILY CASH VIEW ──────────────────────────────────────────────── */}
+      {viewMode === 'dailyCash' && (() => {
+        const DOW_COLORS = ['#f43f5e','#8b5cf6','#06b6d4','#10b981','#f59e0b','#3b82f6','#ec4899'];
+        const DOW_NAMES  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        const dcYear  = dcMonthDate.getFullYear();
+        const dcMonth = dcMonthDate.getMonth() + 1;
+        const dcDataWithDow = dcData.map(d => ({
+          ...d,
+          dow:     new Date(dcYear, dcMonth - 1, d.day).getDay(),
+          dayName: DOW_NAMES[new Date(dcYear, dcMonth - 1, d.day).getDay()],
+        }));
+
+        const DcTick = ({ x, y, payload }: any) => {
+          const entry = dcDataWithDow[payload.index];
+          if (!entry) return null;
+          return (
+            <g transform={`translate(${x},${y})`}>
+              <text x={0} y={0} dy={10} textAnchor="middle" fontSize={8} fill={DOW_COLORS[entry.dow]} fontWeight="700">
+                {entry.dayName[0]}
+              </text>
+              <text x={0} y={0} dy={20} textAnchor="middle" fontSize={8} fill="#9ca3af">{entry.day}</text>
+            </g>
+          );
+        };
+
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center gap-x-4 gap-y-2 flex-wrap rounded-lg border bg-muted/30 px-3 py-2.5">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">Month</span>
+              <MonthNav date={dcMonthDate} onChange={setDcMonthDate} />
+            </div>
+            {!caLoading && (
+              <Card className="glass-card">
+                <CardHeader className="pb-1 pt-4 px-5">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <CardTitle className="text-sm font-semibold">Daily Cash — {format(dcMonthDate, 'MMMM yyyy')}</CardTitle>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      {DOW_NAMES.map((n, i) => (
+                        <span key={n} className="flex items-center gap-1 text-xs" style={{ color: DOW_COLORS[i] }}>
+                          <span className="w-2 h-2 rounded-sm inline-block" style={{ background: DOW_COLORS[i] }} />{n}
+                        </span>
+                      ))}
+                      <span className="w-px h-3 bg-border" />
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground"><span className="w-2 h-2 rounded-sm inline-block bg-emerald-500" />Payment</span>
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground"><span className="w-2 h-2 rounded-sm inline-block bg-blue-400" />Sales</span>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="px-2 pb-4">
+                  {dcDataWithDow.every(d => d.payment === 0 && d.sales === 0) ? (
+                    <div className="h-48 flex items-center justify-center text-sm text-muted-foreground">No cash data for this month.</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={dcDataWithDow} margin={{ top: 16, right: 8, left: -10, bottom: 24 }} barCategoryGap="15%">
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                        <XAxis dataKey="day" tick={<DcTick />} axisLine={false} tickLine={false} interval={0} />
+                        <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false}
+                          tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : String(v)} />
+                        <Tooltip cursor={{ fill: 'rgba(0,0,0,0.04)' }} content={({ active, payload }: any) => {
+                          if (!active || !payload?.length) return null;
+                          const d = payload[0]?.payload;
+                          return (
+                            <div className="bg-white dark:bg-card border border-border rounded-xl shadow-lg p-2 text-xs">
+                              <p className="font-bold mb-1" style={{ color: DOW_COLORS[d.dow] }}>{d.dayName}, {d.day} {format(dcMonthDate, 'MMM')}</p>
+                              <p>Payment: <span className="font-semibold text-emerald-600">Rs {d.payment.toLocaleString()}</span></p>
+                              <p>Sales: <span className="font-semibold text-blue-500">Rs {d.sales.toLocaleString()}</span></p>
+                            </div>
+                          );
+                        }} />
+                        <Bar dataKey="payment" name="Payment" stackId="s" fill="#10b981" radius={[0,0,0,0]} maxBarSize={14} />
+                        <Bar dataKey="sales"   name="Sales"   stackId="s" fill="#60a5fa" radius={[3,3,0,0]} maxBarSize={14} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── ALL VIEW ──────────────────────────────────────────────────────── */}
       {viewMode === 'all' && (

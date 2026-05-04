@@ -117,7 +117,7 @@ const CustomerCredential = mongoose.model('CustomerCredential', customerCredenti
 
 // Price change notifications
 const notificationSchema = new mongoose.Schema({
-  type: { type: String, enum: ['price_change', 'payment_type_change'], required: true },
+  type: { type: String, enum: ['price_change', 'payment_type_change', 'info_update'], required: true },
   customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', required: true },
   customerIntId: { type: Number },
   customerName: { type: String, required: true },
@@ -126,6 +126,9 @@ const notificationSchema = new mongoose.Schema({
     newPrice: { type: Number },
     oldType: { type: String },
     newType: { type: String },
+    changedFields: [{ type: String }],
+    oldValues: { type: mongoose.Schema.Types.Mixed },
+    newValues: { type: mongoose.Schema.Types.Mixed },
   },
   isRead: { type: Boolean, default: false },
   isReadByAdmin: { type: Boolean, default: false },
@@ -561,6 +564,52 @@ app.put('/api/customers/:id', async (req, res) => {
         // Non-critical — don't fail the customer update
       }
     }
+
+    // Detect info changes (name, phone, address, defaultCans) and create notification
+    const INFO_FIELDS = ['name', 'phone', 'address', 'defaultCans'];
+    const changedInfoFields = INFO_FIELDS.filter(f =>
+      req.body[f] !== undefined && String(req.body[f] ?? '') !== String(existingCustomer[f] ?? '')
+    );
+    if (changedInfoFields.length > 0) {
+      const oldValues = {};
+      const newValues = {};
+      for (const f of changedInfoFields) { oldValues[f] = existingCustomer[f]; newValues[f] = customer[f]; }
+      try {
+        const notification = new Notification({
+          type: 'info_update',
+          customerId: existingCustomer._id,
+          customerIntId: existingCustomer.id,
+          customerName: customer.name,
+          data: { changedFields: changedInfoFields, oldValues, newValues },
+        });
+        await notification.save();
+        broadcastUpdate('priceChange', {
+          type: 'info_update',
+          notificationId: String(notification._id),
+          customerId: String(existingCustomer._id),
+          customerIntId: existingCustomer.id,
+          customerName: customer.name,
+          changedFields: changedInfoFields,
+          oldValues,
+          newValues,
+          createdAt: notification.createdAt,
+        });
+      } catch (notifErr) {
+        console.error('Error creating info update notification:', notifErr);
+      }
+    }
+
+    // Broadcast general info update so customer dashboard reflects changes immediately
+    broadcastUpdate('customerUpdate', {
+      customerId: String(customer._id),
+      name: customer.name,
+      phone: customer.phone,
+      address: customer.address,
+      defaultCans: customer.defaultCans,
+      pricePerCan: customer.pricePerCan,
+      paymentType: customer.paymentType,
+      notes: customer.notes,
+    });
 
     console.log('Customer updated successfully:', customer);
     res.json(customer);
@@ -2024,81 +2073,155 @@ app.get('/api/stats/cash-account/daily', async (req, res) => {
 });
 
 // GET /api/stats/cash-account/monthly?type=account|cash&year=YYYY
-// Returns per-month FIFO paid/remaining for all customers of given type across the year
+// True FIFO from April 2026 (billing start): all-time payments, oldest month first.
+// Returns per-month paid/remaining for the selected year (April onwards for 2026).
 app.get('/api/stats/cash-account/monthly', async (req, res) => {
   try {
     const type    = req.query.type === 'account' ? 'account' : 'cash';
     const yearNum = parseInt(req.query.year) || new Date().getFullYear();
-    const { start: yearStart } = getPKTMonthBounds(yearNum, 1);
-    const { end:   yearEnd }   = getPKTMonthBounds(yearNum, 12);
+    const { end: yearEnd }         = getPKTMonthBounds(yearNum, 12);
+    const { start: BILLING_START } = getPKTMonthBounds(2026, 4); // April 2026 PKT
 
     const amountExpr = { $multiply: ['$cans', { $ifNull: ['$pricePerCan', 0] }] };
     const dateField  = { $ifNull: ['$deliveredAt', '$completedAt'] };
 
-    // 1. Deliveries per customer per month in this year
-    const deliveriesByCustomerMonth = await DeliveryRequest.aggregate([
-      { $match: { status: 'delivered', paymentType: type,
-          $or: [{ deliveredAt: { $gte: yearStart, $lte: yearEnd } }, { completedAt: { $gte: yearStart, $lte: yearEnd } }] } },
+    // 1. ALL deliveries from billing start to end of selected year, by customer+year+month
+    const deliveries = await DeliveryRequest.aggregate([
+      { $match: {
+          status: 'delivered',
+          paymentType: type,
+          $or: [
+            { deliveredAt: { $gte: BILLING_START, $lte: yearEnd } },
+            { completedAt: { $gte: BILLING_START, $lte: yearEnd } }
+          ]
+      }},
       { $group: {
           _id: {
             customerId: '$customerId',
+            year:  { $year:  { date: dateField, timezone: '+05:00' } },
             month: { $month: { date: dateField, timezone: '+05:00' } }
           },
           billed: { $sum: amountExpr },
-          cans: { $sum: '$cans' }
-      }},
-      { $sort: { '_id.month': 1 } }
+          cans:   { $sum: '$cans' }
+      }}
     ]);
 
-    const customerIds = [...new Set(deliveriesByCustomerMonth.map(d => d._id.customerId))];
+    const customerIds = [...new Set(deliveries.map(d => d._id.customerId))];
 
-    // 2. Total payments per customer up to end of year
+    // 2. ALL payments for these customers — no date restriction
     const paymentResult = customerIds.length > 0 ? await Payment.aggregate([
-      { $match: { date: { $lte: yearEnd }, customerId: { $in: customerIds } } },
+      { $match: { customerId: { $in: customerIds } } },
       { $group: { _id: '$customerId', totalPaid: { $sum: '$amount' } } }
     ]) : [];
 
     const paymentsMap = {};
     for (const p of paymentResult) paymentsMap[String(p._id)] = p.totalPaid;
 
-    // 3. Group by customer
+    // 3. Group deliveries by customer
     const byCustomer = {};
-    for (const d of deliveriesByCustomerMonth) {
+    for (const d of deliveries) {
       const cid = String(d._id.customerId);
       if (!byCustomer[cid]) byCustomer[cid] = [];
-      byCustomer[cid].push({ month: d._id.month, billed: d.billed, cans: d.cans });
+      byCustomer[cid].push({ year: d._id.year, month: d._id.month, billed: d.billed, cans: d.cans });
     }
 
-    // 4. FIFO per customer — distribute payments oldest month first
+    // 4. FIFO per customer — sort all months chronologically (across years), apply payments oldest first
+    // Accumulate into monthTotals for the SELECTED year only
     const monthTotals = {};
     for (let m = 1; m <= 12; m++) monthTotals[m] = { paid: 0, remaining: 0, cans: 0 };
 
     for (const [cid, months] of Object.entries(byCustomer)) {
-      let remaining = paymentsMap[cid] || 0;
-      months.sort((a, b) => a.month - b.month);
-      for (const { month, billed, cans } of months) {
-        const applied = Math.min(remaining, billed);
-        remaining = Math.max(0, remaining - billed);
-        monthTotals[month].paid      += applied;
-        monthTotals[month].remaining += billed - applied;
-        monthTotals[month].cans      += cans;
+      let rem = paymentsMap[cid] || 0;
+      months.sort((a, b) => (a.year * 100 + a.month) - (b.year * 100 + b.month));
+      for (const { year, month, billed, cans } of months) {
+        const applied = Math.min(rem, billed);
+        rem = Math.max(0, rem - billed);
+        if (year === yearNum) {
+          monthTotals[month].paid      += applied;
+          monthTotals[month].remaining += billed - applied;
+          monthTotals[month].cans      += cans;
+        }
       }
     }
 
     const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    const data = Array.from({ length: 12 }, (_, i) => ({
-      month:     i + 1,
-      monthName: MONTH_NAMES[i],
-      cans:      monthTotals[i + 1].cans,
-      billed:    Math.round(monthTotals[i + 1].paid + monthTotals[i + 1].remaining),
-      paid:      Math.round(monthTotals[i + 1].paid),
-      remaining: Math.round(monthTotals[i + 1].remaining)
-    }));
+    // For 2026, only show April onwards (system billing start)
+    const startMonth = yearNum <= 2026 ? 4 : 1;
+    const data = [];
+    for (let m = startMonth; m <= 12; m++) {
+      data.push({
+        month:     m,
+        monthName: MONTH_NAMES[m - 1],
+        cans:      monthTotals[m].cans,
+        billed:    Math.round(monthTotals[m].paid + monthTotals[m].remaining),
+        paid:      Math.round(monthTotals[m].paid),
+        remaining: Math.round(monthTotals[m].remaining)
+      });
+    }
 
     res.json({ year: yearNum, data });
   } catch (err) {
     console.error('Cash/account monthly FIFO error:', err);
     res.status(500).json({ error: 'Failed to fetch monthly FIFO data' });
+  }
+});
+
+// GET /api/stats/cash-account/daily-cash?year=YYYY&month=MM
+// Raw cash: payment amounts recorded per day + cash delivery sales per day (no FIFO)
+app.get('/api/stats/cash-account/daily-cash', async (req, res) => {
+  try {
+    const yearNum  = parseInt(req.query.year)  || new Date().getFullYear();
+    const monthNum = parseInt(req.query.month) || (new Date().getMonth() + 1);
+    const { start, end } = getPKTMonthBounds(yearNum, monthNum);
+
+    // Cash customer IDs
+    const cashCustomers = await Customer.find({ paymentType: 'cash' }, { _id: 1 });
+    const cashIds = cashCustomers.map(c => c._id);
+
+    const amountExpr = { $multiply: ['$cans', { $ifNull: ['$pricePerCan', 0] }] };
+    const dateField  = { $ifNull: ['$deliveredAt', '$completedAt'] };
+
+    const [payments, deliveries] = await Promise.all([
+      // Raw payment amounts per day for cash customers
+      cashIds.length > 0 ? Payment.aggregate([
+        { $match: { date: { $gte: start, $lte: end }, customerId: { $in: cashIds } } },
+        { $group: {
+            _id: { $dayOfMonth: { date: '$date', timezone: '+05:00' } },
+            totalPayment: { $sum: '$amount' }
+        }}
+      ]) : [],
+      // Cash delivery sales per day
+      DeliveryRequest.aggregate([
+        { $match: {
+            status: 'delivered',
+            paymentType: 'cash',
+            $or: [
+              { deliveredAt: { $gte: start, $lte: end } },
+              { completedAt: { $gte: start, $lte: end } }
+            ]
+        }},
+        { $group: {
+            _id: { $dayOfMonth: { date: dateField, timezone: '+05:00' } },
+            totalSales: { $sum: amountExpr }
+        }}
+      ])
+    ]);
+
+    const payByDay = {};
+    for (const p of payments) payByDay[p._id] = p.totalPayment;
+    const salesByDay = {};
+    for (const d of deliveries) salesByDay[d._id] = d.totalSales;
+
+    const daysInMonth = new Date(yearNum, monthNum, 0).getDate();
+    const data = [];
+    for (let day = 1; day <= daysInMonth; day++) {
+      data.push({ day, payment: payByDay[day] || 0, sales: salesByDay[day] || 0 });
+    }
+
+    res.json({ year: yearNum, month: monthNum, data });
+  } catch (err) {
+    console.error('Daily cash error:', err);
+    res.status(500).json({ error: 'Failed to fetch daily cash data' });
   }
 });
 
@@ -2667,13 +2790,19 @@ app.post('/api/register-request', async (req, res) => {
 app.get('/api/notifications/admin', async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(100, parseInt(req.query.limit) || 20);
+    const limit = Math.min(500, parseInt(req.query.limit) || 20);
     const skip = (page - 1) * limit;
 
     const filter = {};
     if (req.query.customerIntId) {
       const intId = parseInt(req.query.customerIntId);
       if (!isNaN(intId)) filter.customerIntId = intId;
+    }
+    if (req.query.month) {
+      const [myr, mmo] = req.query.month.split('-').map(Number);
+      if (!isNaN(myr) && !isNaN(mmo)) {
+        filter.createdAt = { $gte: new Date(myr, mmo - 1, 1), $lt: new Date(myr, mmo, 1) };
+      }
     }
 
     const [notifications, total, unreadCount] = await Promise.all([
@@ -2756,16 +2885,99 @@ app.put('/api/notifications/admin/read-all', async (req, res) => {
 // April 1 2026 00:00 PKT = March 31 2026 19:00 UTC — billing system start date
 const BILLING_START = new Date('2026-03-31T19:00:00.000Z');
 
-// GET /api/payments/balances — all customers with billed/paid/balance summary
+// GET /api/payments/ledger-bulk?maxMonth=YYYY-MM — per-customer per-month FIFO for export
+app.get('/api/payments/ledger-bulk', async (req, res) => {
+  try {
+    const maxMonth = req.query.maxMonth;
+    let maxEnd = null;
+    if (maxMonth) {
+      const [myr, mmo] = maxMonth.split('-').map(Number);
+      maxEnd = getPKTMonthBounds(myr, mmo).end;
+    }
+    const df = { $ifNull: ['$deliveredAt', '$completedAt', '$requestedAt'] };
+    const deliveryExpr = maxEnd
+      ? { $and: [{ $gte: [df, BILLING_START] }, { $lte: [df, maxEnd] }] }
+      : { $gte: [df, BILLING_START] };
+
+    const deliveries = await DeliveryRequest.aggregate([
+      { $match: { status: 'delivered', $expr: deliveryExpr } },
+      { $addFields: { pktMonth: { $dateToString: { format: '%Y-%m', date: df, timezone: '+05:00' } } } },
+      { $group: {
+          _id: { customerId: '$customerId', month: '$pktMonth' },
+          billed: { $sum: { $multiply: ['$cans', { $ifNull: ['$pricePerCan', 0] }] } }
+      }}
+    ]);
+
+    const customerIds = [...new Set(deliveries.map(d => d._id.customerId))];
+    if (customerIds.length === 0) return res.json({ success: true, data: [] });
+
+    const [payments, customers] = await Promise.all([
+      Payment.aggregate([
+        { $match: { customerId: { $in: customerIds } } },
+        { $group: { _id: '$customerId', totalPaid: { $sum: '$amount' } } }
+      ]),
+      Customer.find({ _id: { $in: customerIds } }, 'id name paymentType phone').lean()
+    ]);
+
+    const paymentsMap = {};
+    for (const p of payments) paymentsMap[String(p._id)] = p.totalPaid;
+    const customerMap = {};
+    for (const c of customers) customerMap[String(c._id)] = c;
+
+    const byCustomer = {};
+    for (const d of deliveries) {
+      const cid = String(d._id.customerId);
+      if (!byCustomer[cid]) byCustomer[cid] = [];
+      byCustomer[cid].push({ month: d._id.month, billed: d.billed });
+    }
+
+    const result = [];
+    for (const [cid, months] of Object.entries(byCustomer)) {
+      const c = customerMap[cid];
+      if (!c) continue;
+      let rem = paymentsMap[cid] || 0;
+      months.sort((a, b) => a.month.localeCompare(b.month));
+      const monthRows = [];
+      for (const { month, billed } of months) {
+        const paid = Math.min(rem, billed);
+        rem = Math.max(0, rem - billed);
+        if (Math.round(billed - paid) > 0) {
+          monthRows.push({ month, billed: Math.round(billed), paid: Math.round(paid), remaining: Math.round(billed - paid) });
+        }
+      }
+      if (monthRows.length > 0) {
+        result.push({ customerId: cid, customerIntId: c.id, customerName: c.name, paymentType: c.paymentType, phone: c.phone || '', months: monthRows });
+      }
+    }
+    result.sort((a, b) => a.customerIntId - b.customerIntId);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('Bulk ledger error:', err);
+    res.status(500).json({ error: 'Failed to fetch bulk ledger' });
+  }
+});
+
+// GET /api/payments/balances?maxMonth=YYYY-MM — all customers with billed/paid/balance summary
 app.get('/api/payments/balances', async (req, res) => {
   try {
     const customers = await Customer.find().sort({ id: 1 }).lean();
+
+    // Optional cap: only include deliveries up to maxMonth
+    let deliveryExpr;
+    if (req.query.maxMonth) {
+      const [myr, mmo] = req.query.maxMonth.split('-').map(Number);
+      const maxEnd = getPKTMonthBounds(myr, mmo).end;
+      const df = { $ifNull: ['$deliveredAt', '$completedAt', '$requestedAt'] };
+      deliveryExpr = { $and: [{ $gte: [df, BILLING_START] }, { $lte: [df, maxEnd] }] };
+    } else {
+      deliveryExpr = { $gte: [{ $ifNull: ['$deliveredAt', '$completedAt', '$requestedAt'] }, BILLING_START] };
+    }
 
     // Aggregate total billed per customer from delivered requests (April 2026 onwards)
     const billedAgg = await DeliveryRequest.aggregate([
       { $match: {
         status: 'delivered',
-        $expr: { $gte: [{ $ifNull: ['$deliveredAt', '$completedAt', '$requestedAt'] }, BILLING_START] }
+        $expr: deliveryExpr
       }},
       { $group: {
         _id: '$customerId',
@@ -2980,8 +3192,15 @@ app.get('/api/payment-notifications/admin', async (req, res) => {
       const intId = parseInt(req.query.customerIntId);
       if (!isNaN(intId)) filter.customerIntId = intId;
     }
+    if (req.query.month) {
+      const [myr, mmo] = req.query.month.split('-').map(Number);
+      if (!isNaN(myr) && !isNaN(mmo)) {
+        filter.createdAt = { $gte: new Date(myr, mmo - 1, 1), $lt: new Date(myr, mmo, 1) };
+      }
+    }
+    const reqLimit = req.query.limit ? Math.min(500, parseInt(req.query.limit) || 100) : 100;
     const notifications = await PaymentNotification.find(filter)
-      .sort({ createdAt: -1 }).limit(100).lean();
+      .sort({ createdAt: -1 }).limit(reqLimit).lean();
     const unreadCount = notifications.filter(n => !n.isReadByAdmin).length;
     res.json({ success: true, data: notifications, unreadCount });
   } catch (err) {
@@ -2999,18 +3218,29 @@ app.put('/api/payment-notifications/admin/read-all', async (req, res) => {
   }
 });
 
-// GET /api/payments/ledger/:customerObjectId — FIFO month-by-month ledger
+// GET /api/payments/ledger/:customerObjectId?maxMonth=YYYY-MM — FIFO month-by-month ledger
 app.get('/api/payments/ledger/:customerObjectId', async (req, res) => {
   try {
     const customer = await Customer.findById(req.params.customerObjectId);
     if (!customer) return res.status(404).json({ error: 'Customer not found' });
+
+    // Optional cap: only include delivery months up to maxMonth
+    let maxEnd = null;
+    if (req.query.maxMonth) {
+      const [myr, mmo] = req.query.maxMonth.split('-').map(Number);
+      maxEnd = getPKTMonthBounds(myr, mmo).end;
+    }
+    const deliveryExpr = maxEnd
+      ? { $and: [{ $gte: [{ $ifNull: ['$deliveredAt', '$completedAt', '$requestedAt'] }, BILLING_START] },
+                 { $lte: [{ $ifNull: ['$deliveredAt', '$completedAt', '$requestedAt'] }, maxEnd] }] }
+      : { $gte: [{ $ifNull: ['$deliveredAt', '$completedAt', '$requestedAt'] }, BILLING_START] };
 
     // All delivery months with billed totals, sorted ascending (April 2026 onwards)
     const deliveryMonths = await DeliveryRequest.aggregate([
       { $match: {
         customerId: customer._id,
         status: 'delivered',
-        $expr: { $gte: [{ $ifNull: ['$deliveredAt', '$completedAt', '$requestedAt'] }, BILLING_START] }
+        $expr: deliveryExpr
       }},
       { $addFields: {
         pktDate: { $dateToString: {
