@@ -534,7 +534,7 @@ export default function StaffDashboardClient({
             <div className="hidden md:flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <StaffDashboardMetrics requests={deliveryRequests} />
-                <label className="flex items-center gap-1.5 cursor-pointer select-none bg-muted/60 border border-border rounded-lg px-2.5 py-1.5">
+                <label className={`cursor-pointer select-none rounded-full px-3 py-1.5 border text-xs font-semibold transition-colors ${showAllActive ? 'bg-primary text-primary-foreground border-primary' : 'bg-white dark:bg-muted/60 border-border text-foreground hover:border-primary/50'}`}>
                   <input
                     type="checkbox"
                     checked={showAllActive}
@@ -545,28 +545,29 @@ export default function StaffDashboardClient({
                       lastDataHashRef.current = '';
                       if (fetchDeliveryRequestsRef.current) fetchDeliveryRequestsRef.current(false);
                     }}
-                    className="w-3.5 h-3.5 accent-primary"
+                    className="sr-only"
                   />
-                  <span className="text-xs font-medium text-foreground">Show All Active</span>
+                  Show All Active
                 </label>
               </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <label className="flex items-center gap-1.5 cursor-pointer select-none bg-muted/60 border border-border rounded-lg px-2.5 py-1.5">
+              <div className="flex items-center gap-2">
+                <label className={`cursor-pointer select-none rounded-full px-3 py-1.5 border text-xs font-semibold transition-colors ${fcfs ? 'bg-primary text-primary-foreground border-primary' : 'bg-white dark:bg-muted/60 border-border text-foreground hover:border-primary/50'}`}>
                   <input
                     type="checkbox"
                     checked={fcfs}
                     onChange={e => setFcfs(e.target.checked)}
-                    className="w-3.5 h-3.5 accent-primary"
+                    className="sr-only"
                   />
-                  <span className="text-xs font-medium text-foreground">First Come First Served</span>
+                  First Come First Served
                 </label>
-                <span className="text-sm text-muted-foreground">Sort by address:</span>
+                <span className="text-xs text-muted-foreground">Sort:</span>
                 <UIButton
                   type="button"
                   variant={addressSortOrder === 'asc' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setAddressSortOrder(prev => (prev === 'asc' ? null : 'asc'))}
                   title="Ascending"
+                  className="rounded-full"
                 >
                   <ArrowUpAZ className="h-4 w-4 mr-1" /> Asc
                 </UIButton>
@@ -576,6 +577,7 @@ export default function StaffDashboardClient({
                   size="sm"
                   onClick={() => setAddressSortOrder(prev => (prev === 'desc' ? null : 'desc'))}
                   title="Descending"
+                  className="rounded-full"
                 >
                   <ArrowDownAZ className="h-4 w-4 mr-1" /> Desc
                 </UIButton>

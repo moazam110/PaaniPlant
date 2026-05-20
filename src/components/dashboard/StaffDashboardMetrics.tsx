@@ -25,33 +25,33 @@ const StaffDashboardMetrics: React.FC<StaffDashboardMetricsProps> = ({ requests 
 
   return (
     <div className="grid grid-cols-3 gap-1 py-1">
-      <Card className="shadow-sm bg-card">
+      <Card className="shadow-sm bg-white dark:bg-card border border-blue-200 border-l-[3px] border-l-blue-500">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2">
-          <CardTitle className="text-[10px] font-semibold font-headline">Pending</CardTitle>
-          <ListTodo className="h-3 w-3 text-muted-foreground" />
+          <CardTitle className="text-[10px] font-semibold font-headline text-blue-700 dark:text-foreground">Pending</CardTitle>
+          <ListTodo className="h-3 w-3 text-blue-500" />
         </CardHeader>
         <CardContent className="p-2 pt-0">
-          <div className="text-sm font-bold">{pendingCount}</div>
+          <div className="text-sm font-bold text-blue-700 dark:text-foreground">{pendingCount}</div>
         </CardContent>
       </Card>
 
-      <Card className="shadow-sm bg-yellow-50 border-yellow-200">
+      <Card className="shadow-sm bg-yellow-50 border border-yellow-200 border-l-[3px] border-l-yellow-400">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2">
           <CardTitle className="text-[10px] font-semibold font-headline text-yellow-700">Processing</CardTitle>
-          <Clock className="h-3 w-3 text-yellow-600" />
+          <Clock className="h-3 w-3 text-yellow-500" />
         </CardHeader>
         <CardContent className="p-2 pt-0">
           <div className="text-sm font-bold text-yellow-700">{processingCount}</div>
         </CardContent>
       </Card>
 
-      <Card className="shadow-sm bg-red-50 border-red-300">
+      <Card className="shadow-sm bg-red-50 border border-red-200 border-l-[3px] border-l-red-500">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2">
-          <CardTitle className="text-[10px] font-semibold font-headline text-destructive">Urgent</CardTitle>
-          <Hourglass className="h-3 w-3 text-destructive" />
+          <CardTitle className="text-[10px] font-semibold font-headline text-red-600">Urgent</CardTitle>
+          <Hourglass className="h-3 w-3 text-red-500" />
         </CardHeader>
         <CardContent className="p-2 pt-0">
-          <div className="text-sm font-bold text-destructive">{urgentCount}</div>
+          <div className="text-sm font-bold text-red-600">{urgentCount}</div>
         </CardContent>
       </Card>
     </div>
