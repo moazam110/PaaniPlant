@@ -473,61 +473,19 @@ export default function StaffDashboardClient({
 
             {/* ── MOBILE layout (hidden on md+) ── */}
             <div className="md:hidden space-y-2">
-              {/* Row 1: metric cards full-width 3-col */}
+              {/* Row 1: compact metric chips */}
               <StaffDashboardMetrics requests={deliveryRequests} />
 
-              {/* Row 2: pill checkboxes */}
-              <div className="flex gap-2">
-                <label className={`flex-1 flex items-center justify-center gap-1.5 cursor-pointer select-none rounded-xl px-3 py-2 border text-xs font-semibold transition-colors ${showAllActive ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted/60 border-border text-foreground'}`}>
-                  <input
-                    type="checkbox"
-                    checked={showAllActive}
-                    onChange={e => {
-                      const checked = e.target.checked;
-                      setShowAllActive(checked);
-                      showAllActiveRef.current = checked;
-                      lastDataHashRef.current = '';
-                      if (fetchDeliveryRequestsRef.current) fetchDeliveryRequestsRef.current(false);
-                    }}
-                    className="sr-only"
-                  />
-                  Show All Active
-                </label>
-                <label className={`flex-1 flex items-center justify-center gap-1.5 cursor-pointer select-none rounded-xl px-3 py-2 border text-xs font-semibold transition-colors ${fcfs ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted/60 border-border text-foreground'}`}>
-                  <input
-                    type="checkbox"
-                    checked={fcfs}
-                    onChange={e => setFcfs(e.target.checked)}
-                    className="sr-only"
-                  />
-                  FCFS
-                </label>
-              </div>
-
-              {/* Row 3: sort buttons */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Sort by address:</span>
-                <UIButton
-                  type="button"
-                  variant={addressSortOrder === 'asc' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setAddressSortOrder(prev => (prev === 'asc' ? null : 'asc'))}
-                  title="Ascending"
-                  className="flex-1"
-                >
-                  <ArrowUpAZ className="h-4 w-4 mr-1" /> Asc
-                </UIButton>
-                <UIButton
-                  type="button"
-                  variant={addressSortOrder === 'desc' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setAddressSortOrder(prev => (prev === 'desc' ? null : 'desc'))}
-                  title="Descending"
-                  className="flex-1"
-                >
-                  <ArrowDownAZ className="h-4 w-4 mr-1" /> Desc
-                </UIButton>
-              </div>
+              {/* Row 2: FCFS pill only */}
+              <label className={`flex items-center justify-center cursor-pointer select-none rounded-xl px-3 py-2 border text-xs font-semibold transition-colors w-full ${fcfs ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted/60 border-border text-foreground'}`}>
+                <input
+                  type="checkbox"
+                  checked={fcfs}
+                  onChange={e => setFcfs(e.target.checked)}
+                  className="sr-only"
+                />
+                First Come First Served
+              </label>
             </div>
 
             {/* ── DESKTOP layout (hidden below md) — unchanged ── */}
