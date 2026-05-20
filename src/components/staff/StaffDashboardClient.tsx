@@ -42,22 +42,24 @@ export default function StaffDashboardClient({
   const [deliveryRequests, setDeliveryRequests] = useState<DeliveryRequest[]>(initialRequests || []);
   const [addressSortOrder, setAddressSortOrder] = useState<'asc' | 'desc' | null>(null);
   const [fcfs, setFcfs] = useState(false);
+  const [showAllActive, setShowAllActive] = useState(false);
+  const showAllActiveRef = useRef(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isBackendConnected, setIsBackendConnected] = useState(false);
   const [previousRequestCount, setPreviousRequestCount] = useState(0);
   const [authUser, setAuthUser] = useState<any | null>(null);
-  
+
   // Enhanced optimistic updates and silent refresh system
   const optimisticRef = useRef<Map<string, { status: DeliveryRequest['status']; expires: number }>>(new Map());
   const fetchInProgressRef = useRef<boolean>(false);
   const lastUpdateRef = useRef<number>(0);
   const currentFetchAbortRef = useRef<AbortController | null>(null);
-  
+
   // Silent refresh system - prevents visual page reloads
   const silentRefreshRef = useRef<boolean>(false);
   const lastDataHashRef = useRef<string>('');
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   // Store the fetch function in a ref to avoid dependency issues
   const fetchDeliveryRequestsRef = useRef<typeof fetchDeliveryRequests>();
 
@@ -182,10 +184,11 @@ export default function StaffDashboardClient({
       const controller = new AbortController();
       currentFetchAbortRef.current = controller;
       
-      // PHASE 4: Use pagination to limit data transfer (100 records max)
-      const res = await fetch(buildApiUrl(`${API_ENDPOINTS.DELIVERY_REQUESTS}?page=1&limit=100`), { 
-        signal: controller.signal 
-      });
+      // When "Show All Active" is on, fetch all pending/processing with no cap; otherwise top 100
+      const url = showAllActiveRef.current
+        ? `${API_ENDPOINTS.DELIVERY_REQUESTS}?page=1&limit=10000&status=pending&status=pending_confirmation&status=processing`
+        : `${API_ENDPOINTS.DELIVERY_REQUESTS}?page=1&limit=500`;
+      const res = await fetch(buildApiUrl(url), { signal: controller.signal });
       
       if (!res.ok) {
         throw new Error(`HTTP error! status: ${res.status}`);
@@ -468,9 +471,26 @@ export default function StaffDashboardClient({
         }>
           <div className="px-2 py-1">
             <div className="flex items-center justify-between">
-              <StaffDashboardMetrics 
-                requests={deliveryRequests} 
-              />
+              <div className="flex items-center gap-2">
+                <StaffDashboardMetrics
+                  requests={deliveryRequests}
+                />
+                <label className="flex items-center gap-1.5 cursor-pointer select-none bg-muted/60 border border-border rounded-lg px-2.5 py-1.5">
+                  <input
+                    type="checkbox"
+                    checked={showAllActive}
+                    onChange={e => {
+                      const checked = e.target.checked;
+                      setShowAllActive(checked);
+                      showAllActiveRef.current = checked;
+                      lastDataHashRef.current = '';
+                      if (fetchDeliveryRequestsRef.current) fetchDeliveryRequestsRef.current(false);
+                    }}
+                    className="w-3.5 h-3.5 accent-primary"
+                  />
+                  <span className="text-xs font-medium text-foreground">Show All Active</span>
+                </label>
+              </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <label className="flex items-center gap-1.5 cursor-pointer select-none bg-muted/60 border border-border rounded-lg px-2.5 py-1.5">
                   <input
