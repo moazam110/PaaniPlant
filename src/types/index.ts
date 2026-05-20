@@ -35,6 +35,7 @@ export interface DeliveryRequest {
   status: 'pending' | 'pending_confirmation' | 'processing' | 'delivered' | 'cancelled'; 
   requestedAt: any; // Firestore Timestamp - When the request was logged into the system
   scheduledFor?: any; // Firestore Timestamp - Optional: When the delivery is specifically scheduled by admin
+  processingAt?: any; // When the request moved to processing status
   deliveredAt?: any; // Firestore Timestamp - Optional: When the delivery was completed
   completedAt?: any; // Firestore Timestamp for staff app or general completion tracking
   cancelledAt?: any; // Firestore Timestamp - When the request was cancelled

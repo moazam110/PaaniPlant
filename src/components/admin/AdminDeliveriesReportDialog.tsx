@@ -30,6 +30,24 @@ export default function AdminDeliveriesReportDialog({ open, onOpenChange }: Admi
   const [filterByCustomerId, setFilterByCustomerId] = useState(false);
   const [customerIdInput, setCustomerIdInput] = useState('');
 
+  const formatDuration = (ms: number): string => {
+    if (ms <= 0) return '0m';
+    const mins = Math.floor(ms / 60000);
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return h === 0 ? `${m}m` : `${h}h ${m}m`;
+  };
+
+  const getTimeStr = (r: DeliveryRequest) => {
+    const delMs = (r as any).deliveredAt ? new Date((r as any).deliveredAt).getTime() : 0;
+    const procMs = (r as any).processingAt ? new Date((r as any).processingAt).getTime() : 0;
+    const reqMs = r.requestedAt ? new Date(r.requestedAt).getTime() : 0;
+    if (!delMs) return '-';
+    const procTime = procMs ? formatDuration(delMs - procMs) : '-';
+    const totalTime = reqMs ? formatDuration(delMs - reqMs) : '-';
+    return `${procTime}\n${totalTime}`;
+  };
+
   const totalCans = requests.reduce((s, r) => s + (r.cans || 0), 0);
   const totalAmount = requests.reduce((s, r) => s + ((r.cans || 0) * ((r as any).pricePerCan || 0)), 0);
   const cashCans = requests.filter(r => r.paymentType === 'cash').reduce((s, r) => s + (r.cans || 0), 0);
@@ -78,6 +96,7 @@ export default function AdminDeliveriesReportDialog({ open, onOpenChange }: Admi
         String(r.cans || 0),
         `Rs. ${(r as any).pricePerCan || 0}`,
         `Rs. ${((r.cans || 0) * ((r as any).pricePerCan || 0)).toFixed(0)}`,
+        getTimeStr(r),
         '',
       ];
       return [
@@ -89,6 +108,7 @@ export default function AdminDeliveriesReportDialog({ open, onOpenChange }: Admi
         `Rs. ${(r as any).pricePerCan || 0}`,
         `Rs. ${((r.cans || 0) * ((r as any).pricePerCan || 0)).toFixed(0)}`,
         r.paymentType ? (r.paymentType === 'cash' ? 'Cash' : 'Account') : '-',
+        getTimeStr(r),
         '',
       ];
     });
@@ -143,7 +163,10 @@ export default function AdminDeliveriesReportDialog({ open, onOpenChange }: Admi
       tableStartY = iy + 7;
     }
 
-    const remarksColIndex = filterByCustomerId ? 5 : 8;
+    // filterByCustomerId: S.No,Date,Cans,Price,Subtotal,Time,Remarks → remarks=6
+    // all customers:       S.No,ID,Name,Date,Cans,Price,Subtotal,PayType,Time,Remarks → remarks=9
+    const remarksColIndex = filterByCustomerId ? 6 : 9;
+    const timeColIndex = filterByCustomerId ? 5 : 8;
 
     autoTable(doc, {
       startY: tableStartY,
@@ -154,6 +177,7 @@ export default function AdminDeliveriesReportDialog({ open, onOpenChange }: Admi
         { content: 'Cans', styles: { halign: 'center' } },
         { content: 'Price / Can', styles: { halign: 'right' } },
         { content: 'Subtotal', styles: { halign: 'right' } },
+        { content: 'Time', styles: { halign: 'center' } },
         { content: 'Remarks', styles: { halign: 'left' } },
       ] : [
         { content: 'S.No', styles: { halign: 'center' } },
@@ -164,6 +188,7 @@ export default function AdminDeliveriesReportDialog({ open, onOpenChange }: Admi
         { content: 'Price / Can', styles: { halign: 'right' } },
         { content: 'Subtotal', styles: { halign: 'right' } },
         { content: 'Payment Type', styles: { halign: 'center' } },
+        { content: 'Time', styles: { halign: 'center' } },
         { content: 'Remarks', styles: { halign: 'left' } },
       ]],
       body: getRows(),
@@ -174,6 +199,7 @@ export default function AdminDeliveriesReportDialog({ open, onOpenChange }: Admi
           { content: String(totalCans), styles: { halign: 'center' } },
           { content: '', styles: { halign: 'right' } },
           { content: `Rs. ${totalAmount.toFixed(0)}`, styles: { halign: 'right' } },
+          { content: '', styles: { halign: 'center' } },
           { content: '', styles: { halign: 'left' } },
         ],
       ] : [
@@ -186,6 +212,7 @@ export default function AdminDeliveriesReportDialog({ open, onOpenChange }: Admi
           { content: '', styles: { halign: 'right' } },
           { content: `Rs. ${cashAmount.toFixed(0)}`, styles: { halign: 'right' } },
           { content: '', styles: { halign: 'center' } },
+          { content: '', styles: { halign: 'center' } },
           { content: '', styles: { halign: 'left' } },
         ],
         [
@@ -196,6 +223,7 @@ export default function AdminDeliveriesReportDialog({ open, onOpenChange }: Admi
           { content: String(accountCans), styles: { halign: 'center' } },
           { content: '', styles: { halign: 'right' } },
           { content: `Rs. ${accountAmount.toFixed(0)}`, styles: { halign: 'right' } },
+          { content: '', styles: { halign: 'center' } },
           { content: '', styles: { halign: 'center' } },
           { content: '', styles: { halign: 'left' } },
         ],
@@ -208,6 +236,7 @@ export default function AdminDeliveriesReportDialog({ open, onOpenChange }: Admi
           { content: '', styles: { halign: 'right' } },
           { content: `Rs. ${totalAmount.toFixed(0)}`, styles: { halign: 'right', fontStyle: 'bold' } },
           { content: '', styles: { halign: 'center' } },
+          { content: '', styles: { halign: 'center' } },
           { content: '', styles: { halign: 'left' } },
         ],
       ],
@@ -216,26 +245,32 @@ export default function AdminDeliveriesReportDialog({ open, onOpenChange }: Admi
       styles: { fontSize: 8.5, cellPadding: 3 },
       columnStyles: filterByCustomerId ? {
         0: { cellWidth: 14, halign: 'center' },
-        1: { cellWidth: 32, halign: 'left' },
-        2: { cellWidth: 20, halign: 'center' },
-        3: { cellWidth: 30, halign: 'right' },
-        4: { cellWidth: 35, halign: 'right' },
-        5: { cellWidth: 138, halign: 'left' },
+        1: { cellWidth: 28, halign: 'left' },
+        2: { cellWidth: 16, halign: 'center' },
+        3: { cellWidth: 26, halign: 'right' },
+        4: { cellWidth: 28, halign: 'right' },
+        5: { cellWidth: 22, halign: 'center' },
+        6: { cellWidth: 135, halign: 'left' },
       } : {
-        0: { cellWidth: 14, halign: 'center' },
-        1: { cellWidth: 14, halign: 'center' },
-        2: { cellWidth: 62, halign: 'left' },
-        3: { cellWidth: 26, halign: 'left' },
-        4: { cellWidth: 14, halign: 'center' },
-        5: { cellWidth: 24, halign: 'right' },
-        6: { cellWidth: 26, halign: 'right' },
-        7: { cellWidth: 26, halign: 'center' },
-        8: { cellWidth: 63, halign: 'left' },
+        0: { cellWidth: 12, halign: 'center' },
+        1: { cellWidth: 12, halign: 'center' },
+        2: { cellWidth: 54, halign: 'left' },
+        3: { cellWidth: 22, halign: 'left' },
+        4: { cellWidth: 12, halign: 'center' },
+        5: { cellWidth: 22, halign: 'right' },
+        6: { cellWidth: 24, halign: 'right' },
+        7: { cellWidth: 22, halign: 'center' },
+        8: { cellWidth: 22, halign: 'center' },
+        9: { cellWidth: 63, halign: 'left' },
       },
       alternateRowStyles: { fillColor: [248, 249, 255] },
       didParseCell: (data: any) => {
         if (data.column.index === remarksColIndex) {
           data.cell.styles.cellPadding = { top: 3, right: 3, bottom: 3, left: 20 };
+        }
+        if (data.column.index === timeColIndex && data.section === 'body') {
+          data.cell.styles.halign = 'center';
+          data.cell.styles.fontSize = 7.5;
         }
       },
     });
@@ -313,8 +348,8 @@ export default function AdminDeliveriesReportDialog({ open, onOpenChange }: Admi
       [`Generated: ${format(new Date(), 'MMM d, yyyy HH:mm')}`],
       [],
       filterByCustomerId
-        ? ['S.No', 'Date', 'Cans', 'Price / Can (Rs)', 'Subtotal (Rs)', 'Remarks']
-        : ['S.No', 'ID', 'Customer Name', 'Date', 'Cans', 'Price / Can (Rs)', 'Subtotal (Rs)', 'Payment Type', 'Remarks'],
+        ? ['S.No', 'Date', 'Cans', 'Price / Can (Rs)', 'Subtotal (Rs)', 'Time (proc / total)', 'Remarks']
+        : ['S.No', 'ID', 'Customer Name', 'Date', 'Cans', 'Price / Can (Rs)', 'Subtotal (Rs)', 'Payment Type', 'Time (proc / total)', 'Remarks'],
     ];
     const rows = requests.map((r, i) => filterByCustomerId ? [
       i + 1,
@@ -322,6 +357,7 @@ export default function AdminDeliveriesReportDialog({ open, onOpenChange }: Admi
       r.cans || 0,
       (r as any).pricePerCan || 0,
       (r.cans || 0) * ((r as any).pricePerCan || 0),
+      getTimeStr(r).replace('\n', ' / '),
       '',
     ] : [
       i + 1,
@@ -332,22 +368,22 @@ export default function AdminDeliveriesReportDialog({ open, onOpenChange }: Admi
       (r as any).pricePerCan || 0,
       (r.cans || 0) * ((r as any).pricePerCan || 0),
       r.paymentType ? (r.paymentType === 'cash' ? 'Cash' : 'Account') : '-',
+      getTimeStr(r).replace('\n', ' / '),
       '',
     ]);
     const footer = filterByCustomerId
-      ? [[], ['TOTAL', '', totalCans, '', totalAmount, '']]
+      ? [[], ['TOTAL', '', totalCans, '', totalAmount, '', '']]
       : [
           [],
-          ['', '', 'Total Cash', cashCans, '', cashAmount, '', ''],
-          ['', '', 'Total Account', accountCans, '', accountAmount, '', ''],
-          ['', '', 'Grand Total', totalCans, '', totalAmount, '', ''],
+          ['', '', 'Total Cash', '', cashCans, '', cashAmount, '', '', ''],
+          ['', '', 'Total Account', '', accountCans, '', accountAmount, '', '', ''],
+          ['', '', 'Grand Total', '', totalCans, '', totalAmount, '', '', ''],
         ];
 
     const ws = XLSX.utils.aoa_to_sheet([...header, ...rows, ...footer]);
-    ws['!cols'] = [
-      { wch: 14 }, { wch: 6 }, { wch: 28 }, { wch: 6 },
-      { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 30 },
-    ];
+    ws['!cols'] = filterByCustomerId
+      ? [{ wch: 8 }, { wch: 16 }, { wch: 8 }, { wch: 16 }, { wch: 14 }, { wch: 18 }, { wch: 30 }]
+      : [{ wch: 8 }, { wch: 8 }, { wch: 28 }, { wch: 16 }, { wch: 8 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 30 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Deliveries');
     const xlsxName = pdfFileName().replace('.pdf', '.xlsx');

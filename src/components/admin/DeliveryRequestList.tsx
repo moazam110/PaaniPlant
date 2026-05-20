@@ -1521,7 +1521,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
                                         </Badge>
                                       )}
                                     </div>
-                                    <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                                    <div className="mt-2 grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
                                       <div>
                                         <span className="text-muted-foreground">Cans:</span> {request.cans}
                                       </div>
@@ -1535,6 +1535,22 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
                                       </div>
                                       <div>
                                         <span className="text-muted-foreground">Requested:</span> {request.requestedAt ? format(new Date(request.requestedAt), 'MMM d, HH:mm') : '-'}
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-muted-foreground">Time:</span>
+                                        {isDelivered && request.deliveredAt ? (() => {
+                                          const delMs = new Date(request.deliveredAt).getTime();
+                                          const procMs = request.processingAt ? new Date(request.processingAt).getTime() : 0;
+                                          const reqMs = request.requestedAt ? new Date(request.requestedAt).getTime() : 0;
+                                          const procTime = procMs ? formatDuration(delMs - procMs) : '-';
+                                          const totalTime = reqMs ? formatDuration(delMs - reqMs) : '-';
+                                          return (
+                                            <span className="flex flex-col leading-tight ml-1">
+                                              <span className="font-bold">{procTime}</span>
+                                              <span className="text-xs text-muted-foreground">{totalTime}</span>
+                                            </span>
+                                          );
+                                        })() : <span className="ml-1">-</span>}
                                       </div>
                                     </div>
                                   </div>
