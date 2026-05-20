@@ -469,7 +469,7 @@ export default function StaffDashboardClient({
             <Skeleton className="h-24 w-full mb-4 bg-muted/50" />
           </div>
         }>
-          <div className="px-2 py-1">
+          <div className="px-2 pt-16 pb-1 md:py-1">
 
             {/* ── MOBILE layout (hidden on md+) ── */}
             <div className="md:hidden space-y-2">
