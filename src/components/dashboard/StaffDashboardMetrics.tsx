@@ -25,7 +25,7 @@ const StaffDashboardMetrics: React.FC<StaffDashboardMetricsProps> = ({ requests 
 
   return (
     <div className="grid grid-cols-3 gap-1 py-1">
-      <Card className="shadow-sm">
+      <Card className="shadow-sm bg-card">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2">
           <CardTitle className="text-[10px] font-semibold font-headline">Pending</CardTitle>
           <ListTodo className="h-3 w-3 text-muted-foreground" />
@@ -34,7 +34,7 @@ const StaffDashboardMetrics: React.FC<StaffDashboardMetricsProps> = ({ requests 
           <div className="text-sm font-bold">{pendingCount}</div>
         </CardContent>
       </Card>
-      
+
       <Card className="shadow-sm bg-yellow-50 border-yellow-200">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2">
           <CardTitle className="text-[10px] font-semibold font-headline text-yellow-700">Processing</CardTitle>
@@ -45,7 +45,7 @@ const StaffDashboardMetrics: React.FC<StaffDashboardMetricsProps> = ({ requests 
         </CardContent>
       </Card>
 
-      <Card className="shadow-sm bg-destructive/10 border-destructive">
+      <Card className="shadow-sm bg-red-50 border-red-300">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2">
           <CardTitle className="text-[10px] font-semibold font-headline text-destructive">Urgent</CardTitle>
           <Hourglass className="h-3 w-3 text-destructive" />
