@@ -24,7 +24,7 @@ const StaffDashboardMetrics: React.FC<StaffDashboardMetricsProps> = ({ requests 
   ).length;
 
   return (
-    <div className="grid gap-1 md:grid-cols-3 py-1">
+    <div className="grid grid-cols-3 gap-1 py-1">
       <Card className="shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2">
           <CardTitle className="text-[10px] font-semibold font-headline">Pending</CardTitle>
