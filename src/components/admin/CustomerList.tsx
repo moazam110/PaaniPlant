@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/table";
 // Removed Avatar imports to save space
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Pencil, Star, ArrowUpAZ, ArrowDownAZ, FileText, FileSpreadsheet } from 'lucide-react';
+import { Search, Pencil, Star, ArrowUpAZ, ArrowDownAZ, FileText, FileSpreadsheet, Wifi } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
@@ -39,6 +39,16 @@ export interface CustomerListRef {
   refreshCustomers: () => void;
   updateCustomerInList: (customer: Customer) => void;
 }
+
+const formatLastOnline = (val: any): string => {
+  if (!val) return 'Never';
+  const ms = Date.now() - new Date(val).getTime();
+  if (ms < 60000) return 'Just now';
+  if (ms < 3600000) return `${Math.floor(ms / 60000)}m ago`;
+  if (ms < 86400000) return `${Math.floor(ms / 3600000)}h ago`;
+  if (ms < 604800000) return `${Math.floor(ms / 86400000)}d ago`;
+  return format(new Date(val), 'MMM d, yyyy');
+};
 
 // PHASE 5: Memoized component to prevent unnecessary re-renders
 const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEditCustomer }, ref) => {
@@ -899,6 +909,9 @@ const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEd
                     </button>
                   </TableHead>
                 )}
+                <TableHead className="w-[12%] text-center whitespace-nowrap">
+                  <span className="inline-flex items-center gap-1"><Wifi className="h-3.5 w-3.5" /> Last Online</span>
+                </TableHead>
                 <TableHead className="text-right">Edit</TableHead>
               </TableRow>
             </TableHeader>
@@ -943,15 +956,27 @@ const CustomerList = memo(forwardRef<CustomerListRef, CustomerListProps>(({ onEd
                         </TableCell>
                       );
                     })()}
+                    <TableCell className="w-[12%] text-center whitespace-nowrap">
+                      {(() => {
+                        const val = (customer as any).lastOnlineAt;
+                        const label = formatLastOnline(val);
+                        const isRecent = val && (Date.now() - new Date(val).getTime()) < 300000; // < 5 min
+                        return (
+                          <span className={cn('text-xs font-medium', isRecent ? 'text-green-600' : label === 'Never' ? 'text-gray-400' : 'text-muted-foreground')}>
+                            {label}
+                          </span>
+                        );
+                      })()}
+                    </TableCell>
                     <TableCell className="text-right">
                       {onEditCustomer && (
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           onClick={(e) => {
                             e.stopPropagation();
                             onEditCustomer(customer);
-                          }} 
+                          }}
                           title="Edit Customer"
                         >
                           <Pencil className="h-4 w-4 text-blue-600" />

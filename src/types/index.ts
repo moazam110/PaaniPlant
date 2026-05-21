@@ -20,6 +20,7 @@ export interface Customer {
   createdAt: any; // Firestore Server Timestamp
   updatedAt: any; // Firestore Server Timestamp
   paymentType?: 'cash' | 'account';
+  lastOnlineAt?: any;
 }
 
 export interface DeliveryRequest {

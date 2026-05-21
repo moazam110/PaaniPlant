@@ -26,7 +26,7 @@ const StaffDashboardMetrics: React.FC<StaffDashboardMetricsProps> = ({ requests 
   return (
     <>
       {/* Mobile: compact colored number chips, no titles */}
-      <div className="md:hidden flex gap-2">
+      <div className="sm:hidden flex gap-2">
         <div className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-blue-200 border-l-[3px] border-l-blue-500 rounded-lg py-2 shadow-sm">
           <ListTodo className="h-3.5 w-3.5 text-blue-500 shrink-0" />
           <span className="text-base font-bold text-blue-700">{pendingCount}</span>
@@ -42,7 +42,7 @@ const StaffDashboardMetrics: React.FC<StaffDashboardMetricsProps> = ({ requests 
       </div>
 
       {/* Desktop: full cards with titles */}
-      <div className="hidden md:grid grid-cols-3 gap-1 py-1">
+      <div className="hidden sm:grid grid-cols-3 gap-1 py-1">
         <Card className="shadow-sm bg-white dark:bg-card border border-blue-200 border-l-[3px] border-l-blue-500">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2">
             <CardTitle className="text-[10px] font-semibold font-headline text-blue-700 dark:text-foreground">Pending</CardTitle>

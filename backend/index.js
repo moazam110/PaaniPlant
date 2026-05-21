@@ -99,6 +99,7 @@ const customerSchema = new mongoose.Schema({
   paymentType: { type: String, enum: ['cash','account'], default: 'cash' },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
+  lastOnlineAt: { type: Date, default: null },
 });
 
 const Customer = mongoose.model('Customer', customerSchema);
@@ -616,6 +617,16 @@ app.put('/api/customers/:id', async (req, res) => {
   } catch (err) {
     console.error('Error updating customer:', err);
     res.status(400).json({ error: 'Failed to update customer', details: err.message });
+  }
+});
+
+// Ping: update lastOnlineAt for a customer (called on every customer dashboard load)
+app.patch('/api/customers/:id/ping', async (req, res) => {
+  try {
+    await Customer.findByIdAndUpdate(req.params.id, { lastOnlineAt: new Date() });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: 'Ping failed', details: err.message });
   }
 });
 

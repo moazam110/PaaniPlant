@@ -471,8 +471,8 @@ export default function StaffDashboardClient({
         }>
           <div className="px-2 pt-16 pb-1 md:py-1">
 
-            {/* ── MOBILE layout (hidden on md+) ── */}
-            <div className="md:hidden space-y-2">
+            {/* ── MOBILE layout (hidden on sm+) ── */}
+            <div className="sm:hidden space-y-2">
               {/* Row 1: compact metric chips */}
               <StaffDashboardMetrics requests={deliveryRequests} />
 
@@ -500,10 +500,12 @@ export default function StaffDashboardClient({
               </div>
             </div>
 
-            {/* ── DESKTOP layout (hidden below md) — unchanged ── */}
-            <div className="hidden md:flex items-center justify-between">
+            {/* ── DESKTOP layout (hidden below sm, shows on landscape phones+) ── */}
+            <div className="hidden sm:flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <StaffDashboardMetrics requests={deliveryRequests} />
+              </div>
+              <div className="flex items-center gap-2">
                 <label className={`cursor-pointer select-none rounded-full px-3 py-1.5 border text-xs font-semibold transition-colors ${showAllActive ? 'bg-primary text-primary-foreground border-primary' : 'bg-white dark:bg-muted/60 border-border text-foreground hover:border-primary/50'}`}>
                   <input
                     type="checkbox"
@@ -519,8 +521,6 @@ export default function StaffDashboardClient({
                   />
                   Show All Active
                 </label>
-              </div>
-              <div className="flex items-center gap-2">
                 <label className={`cursor-pointer select-none rounded-full px-3 py-1.5 border text-xs font-semibold transition-colors ${fcfs ? 'bg-primary text-primary-foreground border-primary' : 'bg-white dark:bg-muted/60 border-border text-foreground hover:border-primary/50'}`}>
                   <input
                     type="checkbox"

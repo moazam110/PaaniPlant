@@ -309,9 +309,9 @@ export default function CustomerLoginForm() {
             {/* Description card */}
             <div className="rounded-2xl bg-muted/50 border border-border/60 p-4">
               <p className="text-sm leading-relaxed text-justify" style={{ fontFamily: 'Georgia, serif', color: 'hsl(var(--foreground))' }}>
-                <span className="font-semibold italic text-primary">The PAANI™</span> is a trusted mineral water supply brand in{' '}
+                <span className="font-semibold italic text-primary">The PAANI™</span> is a trusted water supply brand in{' '}
                 <span className="font-semibold text-primary">Larkano</span>, serving homes, offices, and businesses for the past three years.{' '}
-                <span className="italic font-medium text-foreground">We deliver clean, safe, and healthy RO-based mineral water, enhanced with <span className="font-semibold text-primary">UV purification</span> to ensure <span className="font-semibold text-primary">100% bacteria-free</span> drinking water,</span>{' '}
+                <span className="italic font-medium text-foreground">We deliver clean, safe, and healthy RO-based water, enhanced with <span className="font-semibold text-primary">UV purification</span> to ensure <span className="font-semibold text-primary">bacteria-free</span> drinking water,</span>{' '}
                 through our <span className="font-bold text-primary">smart Delivery Management System</span> featuring{' '}
                 <span className="italic font-medium text-primary">easy one-click ordering</span>,{' '}
                 <span className="italic font-medium text-primary">live tracking</span>, and{' '}

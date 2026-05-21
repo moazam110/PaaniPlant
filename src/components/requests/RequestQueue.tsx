@@ -106,7 +106,7 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
           </AccordionTrigger>
           <AccordionContent>
             {pendingRequests.length > 0 ? (
-              <div className="grid gap-1 md:grid-cols-3 lg:grid-cols-4 py-1">
+              <div className="grid gap-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 py-1">
                 {pendingRequests.map(request => (
                   <RequestCard 
                     key={request._id || request.requestId || Math.random()} 
@@ -131,7 +131,7 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
           </AccordionTrigger>
           <AccordionContent>
             {processingRequests.length > 0 ? (
-              <div className="grid gap-1 md:grid-cols-3 lg:grid-cols-4 py-1">
+              <div className="grid gap-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 py-1">
                 {processingRequests.map(request => (
                   <RequestCard 
                     key={request._id || request.requestId || Math.random()} 
@@ -156,7 +156,7 @@ const RequestQueue: React.FC<RequestQueueProps> = ({ requests, onMarkAsDone, onC
           </AccordionTrigger>
           <AccordionContent>
             {deliveredRequests.length > 0 ? (
-              <div className="grid gap-1 md:grid-cols-3 lg:grid-cols-4 py-1">
+              <div className="grid gap-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 py-1">
                 {deliveredRequests.map(request => {
                   const key = String(request._id || request.requestId || Math.random());
                   const intId = (request as any).customerIntId;
