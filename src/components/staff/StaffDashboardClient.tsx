@@ -16,7 +16,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo, Suspense } fr
 import Footer from '@/components/shared/Footer';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { Button as UIButton } from '@/components/ui/button';
-import { ArrowDownAZ, ArrowUpAZ } from 'lucide-react';
+import { ArrowDownAZ, ArrowUpAZ, ArrowUpDown } from 'lucide-react';
 import type { DeliveryRequest } from '@/types';
 import Header from '@/components/shared/Header';
 import StaffDashboardMetrics from '@/components/dashboard/StaffDashboardMetrics';
@@ -476,16 +476,28 @@ export default function StaffDashboardClient({
               {/* Row 1: compact metric chips */}
               <StaffDashboardMetrics requests={deliveryRequests} />
 
-              {/* Row 2: FCFS pill only */}
-              <label className={`flex items-center justify-center cursor-pointer select-none rounded-xl px-3 py-2 border text-xs font-semibold transition-colors w-full ${fcfs ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted/60 border-border text-foreground'}`}>
-                <input
-                  type="checkbox"
-                  checked={fcfs}
-                  onChange={e => setFcfs(e.target.checked)}
-                  className="sr-only"
-                />
-                First Come First Served
-              </label>
+              {/* Row 2: FCFS pill + sort toggle */}
+              <div className="flex gap-2">
+                <label className={`flex-1 flex items-center justify-center cursor-pointer select-none rounded-xl px-3 py-2 border text-xs font-semibold transition-colors ${fcfs ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted/60 border-border text-foreground'}`}>
+                  <input
+                    type="checkbox"
+                    checked={fcfs}
+                    onChange={e => setFcfs(e.target.checked)}
+                    className="sr-only"
+                  />
+                  First Come First Served
+                </label>
+                <UIButton
+                  type="button"
+                  variant={addressSortOrder ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setAddressSortOrder(prev => prev === null ? 'asc' : prev === 'asc' ? 'desc' : null)}
+                  className="rounded-xl px-3 py-2 h-auto"
+                  title={addressSortOrder === 'asc' ? 'Sort: A→Z' : addressSortOrder === 'desc' ? 'Sort: Z→A' : 'Sort by address'}
+                >
+                  {addressSortOrder === 'asc' ? <ArrowUpAZ className="h-4 w-4" /> : addressSortOrder === 'desc' ? <ArrowDownAZ className="h-4 w-4" /> : <ArrowUpDown className="h-4 w-4" />}
+                </UIButton>
+              </div>
             </div>
 
             {/* ── DESKTOP layout (hidden below md) — unchanged ── */}
@@ -518,26 +530,16 @@ export default function StaffDashboardClient({
                   />
                   First Come First Served
                 </label>
-                <span className="text-xs text-muted-foreground">Sort:</span>
                 <UIButton
                   type="button"
-                  variant={addressSortOrder === 'asc' ? 'default' : 'outline'}
+                  variant={addressSortOrder ? 'default' : 'outline'}
                   size="sm"
-                  onClick={() => setAddressSortOrder(prev => (prev === 'asc' ? null : 'asc'))}
-                  title="Ascending"
-                  className="rounded-full"
+                  onClick={() => setAddressSortOrder(prev => prev === null ? 'asc' : prev === 'asc' ? 'desc' : null)}
+                  className="rounded-full gap-1.5"
+                  title={addressSortOrder === 'asc' ? 'Sort: A→Z' : addressSortOrder === 'desc' ? 'Sort: Z→A' : 'Sort by address'}
                 >
-                  <ArrowUpAZ className="h-4 w-4 mr-1" /> Asc
-                </UIButton>
-                <UIButton
-                  type="button"
-                  variant={addressSortOrder === 'desc' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setAddressSortOrder(prev => (prev === 'desc' ? null : 'desc'))}
-                  title="Descending"
-                  className="rounded-full"
-                >
-                  <ArrowDownAZ className="h-4 w-4 mr-1" /> Desc
+                  Address
+                  {addressSortOrder === 'asc' ? <ArrowUpAZ className="h-4 w-4" /> : addressSortOrder === 'desc' ? <ArrowDownAZ className="h-4 w-4" /> : <ArrowUpDown className="h-4 w-4" />}
                 </UIButton>
               </div>
             </div>
