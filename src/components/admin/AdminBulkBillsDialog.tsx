@@ -118,8 +118,12 @@ export default function AdminBulkBillsDialog({ open, onOpenChange }: Props) {
       }
       billData.sort((a, b) => a.intId - b.intId);
 
-      // Billing month key — always derived from start date to prevent double-counting current period as a previous due
-      const billingMonthKey = format(start, 'yyyy-MM');
+      // fromMonthKey: start date's month (for partial-month adjustment)
+      // toMonthKey: end date's month (for excluding months after the billing period)
+      const fromMonthKey = format(start, 'yyyy-MM');
+      const toMonthKey = format(new Date(toDate!), 'yyyy-MM');
+      // Exact date cap passed to ledger so deliveries after toDate are excluded
+      const maxDateParam = format(new Date(toDate!), 'yyyy-MM-dd');
 
       // Fetch FIFO ledger for each customer to get previous dues & advance
       const withLedger: CustomerBillData[] = await Promise.all(
@@ -127,24 +131,44 @@ export default function AdminBulkBillsDialog({ open, onOpenChange }: Props) {
           const empty = { ...bill, previousDues: [], advanceCredit: 0, netPayable: bill.totalAmount };
           if (!bill.objectId) return empty;
           try {
-            const res = await fetch(buildApiUrl(`api/payments/ledger/${bill.objectId}?maxMonth=${billingMonthKey}`));
+            const res = await fetch(buildApiUrl(`api/payments/ledger/${bill.objectId}?maxDate=${maxDateParam}`));
             if (!res.ok) return empty;
             const d = await res.json();
             const ledger: any[] = (d.data?.ledger || []).slice().reverse(); // oldest → newest
             const finalBalance: number = d.data?.finalBalance ?? 0;
 
-            // Previous months that still have dues (exclude the current billing month)
+            // Amount of the start month's deliveries already listed in this bill
+            // (used to avoid double-counting when start is mid-month)
+            const amountInStartMonth = fromMonthKey < toMonthKey
+              ? bill.requests.reduce((s: number, r: any) => {
+                  const d = r.requestedAt ? new Date(r.requestedAt) : null;
+                  if (!d) return s;
+                  const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                  return m === fromMonthKey ? s + ((r.cans || 0) * (r.pricePerCan || 0)) : s;
+                }, 0)
+              : 0;
+
+            // Previous dues:
+            // - Months fully before the start month → full dueForMonth
+            // - Start month itself (only when it differs from end month) →
+            //   max(0, dueForMonth − deliveries already in the bill) to avoid double-count
             const previousDues = ledger
               .filter((e: any) =>
                 e.status === 'due' &&
                 e.dueForMonth > 0 &&
-                (!billingMonthKey || e.month < billingMonthKey)
+                (e.month < fromMonthKey ||
+                  (e.month === fromMonthKey && fromMonthKey < toMonthKey))
               )
-              .map((e: any) => ({ month: e.month, amount: e.dueForMonth as number }));
+              .map((e: any) => {
+                const raw = e.dueForMonth as number;
+                const amount = e.month === fromMonthKey
+                  ? Math.max(0, raw - amountInStartMonth)
+                  : raw;
+                return amount > 0 ? { month: e.month, amount } : null;
+              })
+              .filter(Boolean) as { month: string; amount: number }[];
 
-            const prevTotal = previousDues.reduce((s: number, d: { amount: number }) => s + d.amount, 0);
             const advanceCredit = finalBalance > 0 ? finalBalance : 0;
-            // finalBalance is the authoritative net position (negative = owes, positive = advance)
             const netPayable = finalBalance < 0 ? -finalBalance : 0;
 
             return { ...bill, previousDues, advanceCredit, netPayable };

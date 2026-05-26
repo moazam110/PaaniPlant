@@ -3235,9 +3235,13 @@ app.get('/api/payments/ledger/:customerObjectId', async (req, res) => {
     const customer = await Customer.findById(req.params.customerObjectId);
     if (!customer) return res.status(404).json({ error: 'Customer not found' });
 
-    // Optional cap: only include delivery months up to maxMonth
+    // Optional cap: maxDate (yyyy-MM-dd) takes priority over maxMonth (yyyy-MM)
     let maxEnd = null;
-    if (req.query.maxMonth) {
+    if (req.query.maxDate) {
+      // Cap at end of the specified day in PKT (UTC+5): day 23:59:59 PKT = day 18:59:59 UTC
+      const [myr, mmo, mdd] = req.query.maxDate.split('-').map(Number);
+      maxEnd = new Date(Date.UTC(myr, mmo - 1, mdd, 18, 59, 59, 999));
+    } else if (req.query.maxMonth) {
       const [myr, mmo] = req.query.maxMonth.split('-').map(Number);
       maxEnd = getPKTMonthBounds(myr, mmo).end;
     }
