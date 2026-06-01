@@ -65,8 +65,8 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
   const [filterStartOpen, setFilterStartOpen] = useState(false);
   const [filterEndOpen, setFilterEndOpen] = useState(false);
   const todayStr = format(new Date(), 'yyyy-MM-dd');
-  const [filterDraft, setFilterDraft] = useState<{ start: string; end: string; cash: boolean; account: boolean; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>'; cancelled: boolean; pending: boolean; processing: boolean; customerCreated: boolean }>({ start: '', end: '', cash: false, account: false, cans: '', cansOp: '=', price: '', priceOp: '>', cancelled: false, pending: false, processing: false, customerCreated: false });
-  const [activeFilter, setActiveFilter] = useState<{ start: string; end: string; cash: boolean; account: boolean; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>'; cancelled: boolean; pending: boolean; processing: boolean; customerCreated: boolean }>({ start: '', end: '', cash: false, account: false, cans: '', cansOp: '=', price: '', priceOp: '>', cancelled: false, pending: false, processing: false, customerCreated: false });
+  const [filterDraft, setFilterDraft] = useState<{ start: string; end: string; cash: boolean; account: boolean; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>'; cancelled: boolean; pending: boolean; processing: boolean; customerCreated: boolean; customerCreatedWithNotes: boolean }>({ start: '', end: '', cash: false, account: false, cans: '', cansOp: '=', price: '', priceOp: '>', cancelled: false, pending: false, processing: false, customerCreated: false, customerCreatedWithNotes: false });
+  const [activeFilter, setActiveFilter] = useState<{ start: string; end: string; cash: boolean; account: boolean; cans: string; cansOp: '<' | '=' | '>'; price: string; priceOp: '<' | '=' | '>'; cancelled: boolean; pending: boolean; processing: boolean; customerCreated: boolean; customerCreatedWithNotes: boolean }>({ start: '', end: '', cash: false, account: false, cans: '', cansOp: '=', price: '', priceOp: '>', cancelled: false, pending: false, processing: false, customerCreated: false, customerCreatedWithNotes: false });
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
   const [isBulkBillsOpen, setIsBulkBillsOpen] = useState(false);
   const [addressSortOrder, setAddressSortOrder] = useState<'asc' | 'desc' | null>(null);
@@ -384,8 +384,8 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
 
   // Fetch ALL records from backend when any status/customerCreated filter is active
   useEffect(() => {
-    const { cancelled, pending, processing, customerCreated } = activeFilter;
-    const hasStatusFilter = cancelled || pending || processing || customerCreated;
+    const { cancelled, pending, processing, customerCreated, customerCreatedWithNotes } = activeFilter;
+    const hasStatusFilter = cancelled || pending || processing || customerCreated || customerCreatedWithNotes;
 
     if (hasStatusFilter) {
       const fetchStatusRequests = async () => {
@@ -395,7 +395,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
           if (pending) { params.push('status=pending'); params.push('status=pending_confirmation'); }
           if (processing) params.push('status=processing');
           if (cancelled) params.push('status=cancelled');
-          if (customerCreated) params.push('createdBy=customer_portal');
+          if (customerCreated || customerCreatedWithNotes) params.push('createdBy=customer_portal');
 
           const res = await fetch(buildApiUrl(`${API_ENDPOINTS.DELIVERY_REQUESTS}?${params.join('&')}`));
           if (res.ok) {
@@ -422,7 +422,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
       setLoadedRequests(sortedByDate.slice(0, 100));
       prevCancelledFilterRef.current = false;
     }
-  }, [activeFilter.cancelled, activeFilter.pending, activeFilter.processing, activeFilter.customerCreated]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeFilter.cancelled, activeFilter.pending, activeFilter.processing, activeFilter.customerCreated, activeFilter.customerCreatedWithNotes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch ALL records for selected date range from backend when date filter is active (NO PAGINATION)
   useEffect(() => {
@@ -648,7 +648,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
   // NOTE: Date filtering is now handled by backend fetch, so we don't need to filter here
   const fullyFilteredRequests = useMemo(() => {
     const list = filteredDeliveryRequests;
-    const { start, end, cash, account, cans, cansOp, price, priceOp, cancelled, pending, processing, customerCreated } = activeFilter;
+    const { start, end, cash, account, cans, cansOp, price, priceOp, cancelled, pending, processing, customerCreated, customerCreatedWithNotes } = activeFilter;
 
     // Early return if no filters are active (date filter is handled by backend fetch)
     const hasDateFilter = start || end;
@@ -708,6 +708,9 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
 
       // Customer created filter
       if (customerCreated && (req as any).createdBy !== 'customer_portal') return false;
+
+      // Customer created with notes filter
+      if (customerCreatedWithNotes && ((req as any).createdBy !== 'customer_portal' || !(req as any).orderDetails)) return false;
 
       return true;
     });
@@ -1281,6 +1284,10 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
                   <Checkbox id="flt-customer-created" checked={filterDraft.customerCreated} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, customerCreated: !!v }))} />
                   <Label htmlFor="flt-customer-created">Customer Created</Label>
                 </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox id="flt-customer-created-notes" checked={filterDraft.customerCreatedWithNotes} onCheckedChange={(v) => setFilterDraft(prev => ({ ...prev, customerCreatedWithNotes: !!v }))} />
+                  <Label htmlFor="flt-customer-created-notes">Customer Created with Notes</Label>
+                </div>
                 <div>
                   <Label className="mb-2 block">Address Sort</Label>
                   <div className="flex items-center gap-2">
@@ -1306,7 +1313,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
                 </div>
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" onClick={() => {
-                    const clearedFilter = { start: '', end: '', cash: false, account: false, cans: '', cansOp: '=' as const, price: '', priceOp: '>' as const, cancelled: false, pending: false, processing: false, customerCreated: false };
+                    const clearedFilter = { start: '', end: '', cash: false, account: false, cans: '', cansOp: '=' as const, price: '', priceOp: '>' as const, cancelled: false, pending: false, processing: false, customerCreated: false, customerCreatedWithNotes: false };
                     setFilterDraft(clearedFilter);
                     setActiveFilter(clearedFilter);
                     setIsFilterOpen(false);
@@ -1686,7 +1693,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
                         {getStatusDisplay(request.status)}
                       </Badge>
                       {(request as any).orderDetails && (
-                        <div className="text-[10px] text-muted-foreground mt-1 leading-tight italic max-w-[120px] mx-auto break-words">
+                        <div className={`text-[10px] mt-1 leading-tight italic max-w-[120px] mx-auto break-words ${activeFilter.customerCreatedWithNotes ? 'text-red-600 font-medium' : 'text-muted-foreground'}`}>
                           "{(request as any).orderDetails}"
                         </div>
                       )}
