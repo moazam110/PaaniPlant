@@ -99,7 +99,7 @@ const RequestCard: React.FC<RequestCardProps> = ({ request, onMarkAsDone, onCanc
         </div>
         
         {request.orderDetails && (
-          <p className="text-xs mb-2 text-red-600 font-bold leading-tight">
+          <p className="text-sm mb-2 text-red-600 font-bold leading-tight">
             {request.orderDetails}
           </p>
         )}
