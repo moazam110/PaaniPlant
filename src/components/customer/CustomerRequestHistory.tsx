@@ -189,6 +189,11 @@ export default function CustomerRequestHistory({
                             {getCancellationReasonLabel((request as any).cancellationReason)}
                           </div>
                         )}
+                        {(request as any).orderDetails && (
+                          <div className="text-[10px] text-muted-foreground mt-1 leading-tight italic text-center break-words max-w-[100px] mx-auto">
+                            "{(request as any).orderDetails}"
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className={cn("text-xs sm:text-sm text-right", isCancelled ? 'line-through' : '', isPortrait && "hidden")}>
                         Rs. {price.toFixed(0)}

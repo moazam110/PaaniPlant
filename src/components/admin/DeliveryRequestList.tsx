@@ -1660,11 +1660,16 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
                       {getPriorityIcon(request.priority)}
                       <span className="capitalize">{request.priority}</span>
                     </TableCell>
-                    <TableCell className="w-[10%] text-center whitespace-nowrap">
+                    <TableCell className="w-[10%] text-center">
                       <Badge variant={getStatusBadgeVariant(request.status)} className="capitalize">
                         {getStatusIcon(request.status)}
                         {getStatusDisplay(request.status)}
                       </Badge>
+                      {(request as any).orderDetails && (
+                        <div className="text-[10px] text-muted-foreground mt-1 leading-tight italic max-w-[120px] mx-auto break-words">
+                          "{(request as any).orderDetails}"
+                        </div>
+                      )}
                     </TableCell>
                     {activeFilter.cancelled && (
                       <>
