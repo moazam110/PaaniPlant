@@ -1484,99 +1484,119 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
                         </CardContent>
                       </Card>
 
-                      {/* Delivery Request History */}
-                      <div className="ml-4 space-y-2">
-                        {requests.map((request) => {
-                          const isActive = ['pending', 'pending_confirmation', 'processing'].includes(request.status);
-                          const isCancelled = request.status === 'cancelled';
-                          const isDelivered = request.status === 'delivered';
-                          const canEdit = request.status === 'pending' || request.status === 'processing';
-                          const pricePerCan = (request as any).pricePerCan;
-                          const paymentType = ((request as any).paymentType || '').toString();
-                          const intId = (request as any).customerIntId;
+                      {/* Delivery Request History — same table format as main view */}
+                      <div className="rounded-md border w-full overflow-x-auto">
+                        <Table className="w-full">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="w-[8%] text-center whitespace-nowrap">ID</TableHead>
+                              <TableHead>Customer</TableHead>
+                              <TableHead className="text-center">Cans</TableHead>
+                              <TableHead>Requested</TableHead>
+                              <TableHead>Address</TableHead>
+                              <TableHead className="w-[10%] text-center whitespace-nowrap">Price</TableHead>
+                              <TableHead className="w-[10%] text-center whitespace-nowrap">Payment Type</TableHead>
+                              <TableHead className="w-[10%] text-center whitespace-nowrap">Priority</TableHead>
+                              <TableHead className="w-[10%] text-center whitespace-nowrap">Status</TableHead>
+                              <TableHead className="w-[10%] text-center whitespace-nowrap">Edit / Time</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {requests.map((request) => {
+                              const isSindhiName = /[ء-ي]/.test(request.customerName);
+                              const nameClasses = cn(isSindhiName ? 'font-sindhi rtl' : 'ltr');
+                              const isCancelled = request.status === 'cancelled';
+                              const isDelivered = request.status === 'delivered';
+                              const canEdit = request.status === 'pending' || request.status === 'processing';
+                              const isCustomerCreated = (request as any).createdBy === 'customer_portal';
+                              const rowClasses = cn(
+                                isCancelled ? 'opacity-60 bg-muted/30' : '',
+                                isDelivered ? 'bg-green-500/10' : '',
+                                request.status === 'processing' ? 'bg-yellow-100' : '',
+                                isCustomerCreated ? 'border-l-4 border-l-blue-500' : ''
+                              );
+                              const pricePerCan = (request as any).pricePerCan;
+                              const paymentType = ((request as any).paymentType || '').toString();
+                              const intId = (request as any).customerIntId;
 
-                          return (
-                            <Card 
-                              key={request._id || request.requestId || `req-${Math.random()}`}
-                              className={cn(
-                                "shadow-sm",
-                                isActive && "border-2 border-primary bg-primary/5",
-                                isCancelled && "opacity-60 bg-muted/30",
-                                isDelivered && "bg-green-500/10"
-                              )}
-                            >
-                              <CardContent className="p-3">
-                                <div className="flex justify-between items-start">
-                                  <div className="flex-1">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <span className="text-sm font-medium">ID: {intId || '-'}</span>
-                                      <Badge variant={getStatusBadgeVariant(request.status)} className="capitalize text-xs">
-                                        {getStatusIcon(request.status)}
-                                        {getStatusDisplay(request.status)}
-                                      </Badge>
-                                      {isActive && (
-                                        <Badge variant="default" className="text-xs">
-                                          {getPriorityIcon(request.priority)}
-                                          {request.priority}
-                                        </Badge>
-                                      )}
-                                    </div>
-                                    <div className="mt-2 grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
-                                      <div>
-                                        <span className="text-muted-foreground">Cans:</span> {request.cans}
+                              return (
+                                <TableRow key={request._id || request.requestId || `req-${Math.random()}`} className={rowClasses}>
+                                  <TableCell className={cn("w-[8%] text-center whitespace-nowrap font-medium", isCancelled && 'line-through')}>
+                                    {intId || '-'}
+                                  </TableCell>
+                                  <TableCell className={cn(nameClasses, isCancelled && 'line-through')}>
+                                    {request.customerName}
+                                  </TableCell>
+                                  <TableCell className={cn("text-center", isCancelled && 'line-through')}>{request.cans}</TableCell>
+                                  <TableCell className={cn(isCancelled ? 'line-through' : '')}>
+                                    {request.requestedAt ? format(new Date(request.requestedAt), 'MMM d, HH:mm') : '-'}
+                                  </TableCell>
+                                  <TableCell className={cn("whitespace-normal break-words max-w-xs", isCancelled && 'line-through')}>
+                                    {request.address}
+                                  </TableCell>
+                                  <TableCell className="w-[10%] text-center whitespace-nowrap">{pricePerCan !== undefined ? `Rs. ${pricePerCan}` : '-'}</TableCell>
+                                  <TableCell className="w-[10%] text-center whitespace-nowrap">
+                                    {paymentType ? (
+                                      <Badge variant="outline" className="capitalize whitespace-nowrap">{paymentType}</Badge>
+                                    ) : '-'}
+                                  </TableCell>
+                                  <TableCell className={cn('w-[10%] text-center whitespace-nowrap', isCancelled ? 'line-through' : '')}>
+                                    {getPriorityIcon(request.priority)}
+                                    <span className="capitalize">{request.priority}</span>
+                                  </TableCell>
+                                  <TableCell className="w-[10%] text-center">
+                                    <Badge variant={getStatusBadgeVariant(request.status)} className="capitalize">
+                                      {getStatusIcon(request.status)}
+                                      {getStatusDisplay(request.status)}
+                                    </Badge>
+                                    {(request as any).orderDetails && (
+                                      <div className="text-[10px] text-muted-foreground mt-1 leading-tight italic max-w-[120px] mx-auto break-words">
+                                        "{(request as any).orderDetails}"
                                       </div>
-                                      <div>
-                                        <span className="text-muted-foreground">Price:</span> {pricePerCan !== undefined ? `Rs. ${pricePerCan}` : '-'}
-                                      </div>
-                                      <div>
-                                        <span className="text-muted-foreground">Payment:</span> {paymentType ? (
-                                          <Badge variant="outline" className="capitalize ml-1 text-xs">{paymentType}</Badge>
-                                        ) : '-'}
-                                      </div>
-                                      <div>
-                                        <span className="text-muted-foreground">Requested:</span> {request.requestedAt ? format(new Date(request.requestedAt), 'MMM d, HH:mm') : '-'}
-                                      </div>
-                                      <div className="flex items-center gap-1">
-                                        <span className="text-muted-foreground">Time:</span>
-                                        {isDelivered && request.deliveredAt ? (() => {
-                                          const delMs = new Date(request.deliveredAt).getTime();
-                                          const procMs = request.processingAt ? new Date(request.processingAt).getTime() : 0;
-                                          const reqMs = request.requestedAt ? new Date(request.requestedAt).getTime() : 0;
-                                          const procTime = procMs ? formatDuration(delMs - procMs) : '-';
-                                          const totalTime = reqMs ? formatDuration(delMs - reqMs) : '-';
-                                          return (
-                                            <span className="flex flex-col leading-tight ml-1">
-                                              <span className="font-bold">{procTime}</span>
-                                              <span className="text-xs text-muted-foreground">{totalTime}</span>
-                                            </span>
-                                          );
-                                        })() : <span className="ml-1">-</span>}
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <div className="flex gap-2 ml-4">
-                                    {canEdit && (
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="w-[10%] text-center whitespace-nowrap">
+                                    {canEdit ? (
                                       <Button variant="ghost" size="icon" title="Edit Request" onClick={() => onEditRequest(request)}>
                                         <Pencil className="h-4 w-4 text-blue-600" />
                                       </Button>
+                                    ) : isDelivered ? (
+                                      (() => {
+                                        const deliveredMs = (request as any).deliveredAt && request.requestedAt
+                                          ? new Date((request as any).deliveredAt).getTime() - new Date(request.requestedAt).getTime()
+                                          : 0;
+                                        const processingMs = (request as any).processingAt && request.requestedAt
+                                          ? new Date((request as any).processingAt).getTime() - new Date(request.requestedAt).getTime()
+                                          : 0;
+                                        return (
+                                          <div className="text-xs text-left inline-block">
+                                            <div className="font-bold">{deliveredMs > 0 ? formatDuration(deliveredMs) : '—'}</div>
+                                            {processingMs > 0 && (
+                                              <div className="text-muted-foreground text-[10px]">{formatDuration(processingMs)}</div>
+                                            )}
+                                          </div>
+                                        );
+                                      })()
+                                    ) : (
+                                      <span className="text-muted-foreground">—</span>
                                     )}
-                                    {isActive && (
-                                      <Button 
-                                        variant="ghost" 
-                                        size="icon" 
-                                        title="Cancel Request" 
+                                    {(request.status === 'pending' || request.status === 'pending_confirmation' || request.status === 'processing') && (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        title="Cancel Request"
                                         onClick={() => openCancelDialog(request)}
                                         className="text-red-600 hover:text-red-700"
                                       >
                                         <X className="h-4 w-4" />
                                       </Button>
                                     )}
-                                  </div>
-                                </div>
-                              </CardContent>
-                            </Card>
-                          );
-                        })}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
                       </div>
                     </div>
                   );
