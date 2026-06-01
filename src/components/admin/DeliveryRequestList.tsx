@@ -658,12 +658,12 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
     const hasStatusFilter = cancelled || pending || processing;
 
     // If only date filter is active, return list as-is (already filtered by backend)
-    if (hasDateFilter && !hasPaymentFilter && cansFilterVal == null && priceFilterVal == null && !hasStatusFilter && !customerCreated) {
+    if (hasDateFilter && !hasPaymentFilter && cansFilterVal == null && priceFilterVal == null && !hasStatusFilter && !customerCreated && !customerCreatedWithNotes) {
       return list;
     }
 
     // If no filters are active, return list
-    if (!hasDateFilter && !hasPaymentFilter && cansFilterVal == null && priceFilterVal == null && !hasStatusFilter && !customerCreated) {
+    if (!hasDateFilter && !hasPaymentFilter && cansFilterVal == null && priceFilterVal == null && !hasStatusFilter && !customerCreated && !customerCreatedWithNotes) {
       return list;
     }
 
