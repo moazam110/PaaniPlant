@@ -190,8 +190,8 @@ export default function CustomerRequestHistory({
                           </div>
                         )}
                         {(request as any).orderDetails && (
-                          <div className="text-[10px] text-muted-foreground mt-1 leading-tight italic text-center break-words max-w-[100px] mx-auto">
-                            "{(request as any).orderDetails}"
+                          <div className="text-[10px] text-red-600 font-medium mt-1 leading-tight italic text-center break-words max-w-[100px] mx-auto">
+                            {(request as any).orderDetails}
                           </div>
                         )}
                       </TableCell>

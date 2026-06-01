@@ -210,7 +210,7 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
   useEffect(() => {
     // Skip if initial load hasn't happened yet, or if cancelled/date filter is active
     const hasDateFilter = activeFilter.start || activeFilter.end;
-    if (isInitialLoadRef.current || activeFilter.cancelled || activeFilter.pending || activeFilter.processing || activeFilter.customerCreated || hasDateFilter) {
+    if (isInitialLoadRef.current || activeFilter.cancelled || activeFilter.pending || activeFilter.processing || activeFilter.customerCreated || activeFilter.customerCreatedWithNotes || hasDateFilter) {
       return;
     }
 
@@ -1557,8 +1557,8 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
                                       {getStatusDisplay(request.status)}
                                     </Badge>
                                     {(request as any).orderDetails && (
-                                      <div className="text-[10px] text-muted-foreground mt-1 leading-tight italic max-w-[120px] mx-auto break-words">
-                                        "{(request as any).orderDetails}"
+                                      <div className="text-[10px] text-red-600 font-medium mt-1 leading-tight italic max-w-[120px] mx-auto break-words">
+                                        {(request as any).orderDetails}
                                       </div>
                                     )}
                                   </TableCell>
@@ -1693,8 +1693,8 @@ const DeliveryRequestList: React.FC<DeliveryRequestListProps> = memo(({ onInitia
                         {getStatusDisplay(request.status)}
                       </Badge>
                       {(request as any).orderDetails && (
-                        <div className={`text-[10px] mt-1 leading-tight italic max-w-[120px] mx-auto break-words ${activeFilter.customerCreatedWithNotes ? 'text-red-600 font-medium' : 'text-muted-foreground'}`}>
-                          "{(request as any).orderDetails}"
+                        <div className="text-[10px] text-red-600 font-medium mt-1 leading-tight italic max-w-[120px] mx-auto break-words">
+                          {(request as any).orderDetails}
                         </div>
                       )}
                     </TableCell>
