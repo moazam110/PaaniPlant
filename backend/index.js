@@ -3352,6 +3352,50 @@ app.get('/api/payments/ledger/:customerObjectId', async (req, res) => {
   }
 });
 
+// GET /api/payments/collections-report?from=YYYY-MM-DD&to=YYYY-MM-DD&paymentType=cash|account
+app.get('/api/payments/collections-report', async (req, res) => {
+  try {
+    const { from, to, paymentType } = req.query;
+    if (!paymentType || !['cash', 'account'].includes(paymentType)) {
+      return res.status(400).json({ error: 'paymentType (cash or account) is required' });
+    }
+
+    // Build date range in PKT (UTC+5): start of from-day to end of to-day
+    const dateQuery = {};
+    if (from) {
+      const [fy, fm, fd] = from.split('-').map(Number);
+      dateQuery.$gte = new Date(Date.UTC(fy, fm - 1, fd - 1, 19, 0, 0, 0)); // PKT 00:00
+    }
+    if (to) {
+      const [ty, tm, td] = to.split('-').map(Number);
+      dateQuery.$lte = new Date(Date.UTC(ty, tm - 1, td, 18, 59, 59, 999)); // PKT 23:59:59
+    }
+
+    const query = Object.keys(dateQuery).length > 0 ? { date: dateQuery } : {};
+    const payments = await Payment.find(query).sort({ date: 1, createdAt: 1 });
+
+    // Join with Customer to filter by paymentType
+    const uniqueIds = [...new Set(payments.map(p => String(p.customerId)))];
+    const customers = await Customer.find({ _id: { $in: uniqueIds } }, { _id: 1, paymentType: 1 });
+    const typeMap = new Map(customers.map(c => [String(c._id), c.paymentType || 'cash']));
+
+    const filtered = payments.filter(p => typeMap.get(String(p.customerId)) === paymentType);
+
+    const data = filtered.map((p, i) => ({
+      serial: i + 1,
+      customerIntId: p.customerIntId,
+      customerName: p.customerName,
+      amount: p.amount,
+      date: p.date,
+      note: p.note || '',
+    }));
+
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to generate collections report', details: err.message });
+  }
+});
+
 // ─── End Payment API Endpoints ────────────────────────────────────────────────
 
 // Health check endpoint

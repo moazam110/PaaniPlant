@@ -7,10 +7,12 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Trash2, RefreshCw, Search, CheckCircle2, AlertCircle, TrendingUp, FileText, FileSpreadsheet, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Trash2, RefreshCw, Search, CheckCircle2, AlertCircle, TrendingUp, FileText, FileSpreadsheet, ChevronLeft, ChevronRight, BarChart2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { buildApiUrl } from '@/lib/api';
-import { format, startOfMonth, subMonths, addMonths } from 'date-fns';
+import { format, startOfMonth, subMonths, addMonths, getMonth, getYear } from 'date-fns';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
 
 interface CustomerBalance {
   customerId: string;
@@ -73,6 +75,176 @@ export default function PaymentsTab() {
   const [deleteReason, setDeleteReason] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const savedScrollY = useRef(0);
+
+  // Collections Report
+  const COLLECTIONS_MIN = new Date(2026, 3, 1); // April 1 2026
+  const [collectionsOpen, setCollectionsOpen] = useState(false);
+  const [colFrom, setColFrom] = useState<Date | undefined>();
+  const [colTo, setColTo] = useState<Date | undefined>();
+  const [colFromOpen, setColFromOpen] = useState(false);
+  const [colToOpen, setColToOpen] = useState(false);
+  const [colType, setColType] = useState<'cash' | 'account' | null>(null);
+  const [colRows, setColRows] = useState<{ serial: number; customerIntId: number; customerName: string; amount: number; date: string; note: string }[]>([]);
+  const [colLoading, setColLoading] = useState(false);
+  const [colGenerated, setColGenerated] = useState(false);
+  const [colAccountBalances, setColAccountBalances] = useState<CustomerBalance[]>([]);
+
+  const fetchCollections = async () => {
+    if (!colFrom || !colTo || !colType) return;
+    setColLoading(true);
+    try {
+      const from = format(colFrom, 'yyyy-MM-dd');
+      const to = format(colTo, 'yyyy-MM-dd');
+      const res = await fetch(buildApiUrl(`api/payments/collections-report?from=${from}&to=${to}&paymentType=${colType}`));
+      if (res.ok) {
+        const d = await res.json();
+        setColRows(d.data || []);
+        setColGenerated(true);
+      }
+      // For account type: fetch previous month's FIFO balance (auto-detected, not from filter dates)
+      if (colType === 'account') {
+        const prevMonth = format(subMonths(startOfMonth(new Date()), 1), 'yyyy-MM');
+        const bRes = await fetch(buildApiUrl(`api/payments/balances?maxMonth=${prevMonth}`));
+        if (bRes.ok) {
+          const bd = await bRes.json();
+          setColAccountBalances(bd.data || []);
+        }
+      }
+    } catch { /* ignore */ } finally {
+      setColLoading(false);
+    }
+  };
+
+  const fmtPKTShort = (dateStr: string) =>
+    new Date(dateStr).toLocaleString('en-PK', {
+      day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Karachi',
+    });
+
+  // Cash → to-date balance from main balances state
+  // Account → previous month FIFO balance from colAccountBalances (auto-detected month)
+  const getColRemaining = (customerIntId: number) => {
+    if (colType === 'account') {
+      return colAccountBalances.find(b => b.customerIntId === customerIntId)?.balance ?? 0;
+    }
+    return balances.find(b => b.customerIntId === customerIntId)?.balance ?? 0;
+  };
+
+  const fmtRemainingLabel = (bal: number) => {
+    if (bal === 0) return 'Settled';
+    if (bal > 0) return `Rs ${bal.toLocaleString()}`; // owing
+    return `Rs ${Math.abs(bal).toLocaleString()} Adv`;  // advance
+  };
+
+  const handleCollectionsExport = async (type: 'pdf' | 'excel') => {
+    if (colRows.length === 0) return;
+    const total = colRows.reduce((s, r) => s + r.amount, 0);
+    const typeLabel = colType === 'cash' ? 'Cash' : 'Account';
+    const periodLabel = `${format(colFrom!, 'MMM d, yyyy')} – ${format(colTo!, 'MMM d, yyyy')}`;
+
+    if (type === 'excel') {
+      const XLSX = await import('xlsx');
+      const header = [
+        ['The Paani™ — Collections Report'],
+        [`Type: ${typeLabel}   |   Period: ${periodLabel}`],
+        [`Generated: ${format(new Date(), 'MMM d, yyyy HH:mm')}`],
+        [],
+        ['#', 'Customer ID', 'Customer Name', 'Amount (Rs)', colType === 'account' ? 'Remaining - Prev Month (Rs)' : 'Remaining (Rs)', 'Date & Time', 'Remarks'],
+      ];
+      const rows = colRows.map(r => {
+        const bal = getColRemaining(r.customerIntId);
+        return [r.serial, r.customerIntId, r.customerName, r.amount, bal === 0 ? '—' : (bal > 0 ? bal : `${Math.abs(bal)} Adv`), fmtPKTShort(r.date), r.note || ''];
+      });
+      rows.push(['', '', 'TOTAL', total, '', '', '']);
+      const ws = (await import('xlsx')).utils.aoa_to_sheet([...header, ...rows]);
+      ws['!cols'] = [{ wch: 4 }, { wch: 10 }, { wch: 30 }, { wch: 12 }, { wch: 14 }, { wch: 22 }, { wch: 28 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Collections');
+      XLSX.writeFile(wb, `PaaniPlant_Collections_${format(colFrom!, 'yyyy-MM-dd')}_to_${format(colTo!, 'yyyy-MM-dd')}.xlsx`);
+    } else {
+      const jsPDF = (await import('jspdf')).default;
+      const autoTable = (await import('jspdf-autotable')).default;
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+      const pageW = doc.internal.pageSize.getWidth();
+      const lx = 40;
+
+      doc.setFontSize(16); doc.setFont('helvetica', 'bold'); doc.setTextColor(63, 81, 181);
+      doc.text('The Paani™', lx, 36);
+      doc.setFontSize(11); doc.setTextColor(63, 81, 181);
+      doc.text('Collections Report', pageW - lx, 36, { align: 'right' });
+      doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(90);
+      doc.text(`Type: ${typeLabel}   ·   Period: ${periodLabel}`, lx, 50);
+      doc.text(`Generated: ${format(new Date(), 'MMM d, yyyy HH:mm')}`, pageW - lx, 50, { align: 'right' });
+      doc.setDrawColor(63, 81, 181); doc.setLineWidth(0.5); doc.line(lx, 56, pageW - lx, 56);
+
+      const GREEN: [number, number, number] = [22, 130, 80];
+      const RED: [number, number, number] = [190, 40, 40];
+      const GRAY: [number, number, number] = [150, 150, 150];
+
+      const body = colRows.map(r => {
+        const bal = getColRemaining(r.customerIntId);
+        const remColor = bal > 0 ? RED : bal < 0 ? GREEN : GRAY;
+        return [
+          { content: String(r.serial), styles: { halign: 'center' as const } },
+          { content: String(r.customerIntId), styles: { halign: 'center' as const } },
+          r.customerName,
+          { content: `Rs ${r.amount.toLocaleString()}`, styles: { halign: 'left' as const, textColor: GREEN } },
+          { content: fmtRemainingLabel(bal), styles: { halign: 'left' as const, textColor: remColor } },
+          fmtPKTShort(r.date),
+          r.note || '',
+        ];
+      });
+      autoTable(doc, {
+        startY: 64,
+        head: [['#', 'Cust. ID', 'Customer Name', 'Amount', colType === 'account' ? 'Remaining\n(Prev Month)' : 'Remaining', 'Date & Time', 'Remarks']],
+        body,
+        foot: [['', '', 'TOTAL', `Rs ${total.toLocaleString()}`, '', '', '']],
+        showFoot: 'lastPage',
+        styles: { fontSize: 8, cellPadding: 4 },
+        headStyles: { fillColor: [63, 81, 181], textColor: 255, fontStyle: 'bold' },
+        footStyles: { fontStyle: 'bold', textColor: GREEN, fillColor: [235, 238, 255] as [number, number, number] },
+        columnStyles: {
+          0: { cellWidth: 22 },
+          1: { cellWidth: 40 },
+          3: { cellWidth: 58, halign: 'left' as const },
+          4: { cellWidth: 58, halign: 'left' as const },
+          5: { cellWidth: 88 },
+        },
+        alternateRowStyles: { fillColor: [248, 249, 255] },
+        willDrawCell: (data: any) => {
+          if (data.section === 'head') return;
+          if (data.column.index !== 3 && data.column.index !== 4) return;
+          const text: string = Array.isArray(data.cell.text) ? data.cell.text.join('') : '';
+          if (!text.startsWith('Rs ')) return;
+          (data.cell as any)._rsOriginal = text;
+          (data.cell as any)._rsColor = data.cell.styles?.textColor;
+          data.cell.text = []; // suppress autotable text draw
+        },
+        didDrawCell: (data: any) => {
+          const saved: string = (data.cell as any)._rsOriginal;
+          if (!saved) return;
+          const numStr = saved.substring(3);
+          const isBold = data.section === 'foot';
+          const px = data.cell.x + 4;
+          const cy = data.cell.y + data.cell.height / 2;
+          doc.setFontSize(8);
+          doc.setFont('helvetica', isBold ? 'bold' : 'normal');
+          // Draw "Rs" in black
+          doc.setTextColor(0, 0, 0);
+          doc.text('Rs', px, cy, { baseline: 'middle' });
+          // Draw number in original cell color
+          const rsW = doc.getTextWidth('Rs ');
+          const c = (data.cell as any)._rsColor;
+          if (Array.isArray(c) && c.length === 3) {
+            doc.setTextColor(c[0] as number, c[1] as number, c[2] as number);
+          } else {
+            doc.setTextColor(...GREEN);
+          }
+          doc.text(numStr, px + rsW, cy, { baseline: 'middle' });
+        },
+      });
+      doc.save(`PaaniPlant_Collections_${format(colFrom!, 'yyyy-MM-dd')}_to_${format(colTo!, 'yyyy-MM-dd')}.pdf`);
+    }
+  };
 
   const fetchBalances = useCallback(async (maxMonth?: string) => {
     setIsLoading(true);
@@ -356,6 +528,11 @@ export default function PaymentsTab() {
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-base font-semibold">Payments &amp; Balances</h2>
         <div className="flex items-center gap-1.5">
+          <Button variant="outline" size="sm" onClick={() => { setCollectionsOpen(true); setColGenerated(false); setColRows([]); }} title="Collections Report"
+            className="border-violet-500 text-violet-700 hover:bg-violet-600 hover:text-white px-2">
+            <BarChart2 className="h-4 w-4 md:mr-1.5" />
+            <span className="hidden md:inline text-xs">Collections</span>
+          </Button>
           <Button variant="outline" size="sm" onClick={() => handleExport('pdf')} title="Export PDF"
             className="border-primary text-primary hover:bg-primary hover:text-primary-foreground px-2">
             <FileText className="h-4 w-4 md:mr-1.5" />
@@ -650,6 +827,168 @@ export default function PaymentsTab() {
           </div>
         </SheetContent>
       </Sheet>
+
+      {/* Collections Report Dialog */}
+      <Dialog open={collectionsOpen} onOpenChange={v => { setCollectionsOpen(v); if (!v) { setColGenerated(false); setColRows([]); setColType(null); setColFrom(undefined); setColTo(undefined); setColAccountBalances([]); } }}>
+        <DialogContent className="sm:max-w-[640px] max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="text-base flex items-center gap-2">
+              <BarChart2 className="h-4 w-4 text-violet-600" /> Collections Report
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+            {/* Date pickers */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">From</label>
+                <Popover open={colFromOpen} onOpenChange={setColFromOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className={cn('w-full justify-start text-left font-normal text-sm', !colFrom && 'text-muted-foreground')}>
+                      {colFrom ? format(colFrom, 'MMM d, yyyy') : 'Pick date'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar mode="single" selected={colFrom}
+                      onSelect={d => {
+                        setColFrom(d);
+                        setColFromOpen(false);
+                        if (d) setColTo(new Date());
+                        setColGenerated(false); setColRows([]);
+                      }}
+                      disabled={d => d < COLLECTIONS_MIN || d > new Date()}
+                      initialFocus />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">To</label>
+                <Popover open={colToOpen} onOpenChange={setColToOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className={cn('w-full justify-start text-left font-normal text-sm', !colTo && 'text-muted-foreground')}>
+                      {colTo ? format(colTo, 'MMM d, yyyy') : 'Pick date'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar mode="single" selected={colTo}
+                      onSelect={d => { setColTo(d); setColToOpen(false); setColGenerated(false); setColRows([]); }}
+                      disabled={d => d < COLLECTIONS_MIN || d > new Date() || (colFrom ? d < colFrom : false)}
+                      initialFocus />
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+
+            {/* Payment type — mandatory, one at a time */}
+            <div className="flex items-center gap-4 rounded-lg border bg-muted/30 px-3 py-2.5">
+              <span className="text-sm font-medium">Type <span className="text-destructive">*</span></span>
+              {(['cash', 'account'] as const).map(t => (
+                <label key={t} className="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="radio" name="colType" value={t} checked={colType === t}
+                    onChange={() => { setColType(t); setColGenerated(false); setColRows([]); }}
+                    className="accent-primary" />
+                  <span className="text-sm capitalize">{t}</span>
+                </label>
+              ))}
+            </div>
+
+            <Button
+              onClick={fetchCollections}
+              disabled={!colFrom || !colTo || !colType || colLoading}
+              className="w-full bg-gradient-to-r from-violet-600 to-primary"
+            >
+              {colLoading ? 'Generating...' : 'Generate Report'}
+            </Button>
+
+            {colGenerated && (
+              <>
+                {colRows.length === 0 ? (
+                  <p className="text-center text-muted-foreground text-sm py-4">No payment records found for this period.</p>
+                ) : (
+                  <>
+                    {/* Summary */}
+                    <div className="rounded-lg bg-violet-50 border border-violet-200 px-4 py-3 flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">{colRows.length} payment{colRows.length !== 1 ? 's' : ''}</span>
+                      <span className="text-sm font-bold text-violet-700">
+                        Total: Rs {colRows.reduce((s, r) => s + r.amount, 0).toLocaleString()}
+                      </span>
+                    </div>
+
+                    {/* Download buttons */}
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => handleCollectionsExport('pdf')}
+                        className="flex-1 border-primary text-primary hover:bg-primary hover:text-primary-foreground gap-1.5">
+                        <FileText className="h-4 w-4" /> PDF
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => handleCollectionsExport('excel')}
+                        className="flex-1 border-green-600 text-green-700 hover:bg-green-600 hover:text-white gap-1.5">
+                        <FileSpreadsheet className="h-4 w-4" /> Excel
+                      </Button>
+                    </div>
+
+                    {/* Inline preview table */}
+                    <div className="rounded-md border overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="bg-violet-600 text-white">
+                            <th className="px-2 py-2 text-center">#</th>
+                            <th className="px-2 py-2 text-center">ID</th>
+                            <th className="px-2 py-2 text-left">Customer</th>
+                            <th className="px-2 py-2 text-left">Amount</th>
+                            <th className="px-2 py-2 text-left">
+                              {colType === 'account'
+                                ? <span>Remaining<br /><span className="text-[10px] font-normal opacity-80">(Prev Month)</span></span>
+                                : 'Remaining'}
+                            </th>
+                            <th className="px-2 py-2 text-left">Date & Time</th>
+                            <th className="px-2 py-2 text-left">Remarks</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {colRows.map((r, i) => {
+                            const bal = getColRemaining(r.customerIntId);
+                            return (
+                              <tr key={r.serial} className={i % 2 === 0 ? 'bg-white' : 'bg-violet-50/40'}>
+                                <td className="px-2 py-1.5 text-center text-muted-foreground">{r.serial}</td>
+                                <td className="px-2 py-1.5 text-center font-medium">{r.customerIntId}</td>
+                                <td className="px-2 py-1.5">{r.customerName}</td>
+                                <td className="px-2 py-1.5">
+                                  <span className="text-foreground font-medium">Rs</span>{' '}
+                                  <span className="text-green-700 font-semibold tabular-nums">{r.amount.toLocaleString()}</span>
+                                </td>
+                                <td className="px-2 py-1.5 whitespace-nowrap font-semibold">
+                                  {bal === 0
+                                    ? <span className="text-green-600">Settled</span>
+                                    : <>
+                                        <span className="text-foreground font-medium">Rs</span>{' '}
+                                        <span className={`tabular-nums ${bal > 0 ? 'text-red-600' : 'text-green-700'}`}>
+                                          {bal > 0 ? bal.toLocaleString() : `${Math.abs(bal).toLocaleString()} Adv`}
+                                        </span>
+                                      </>
+                                  }
+                                </td>
+                                <td className="px-2 py-1.5 whitespace-nowrap text-muted-foreground">{fmtPKTShort(r.date)}</td>
+                                <td className="px-2 py-1.5 text-muted-foreground">{r.note || '-'}</td>
+                              </tr>
+                            );
+                          })}
+                          <tr className="bg-violet-100 border-t-2 border-violet-300">
+                            <td colSpan={3} className="px-2 py-2 text-right text-xs font-bold">TOTAL</td>
+                            <td className="px-2 py-2 font-bold whitespace-nowrap">
+                              <span className="text-foreground">Rs</span>{' '}
+                              <span className="text-green-700 tabular-nums">{colRows.reduce((s, r) => s + r.amount, 0).toLocaleString()}</span>
+                            </td>
+                            <td colSpan={3} />
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete reason dialog */}
       <Dialog open={!!deleteTarget} onOpenChange={open => { if (!open) { setDeleteTarget(null); setDeleteReason(''); } }}>
