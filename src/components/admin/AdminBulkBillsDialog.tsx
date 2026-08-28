@@ -37,6 +37,41 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
+// NBP / Raast "Scan to Pay" QR — the same image on every bill, so it is fetched
+// and base64-encoded once per session and reused for every generated PDF.
+const PAYMENT_QR_SRC = '/payment-qr.png';
+const PAYMENT_QR_TILL_ID = '810045080';
+let paymentQrDataUrl: string | null = null;
+let paymentQrPending: Promise<string | null> | null = null;
+
+const loadPaymentQr = (): Promise<string | null> => {
+  if (paymentQrDataUrl) return Promise.resolve(paymentQrDataUrl);
+  if (paymentQrPending) return paymentQrPending;
+
+  paymentQrPending = (async () => {
+    try {
+      const res = await fetch(PAYMENT_QR_SRC);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+      paymentQrDataUrl = dataUrl;
+      return dataUrl;
+    } catch (err) {
+      // A missing QR must never block billing — the bill just prints without it.
+      console.error('Could not load payment QR, generating bill without it:', err);
+      paymentQrPending = null; // allow a retry on the next generation
+      return null;
+    }
+  })();
+
+  return paymentQrPending;
+};
+
 export default function AdminBulkBillsDialog({ open, onOpenChange }: Props) {
   const [fromDate, setFromDate] = useState<Date | undefined>();
   const [toDate, setToDate] = useState<Date | undefined>();
@@ -185,7 +220,7 @@ export default function AdminBulkBillsDialog({ open, onOpenChange }: Props) {
     }
   };
 
-  const drawBillOnDoc = (doc: any, autoTableFn: any, bill: CustomerBillData) => {
+  const drawBillOnDoc = (doc: any, autoTableFn: any, bill: CustomerBillData, qr: string | null = null) => {
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();
     const lx = 14; const vx = 52;
@@ -217,18 +252,46 @@ export default function AdminBulkBillsDialog({ open, onOpenChange }: Props) {
       ['BILLING PERIOD', period],
     ];
 
+    // Payment QR block, in the empty column beside the customer details.
+    // 36mm: measured as the smallest size that still decodes when the page is
+    // rasterised at 150 DPI (a phone showing the whole bill). 32mm needed 200 DPI.
+    const QR_SIZE = 36;
+    const qrX = pageW - lx - QR_SIZE;
+    const qrY = 48;
+    let qrBottom = 0;
+    if (qr) {
+      // Alias lets jsPDF embed the image once and reference it from every page,
+      // instead of duplicating it per bill in the Download-All document.
+      doc.addImage(qr, 'PNG', qrX, qrY, QR_SIZE, QR_SIZE, 'paymentQr', 'FAST');
+      const qcx = qrX + QR_SIZE / 2;
+      let qcy = qrY + QR_SIZE + 4.5;
+      doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(63, 81, 181);
+      doc.text('SCAN TO PAY', qcx, qcy, { align: 'center' });
+      qcy += 4;
+      doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(120);
+      doc.text('NBP - Raast', qcx, qcy, { align: 'center' });
+      qcy += 3.5;
+      doc.text(`Till ID ${PAYMENT_QR_TILL_ID}`, qcx, qcy, { align: 'center' });
+      qrBottom = qcy;
+    }
+
+    // Values wrap inside the space left of the QR rather than running beneath it.
+    const valueMaxW = (qr ? qrX - 5 : pageW - lx) - vx;
     let y = 52; doc.setFontSize(10);
     fields.forEach(([label, value]) => {
       doc.setFont('helvetica', 'bold'); doc.setTextColor(60); doc.text(`${label}:`, lx, y);
-      doc.setFont('helvetica', 'normal'); doc.setTextColor(0); doc.text(value, vx, y);
-      y += 7;
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(0);
+      const lines = doc.splitTextToSize(value, valueMaxW);
+      doc.text(lines, vx, y);
+      y += 7 + (lines.length - 1) * 5;
     });
 
     doc.setFontSize(7.5); doc.setTextColor(150); doc.setFont('helvetica', 'italic');
     doc.text(`Generated: ${format(new Date(), 'MMM d, yyyy HH:mm')}`, lx, y);
 
     autoTableFn(doc, {
-      startY: y + 6,
+      // Never let the table start before the QR caption has finished.
+      startY: Math.max(y + 6, qrBottom + 5),
       showFoot: 'lastPage',
       head: [[
         { content: '#', styles: { halign: 'center' } },
@@ -341,20 +404,26 @@ export default function AdminBulkBillsDialog({ open, onOpenChange }: Props) {
   };
 
   const buildSinglePdf = async (bill: CustomerBillData) => {
-    const { default: jsPDF } = await import('jspdf');
-    const { default: autoTable } = await import('jspdf-autotable');
+    const [{ default: jsPDF }, { default: autoTable }, qr] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable'),
+      loadPaymentQr(),
+    ]);
     const doc = new jsPDF();
-    drawBillOnDoc(doc, autoTable, bill);
+    drawBillOnDoc(doc, autoTable, bill, qr);
     return doc;
   };
 
   const handleDownloadAll = async () => {
-    const { default: jsPDF } = await import('jspdf');
-    const { default: autoTable } = await import('jspdf-autotable');
+    const [{ default: jsPDF }, { default: autoTable }, qr] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable'),
+      loadPaymentQr(),
+    ]);
     const doc = new jsPDF();
     bills.forEach((bill, i) => {
       if (i > 0) doc.addPage();
-      drawBillOnDoc(doc, autoTable, bill);
+      drawBillOnDoc(doc, autoTable, bill, qr);
     });
     doc.save(`ThePaani_BulkBills_${format(fromDate!, 'yyyy-MM-dd')}_to_${format(toDate!, 'yyyy-MM-dd')}.pdf`);
   };
