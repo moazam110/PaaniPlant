@@ -2528,7 +2528,7 @@ const hashPassword = (password) => {
 app.get('/api/customer-credentials', async (req, res) => {
   try {
     const credentials = await CustomerCredential.find()
-      .populate('customerId', '_id id name address phone')
+      .populate('customerId', '_id id name address phone lastOnlineAt')
       .select('-password'); // Don't send password hash
     res.json(credentials);
   } catch (err) {
@@ -2542,7 +2542,7 @@ app.get('/api/customer-credentials/:customerId', async (req, res) => {
   try {
     const { customerId } = req.params;
     const credential = await CustomerCredential.findOne({ customerId })
-      .populate('customerId', 'id name address phone')
+      .populate('customerId', 'id name address phone lastOnlineAt')
       .select('-password');
     
     if (!credential) {

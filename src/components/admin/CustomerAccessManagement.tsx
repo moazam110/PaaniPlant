@@ -19,7 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Eye, EyeOff, Key, UserPlus, Save, X, CheckCircle2, MapPin, Phone, User, Search } from 'lucide-react';
+import { Eye, EyeOff, Key, UserPlus, Save, X, CheckCircle2, MapPin, Phone, User, Search, Wifi, ArrowUpAZ, ArrowDownAZ } from 'lucide-react';
 import { buildApiUrl, API_ENDPOINTS } from '@/lib/api';
 import type { Customer } from '@/types';
 import {
@@ -29,11 +29,12 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { cn } from '@/lib/utils';
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
+import { cn, formatLastOnline } from '@/lib/utils';
 
 interface CustomerCredential {
   _id?: string;
-  customerId: string | { _id: string; id: number; name: string; address: string; phone?: string };
+  customerId: string | { _id: string; id: number; name: string; address: string; phone?: string; lastOnlineAt?: string };
   username: string;
   hasDashboardAccess: boolean;
   createdAt?: string;
@@ -43,6 +44,37 @@ interface CustomerCredential {
 interface CustomerAccessManagementProps {
   onClose: () => void;
 }
+
+// Colour the last-online label by how stale it is, so customers who have
+// drifted off the portal (and are ordering by phone again) stand out.
+const lastOnlineClass = (val: any): string => {
+  if (!val) return 'text-destructive';
+  const ms = Date.now() - new Date(val).getTime();
+  if (ms < 86400000) return 'text-green-600 dark:text-green-400';      // within a day
+  if (ms < 604800000) return 'text-muted-foreground';                  // within a week
+  return 'text-orange-600 dark:text-orange-400';                       // a week or more
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// How long since the customer last opened the dashboard.
+// Never-opened counts as infinitely inactive, so it satisfies every threshold
+// below and always sorts to the stale end of the list.
+const inactiveMs = (val: any): number =>
+  val ? Date.now() - new Date(val).getTime() : Number.POSITIVE_INFINITY;
+
+type ActivityFilter = 'all' | '3d' | '1w' | '1m' | '3m' | 'never';
+
+// Cumulative thresholds: each option shows everyone inactive AT LEAST this long,
+// so staler groups are always swept into the shorter periods.
+const ACTIVITY_FILTERS: { value: ActivityFilter; label: string; minMs: number }[] = [
+  { value: 'all',   label: 'All customers',      minMs: 0 },
+  { value: '3d',    label: 'Inactive 3+ days',   minMs: 3 * DAY_MS },
+  { value: '1w',    label: 'Inactive 1+ week',   minMs: 7 * DAY_MS },
+  { value: '1m',    label: 'Inactive 1+ month',  minMs: 30 * DAY_MS },
+  { value: '3m',    label: 'Inactive 3+ months', minMs: 90 * DAY_MS },
+  { value: 'never', label: 'Never opened',       minMs: Number.POSITIVE_INFINITY },
+];
 
 export default function CustomerAccessManagement({ onClose }: CustomerAccessManagementProps) {
   const { toast } = useToast();
@@ -55,6 +87,9 @@ export default function CustomerAccessManagement({ onClose }: CustomerAccessMana
   const [showPassword, setShowPassword] = useState<Set<string>>(new Set());
   const [generatingPassword, setGeneratingPassword] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
+  // null = untouched, so the list keeps its default customer-ID ordering
+  const [activityFilter, setActivityFilter] = useState<ActivityFilter | null>(null);
+  const [activitySortDir, setActivitySortDir] = useState<'asc' | 'desc'>('asc');
 
   // Load all customers without pagination when Grant Access is clicked
   const fetchAllCustomers = async () => {
@@ -135,6 +170,7 @@ export default function CustomerAccessManagement({ onClose }: CustomerAccessMana
                   defaultCans: cred.customerId.defaultCans,
                   pricePerCan: cred.customerId.pricePerCan,
                   paymentType: cred.customerId.paymentType,
+                  lastOnlineAt: cred.customerId.lastOnlineAt,
                 } as Customer;
               } else {
                 // Just ObjectId string
@@ -369,28 +405,42 @@ export default function CustomerAccessManagement({ onClose }: CustomerAccessMana
   // Display customers based on showAllCustomers state
   // MUST be before any conditional returns (Rules of Hooks)
   const displayCustomers = useMemo(() => {
+    const byIdAsc = (a: Customer, b: Customer) => (((a as any).id || 0) - ((b as any).id || 0));
     let list: Customer[];
     if (showAllCustomers) {
-      list = [...allCustomers].sort((a, b) => {
-        const aId = (a as any).id || 0;
-        const bId = (b as any).id || 0;
-        return aId - bId;
-      });
+      list = [...allCustomers].sort(byIdAsc);
     } else {
+      // Credentials come back in insertion order, so sort here too — this is the
+      // resting order the list returns to when the activity filter is cleared.
       list = allCustomers.filter(customer => {
         const rawCustomerId = customer._id || (customer as any).customerId;
         const customerId = rawCustomerId && typeof rawCustomerId === 'object'
           ? String(rawCustomerId._id || rawCustomerId)
           : String(rawCustomerId || '');
         return credentials.has(customerId) && credentials.get(customerId)?.hasDashboardAccess;
-      });
+      }).sort(byIdAsc);
     }
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       list = list.filter(c => String((c as any).id || '').toLowerCase().includes(q));
     }
+
+    // Activity filter + recency ordering only kick in once the admin picks
+    // something; until then the list keeps its customer-ID ordering.
+    if (activityFilter) {
+      const minMs = ACTIVITY_FILTERS.find(f => f.value === activityFilter)?.minMs ?? 0;
+      list = list.filter(c => inactiveMs(c.lastOnlineAt) >= minMs);
+      list = [...list].sort((a, b) => {
+        const aMs = inactiveMs(a.lastOnlineAt);
+        const bMs = inactiveMs(b.lastOnlineAt);
+        // Compared rather than subtracted so two never-opened customers
+        // (Infinity - Infinity = NaN) don't corrupt the sort.
+        const diff = aMs === bMs ? 0 : aMs < bMs ? -1 : 1;
+        return activitySortDir === 'asc' ? diff : -diff;
+      });
+    }
     return list;
-  }, [allCustomers, credentials, showAllCustomers, searchQuery]);
+  }, [allCustomers, credentials, showAllCustomers, searchQuery, activityFilter, activitySortDir]);
 
   // Loading state - must be after all hooks
   if (isLoading) {
@@ -406,28 +456,85 @@ export default function CustomerAccessManagement({ onClose }: CustomerAccessMana
 
   return (
     <div className="space-y-6">
-      {/* Grant Access Button - Centered at Top */}
-      <div className="flex justify-center">
-        <Button
-          onClick={() => setShowAllCustomers(!showAllCustomers)}
-          variant={showAllCustomers ? "outline" : "default"}
-          className={showAllCustomers ? "" : "bg-primary hover:bg-primary/90"}
-          disabled={isLoadingCustomers}
-        >
-          <UserPlus className="mr-2 h-4 w-4" />
-          {isLoadingCustomers ? "Loading..." : showAllCustomers ? "Hide All Customers" : "Grant Access"}
-        </Button>
+      {/* Grant Access Button (centered) + Activity Filter (right) */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3 lg:items-center">
+        {/* Empty column so the button lands on the true centre of the row */}
+        <div className="hidden lg:block" aria-hidden="true" />
+
+        <div className="flex justify-center">
+          <Button
+            onClick={() => setShowAllCustomers(!showAllCustomers)}
+            variant={showAllCustomers ? "outline" : "default"}
+            className={showAllCustomers ? "" : "bg-primary hover:bg-primary/90"}
+            disabled={isLoadingCustomers}
+          >
+            <UserPlus className="mr-2 h-4 w-4" />
+            {isLoadingCustomers ? "Loading..." : showAllCustomers ? "Hide All Customers" : "Grant Access"}
+          </Button>
+        </div>
+
+        <div className="flex items-center gap-2 lg:justify-end">
+          <Select
+            value={activityFilter ?? undefined}
+            onValueChange={(v) => setActivityFilter(v as ActivityFilter)}
+          >
+            <SelectTrigger className="flex-1 lg:flex-none lg:w-[190px]">
+              <SelectValue placeholder="Filter by activity" />
+            </SelectTrigger>
+            <SelectContent>
+              {ACTIVITY_FILTERS.map(f => (
+                <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {activityFilter && (
+            <>
+              <Button
+                variant="outline"
+                size="icon"
+                className="shrink-0"
+                onClick={() => setActivitySortDir(d => (d === 'asc' ? 'desc' : 'asc'))}
+                title={activitySortDir === 'asc'
+                  ? 'Most recently active first — click for never-opened first'
+                  : 'Never opened first — click for most recently active first'}
+              >
+                {activitySortDir === 'asc'
+                  ? <ArrowUpAZ className="h-4 w-4" />
+                  : <ArrowDownAZ className="h-4 w-4" />}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="shrink-0 text-muted-foreground"
+                onClick={() => { setActivityFilter(null); setActivitySortDir('asc'); }}
+                title="Clear filter and return to customer ID order"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Search Bar */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Search by Customer ID..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="pl-9"
-        />
+      <div className="space-y-2">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by Customer ID..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        {activityFilter && (
+          <p className="text-xs text-muted-foreground px-1">
+            {displayCustomers.length} customer{displayCustomers.length === 1 ? '' : 's'}
+            {' · '}
+            {activitySortDir === 'asc' ? 'most recently active first' : 'never opened first'}
+          </p>
+        )}
       </div>
 
       {/* Customers List */}
@@ -436,8 +543,17 @@ export default function CustomerAccessManagement({ onClose }: CustomerAccessMana
           <CardContent className="flex flex-col items-center justify-center py-12">
             <div className="space-y-2 text-center">
               <UserPlus className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <p className="text-lg font-semibold">No customers with dashboard access yet</p>
-              <p className="text-sm text-muted-foreground">Click "Grant Access" to view all customers and grant access</p>
+              {activityFilter ? (
+                <>
+                  <p className="text-lg font-semibold">No customers match this filter</p>
+                  <p className="text-sm text-muted-foreground">Try a shorter inactivity period, or clear the filter.</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-lg font-semibold">No customers with dashboard access yet</p>
+                  <p className="text-sm text-muted-foreground">Click "Grant Access" to view all customers and grant access</p>
+                </>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -489,14 +605,27 @@ export default function CustomerAccessManagement({ onClose }: CustomerAccessMana
                           {customer.phone}
                         </p>
                       )}
-                      {credential && (
-                        <p className="flex items-center gap-2 mt-2 pt-2 border-t">
-                          <User className="h-3.5 w-3.5" />
-                          <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded">
-                            {credential.username}
+                      <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t">
+                        {credential ? (
+                          <span className="flex items-center gap-2 min-w-0">
+                            <User className="h-3.5 w-3.5 shrink-0" />
+                            <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded truncate">
+                              {credential.username}
+                            </span>
                           </span>
-                        </p>
-                      )}
+                        ) : (
+                          <span className="text-xs italic text-muted-foreground">No portal account</span>
+                        )}
+                        <span
+                          className={cn('flex items-center gap-1.5 shrink-0 text-xs font-medium', lastOnlineClass(customer.lastOnlineAt))}
+                          title={customer.lastOnlineAt
+                            ? `Last opened the customer dashboard on ${new Date(customer.lastOnlineAt).toLocaleString('en-PK', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Karachi' })}`
+                            : 'Has never opened the customer dashboard'}
+                        >
+                          <Wifi className="h-3.5 w-3.5" />
+                          {formatLastOnline(customer.lastOnlineAt)}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
